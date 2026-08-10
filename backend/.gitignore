@@ -1,0 +1,11 @@
+/.venv
+/.idea
+/.vscode
+*.env
+/no_title.egg-info
+/remove
+/postgres_data
+/migration
+/__pycache__
+*.pyc
+*.pyo
