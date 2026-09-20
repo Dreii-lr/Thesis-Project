@@ -33,7 +33,7 @@ export default function DocumentViewPage({ params }: { params: Promise<{ id: str
   }, [activeFileId, moduleData]);
 
   return (
-    <div className="h-full w-full flex bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+    <div className="h-full w-full flex bg-white overflow-hidden shadow-sm">
       
       <DocumentSidebar 
         lessons={moduleData.lessons} 
