@@ -1,8 +1,7 @@
 """
 service.py — Authentication business logic consuming Unit of Work.
 """
-from app.core.exceptions import DomainException
-\
+from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 
