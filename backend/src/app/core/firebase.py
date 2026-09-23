@@ -12,7 +12,7 @@ import os
 import firebase_admin
 from firebase_admin import auth, credentials
 
-from app.core.constants import constants
+from app.core.constants import constants, FIREBASE_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +23,8 @@ def initialize_firebase() -> firebase_admin.App | None:
     global firebase_app
     if firebase_app is not None:
         return firebase_app
-
-    cred_path = constants.FIREBASE_CREDENTIALS_PATH
-    if not os.path.exists(cred_path):
-        logger.warning(
-            "Firebase credentials not found at '%s'. "
-            "Firebase auth features will be unavailable.",
-            cred_path,
-        )
-        return None
     try:
-        cred = credentials.Certificate(cred_path)
+        cred = credentials.Certificate(FIREBASE_CONFIG)
         firebase_app = firebase_admin.initialize_app(cred)
         logger.info("Firebase Admin SDK initialised.")
         return firebase_app

@@ -28,30 +28,37 @@ class Constants(BaseSettings):
     )
 
     # ── Application ───────────────────────────────────────────────
-    APP_NAME: str = "Thesis Project API"
-    APP_ENV: str = "development"          # development | staging | production
+    APP_NAME: str
+    APP_ENV: str = "development"  # development | staging | production
     VERSION: str = "0.1.0"
-    DEBUG: bool = True
-    API_V1_PREFIX: str = "/api/v1"
+    DEBUG: bool
+    API_V1_PREFIX: str
 
     # ── Database ──────────────────────────────────────────────────
     # Must use postgresql+asyncpg:// scheme for the async engine
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/thesis_db"
+    DATABASE_URL: str
 
     # ── Firebase ──────────────────────────────────────────────────
-    # Absolute or relative path to the service-account JSON key file
-    FIREBASE_CREDENTIALS_PATH: str = "firebase-credentials.json"
-    # Firebase project Web API Key (Project Settings → General)
-    FIREBASE_WEB_API_KEY: str = ""
+    FIREBASE_TYPE: str
+    FIREBASE_PROJECT_ID: str
+    FIREBASE_PRIVATE_KEY_ID: str
+    FIREBASE_PRIVATE_KEY: str
+    FIREBASE_CLIENT_EMAIL: str
+    FIREBASE_CLIENT_ID: str
+    FIREBASE_AUTH_URI: str
+    FIREBASE_TOKEN_URI: str
+    FIREBASE_AUTH_PROVIDER_X509_CERT_URL: str
+    FIREBASE_CLIENT_X509_CERT_URL: str
+    FIREBASE_UNIVERSE_DOMAIN: str
 
     # ── Auth / Cookies ────────────────────────────────────────────
-    JWT_SECRET_KEY: str = "super-secret-jwt-key-change-in-production-12345"
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
-    COOKIE_DOMAIN: str = "localhost"
-    COOKIE_SECURE: bool = False          # set True in production (HTTPS only)
-    COOKIE_SAMESITE: str = "lax"         # lax | strict | none
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
+    REFRESH_TOKEN_EXPIRE_DAYS: int
+    COOKIE_DOMAIN: str
+    COOKIE_SECURE: bool  # set True in production (HTTPS only)
+    COOKIE_SAMESITE: str  # lax | strict | none
 
     # ── CORS ──────────────────────────────────────────────────────
     ALLOWED_ORIGINS: list[str] = [
@@ -76,3 +83,17 @@ class Constants(BaseSettings):
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 constants = Constants()
+
+FIREBASE_CONFIG: dict = {
+    "type": constants.FIREBASE_TYPE,
+    "project_id": constants.FIREBASE_PRIVATE_KEY_ID,
+    "private_key_id": constants.FIREBASE_PRIVATE_KEY_ID,
+    "private_key": constants.FIREBASE_PRIVATE_KEY,
+    "client_email": constants.FIREBASE_CLIENT_EMAIL,
+    "client_id": constants.FIREBASE_CLIENT_ID,
+    "auth_uri": constants.FIREBASE_AUTH_URI,
+    "token_uri": constants.FIREBASE_TOKEN_URI,
+    "auth_provider_x509_cert_url": constants.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
+    "client_x509_cert_url": constants.FIREBASE_CLIENT_X509_CERT_URL,
+    "universe_domain": constants.FIREBASE_UNIVERSE_DOMAIN
+}

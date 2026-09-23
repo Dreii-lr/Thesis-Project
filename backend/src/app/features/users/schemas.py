@@ -4,11 +4,11 @@ schemas.py — Pydantic DTOs for User operations.
 from __future__ import annotations
 
 from datetime import datetime
-import uuid
+from typing import List
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.features.users.models import UserRole, UserStatus
+from app.features.users.models import UserRole, UserStatus, UserCategory
 
 
 class UserCreate(BaseModel):
@@ -20,23 +20,31 @@ class UserCreate(BaseModel):
     student_id: str | None = None
     employee_id: str | None = None
     role: UserRole = UserRole.STUDENT
+    user_category : UserCategory = UserCategory.SECONDARY
+
 
 
 class UserRead(BaseModel):
-    user_id: uuid.UUID
-    email: EmailStr
-    first_name: str
-    last_name: str
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: str | None = None
+    email: EmailStr| None = None
+    first_name: str| None = None
+    last_name: str| None = None
     middle_name: str | None = None
     student_id: str | None = None
     employee_id: str | None = None
-    role: UserRole
-    status: UserStatus
-    is_verified: bool
-    created_at: datetime
-    updated_at: datetime
+    role: UserRole | None = None
+    status: UserStatus | None = None
+    is_verified: bool | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
+
+
+class ListUserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    users: List[UserRead] | None
 
 
 class UserUpdate(BaseModel):

@@ -10,7 +10,7 @@ from app.core.exceptions import (
     SessionExpiredException,
     SessionRevokedException,
     UnauthorizedDomainException,
-    ValidationDomainException,
+    ValidationDomainException, DomainException,
 )
 from app.core.firebase import verify_firebase_id_token
 from app.core.security import (
@@ -29,14 +29,15 @@ from app.features.auth.schemas import (
 )
 from app.features.users.models import User, UserRole, UserStatus
 from app.features.users.schemas import UserRead
+from app.shared import retry_on_transient
 
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-
 class AuthService:
     @staticmethod
+    @retry_on_transient
     async def login_with_password(
         uow: AbstractUnitOfWork,
         data: LoginRequest,
@@ -48,7 +49,7 @@ class AuthService:
             if not user or not verify_password(data.password, user.password):
                 raise InvalidCredentialsException("Invalid email or password.")
 
-            if user.status != UserStatus.ACTIVE:
+            if user.status != UserStatus.ENROLLED:
                 raise UnauthorizedDomainException("User account is inactive or pending.")
 
             # Create tokens
@@ -69,7 +70,6 @@ class AuthService:
                 expires_at=expires_at,
             )
             await uow.sessions.create(session)
-            await uow.commit()
 
             return TokenResponse(
                 access_token=access_token,
@@ -78,6 +78,7 @@ class AuthService:
             )
 
     @staticmethod
+    @retry_on_transient
     async def login_with_firebase(
         uow: AbstractUnitOfWork,
         data: FirebaseLoginRequest,
@@ -106,7 +107,7 @@ class AuthService:
                     first_name=first_name,
                     last_name=last_name,
                     role=UserRole.STUDENT,
-                    status=UserStatus.ACTIVE,
+                    status=UserStatus.ENROLLED,
                     is_verified=bool(decoded_fb.get("email_verified", True)),
                 )
                 user = await uow.users.create(user)
@@ -127,7 +128,6 @@ class AuthService:
                 expires_at=expires_at,
             )
             await uow.sessions.create(session)
-            await uow.commit()
 
             return TokenResponse(
                 access_token=access_token,
@@ -136,6 +136,7 @@ class AuthService:
             )
 
     @staticmethod
+    @retry_on_transient
     async def refresh_tokens(
         uow: AbstractUnitOfWork,
         refresh_token: str,
@@ -168,7 +169,7 @@ class AuthService:
                 raise SessionExpiredException("Refresh token expired.")
 
             user = await uow.users.get_by_id(session.user_id)
-            if not user or user.status != UserStatus.ACTIVE:
+            if not user or user.status != UserStatus.ENROLLED:
                 raise UnauthorizedDomainException("User inactive or missing.")
 
             # Issue new access and refresh token pair
@@ -188,7 +189,6 @@ class AuthService:
                 expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             )
             await uow.sessions.create(new_session)
-            await uow.commit()
 
             return RefreshTokenResponse(
                 access_token=new_access_token,
@@ -196,10 +196,11 @@ class AuthService:
             )
 
     @staticmethod
+    @retry_on_transient
     async def logout(uow: AbstractUnitOfWork, refresh_token: str) -> None:
         refresh_hash = _hash_token(refresh_token)
         async with uow:
             session = await uow.sessions.get_by_token_hash(refresh_hash)
             if session:
                 session.is_revoked = True
-                await uow.commit()
+            await uow.sessions.revoke_session(session.id)

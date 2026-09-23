@@ -32,12 +32,3 @@ async_session_factory: sessionmaker[AsyncSession] = sessionmaker(  # type: ignor
     autocommit=False,
 )
 
-
-# ── Dev helper ────────────────────────────────────────────────────────────────
-async def create_db_and_tables() -> None:
-    """
-    Create all SQLModel-registered tables.
-    Use ONLY in development — prefer `alembic upgrade head` in production.
-    """
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)

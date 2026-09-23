@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
+from app.features import SequenceIDGenerator, SequenceIDGeneratorRepository
 
 if TYPE_CHECKING:
     from app.features.auth.repository import SessionRepository
@@ -47,18 +48,16 @@ class AbstractUnitOfWork(ABC):
 
     users: "UserRepository"
     sessions: "SessionRepository"
+    sequence_id_generator : "SequenceIDGeneratorRepository"
 
     async def __aenter__(self) -> "AbstractUnitOfWork":
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
-    ) -> None:
-        if exc_type is not None:
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_val:
             await self.rollback()
+        else:
+            await self.commit()
         await self._close()
 
     @abstractmethod
@@ -84,17 +83,31 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
     """
 
     def __init__(self) -> None:
-        self._session: AsyncSession | None = None
+        self._session: AsyncSession
 
     async def __aenter__(self) -> "SQLModelUnitOfWork":
         # Late import to avoid circular dependency at module load time
         from app.features.auth.repository import SessionRepository
         from app.features.users.repository import UserRepository
 
-        self._session = async_session_factory()
+        self._session : AsyncSession = async_session_factory()
         self.users = UserRepository(self._session)
         self.sessions = SessionRepository(self._session)
+        self.sequence_id_generator = SequenceIDGeneratorRepository(self._session)
         return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val,
+        exc_tb: object,
+    ) -> None:
+        if exc_val:
+            await self.rollback()
+        else:
+            await self.commit()
+        await self._close()
+
 
     async def commit(self) -> None:
         assert self._session is not None, "UoW not entered — use `async with uow:`"

@@ -3,7 +3,6 @@ dependencies.py — FastAPI dependencies for authentication and authorization.
 """
 from __future__ import annotations
 
-import uuid
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,6 +14,7 @@ from app.core.exceptions import (
 from app.core.security import decode_token
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.users.models import User, UserRole, UserStatus
+from app.features.users.schemas import UserRead
 
 security_bearer = HTTPBearer(auto_error=False)
 
@@ -23,7 +23,7 @@ async def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
     uow: AbstractUnitOfWork = Depends(get_uow),
-) -> User:
+) -> UserRead:
     token: str | None = None
     if credentials:
         token = credentials.credentials
@@ -37,10 +37,10 @@ async def get_current_user(
         payload = decode_token(token)
         if payload.get("type") != "access":
             raise UnauthorizedDomainException("Invalid token type.")
-        user_id_str = payload.get("sub")
+        user_id_str : str = payload.get("sub","")
         if not user_id_str:
             raise UnauthorizedDomainException("Token payload missing subject.")
-        user_id = uuid.UUID(user_id_str)
+        user_id : str = user_id_str
     except Exception as e:
         raise UnauthorizedDomainException(f"Invalid or expired token: {e}")
 
@@ -53,8 +53,8 @@ async def get_current_user(
 
 async def get_current_active_user(
     current_user: User = Depends(get_current_user),
-) -> User:
-    if current_user.status != UserStatus.ACTIVE:
+) -> UserRead:
+    if current_user.status != UserStatus.ENROLLED:
         raise ForbiddenDomainException("Inactive user account.")
     return current_user
 
@@ -63,7 +63,7 @@ def require_roles(*allowed_roles: UserRole):
     """
     Dependency factory to restrict route access to specific roles.
     """
-    async def role_checker(current_user: User = Depends(get_current_active_user)) -> User:
+    async def role_checker(current_user: User = Depends(get_current_active_user)) -> UserRead:
         if current_user.role not in allowed_roles:
             raise ForbiddenDomainException("Operation not permitted for your role.")
         return current_user

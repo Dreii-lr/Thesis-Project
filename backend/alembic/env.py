@@ -25,6 +25,8 @@ from app.core.constants import constants  # noqa: E402
 # ── Import ALL models so Alembic can autogenerate their tables ────────────────
 import app.features.users.models  # noqa: F401  – registers User
 import app.features.auth.models   # noqa: F401  – registers UserSession
+from app.features import SequenceIDGenerator
+
 
 # ── Alembic config ────────────────────────────────────────────────────────────
 config = context.config
