@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, use } from 'react';
-import DocumentSidebar from '@/src/components/layout/ContentSidebar';
+import DocumentSidebar from '@/src/components/layout/teacher/generate-content/ContentSidebar';
 import { Edit2 } from 'lucide-react';
 import { mockModules, ContentFile } from '@/src/data/mockModules';
 import { notFound } from 'next/navigation';
