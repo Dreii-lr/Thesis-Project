@@ -3,8 +3,11 @@ router.py — Authentication API endpoints.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status, Cookie
+from httpx import Cookies
+from sqlmodel import default
 
+from app.core.security import set_auth_cookies, clear_auth_cookies
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user
 from app.features.auth.schemas import (
@@ -18,17 +21,19 @@ from app.features.auth.schemas import (
 from app.features.auth.service import AuthService
 from app.features.users.models import User
 from app.features.users.schemas import UserRead
+from app.shared.schema import SuccessfulResponseSchema
+from app.shared.utils import SharedUtils
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=SuccessfulResponseSchema)
 async def login(
-    request: Request,
-    response: Response,
-    data: LoginRequest,
-    uow: AbstractUnitOfWork = Depends(get_uow),
-) -> TokenResponse:
+        request: Request,
+        response: Response,
+        data: LoginRequest,
+        uow: AbstractUnitOfWork = Depends(get_uow),
+) -> SuccessfulResponseSchema:
     user_agent = request.headers.get("user-agent")
     ip_address = request.client.host if request.client else None
 
@@ -38,87 +43,54 @@ async def login(
         user_agent=user_agent,
         ip_address=ip_address,
     )
-
+    id_token = result.data.token.idToken
+    refresh_token = result.data.token.refreshToken
     # Set httponly cookie for refresh token security
-    response.set_cookie(
-        key="refresh_token",
-        value=result.refresh_token,
-        httponly=True,
-        samesite="lax",
-        secure=False,  # Set to True in production HTTPS
+    del result.data
+    response = SharedUtils.SuccessfulResponse(result)
+    set_auth_cookies(
+        response=response,
+        refresh_token=refresh_token,
+        access_token=id_token
     )
-    return result
+    result.status_code = status.HTTP_200_OK
+    return response
 
 
-@router.post("/firebase-login", response_model=TokenResponse)
-async def firebase_login(
-    request: Request,
-    response: Response,
-    data: FirebaseLoginRequest,
-    uow: AbstractUnitOfWork = Depends(get_uow),
-) -> TokenResponse:
-    user_agent = request.headers.get("user-agent")
-    ip_address = request.client.host if request.client else None
-
-    result = await AuthService.login_with_firebase(
-        uow=uow,
-        data=data,
-        user_agent=user_agent,
-        ip_address=ip_address,
-    )
-
-    response.set_cookie(
-        key="refresh_token",
-        value=result.refresh_token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-    )
-    return result
-
-
-@router.post("/refresh", response_model=RefreshTokenResponse)
+@router.post("/refresh", response_model=SuccessfulResponseSchema)
 async def refresh(
-    request: Request,
-    response: Response,
-    body: RefreshTokenRequest | None = None,
-    uow: AbstractUnitOfWork = Depends(get_uow),
-) -> RefreshTokenResponse:
-    token = (body.refresh_token if body else None) or request.cookies.get("refresh_token")
-    if not token:
-        from app.core.exceptions import UnauthorizedDomainException
-        raise UnauthorizedDomainException("Refresh token missing.")
+        refresh_token: str = Cookie(default=None, alias="refresh_token"),
+) -> SuccessfulResponseSchema:
+    result = await AuthService.refresh_firebase_token(refresh_token=refresh_token)
 
-    result = await AuthService.refresh_tokens(uow=uow, refresh_token=token)
-
-    response.set_cookie(
-        key="refresh_token",
-        value=result.refresh_token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
+    id_token = result.data.token.idToken
+    refresh_token = result.data.token.refreshToken
+    # Set http only cookie for refresh token security
+    del result.data
+    response = SharedUtils.SuccessfulResponse(result)
+    set_auth_cookies(
+        response=response,
+        refresh_token=refresh_token,
+        access_token=id_token
     )
-    return result
+    result.status_code = status.HTTP_200_OK
+    return response
 
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
-    request: Request,
-    response: Response,
-    body: RefreshTokenRequest | None = None,
-    uow: AbstractUnitOfWork = Depends(get_uow),
-) -> MessageResponse:
-    token = (body.refresh_token if body else None) or request.cookies.get("refresh_token")
-    if token:
-        await AuthService.logout(uow=uow, refresh_token=token)
+        access_token : str = Cookie(default=None, alias="access_token")
+) -> SuccessfulResponseSchema:
+    response = await AuthService.logout(access_token=access_token)
+    response.status_code = status.HTTP_200_OK
+    actual_response = SharedUtils.SuccessfulResponse(response)
 
-    response.delete_cookie(key="refresh_token")
-    response.delete_cookie(key="access_token")
-    return MessageResponse(message="Successfully logged out.")
+    clear_auth_cookies(actual_response)
+    return actual_response
 
 
 @router.get("/me", response_model=UserRead)
 async def get_me(
-    current_user: User = Depends(get_current_active_user),
+        current_user: User = Depends(get_current_active_user),
 ) -> UserRead:
     return UserRead.model_validate(current_user)

@@ -27,6 +27,7 @@ from app.features.users.router import router as users_router
 async def lifespan(app: FastAPI):
     # Startup tasks
     initialize_firebase()
+
     yield
     # Shutdown tasks if any
 

@@ -43,6 +43,7 @@ class User(SQLModel, table=True):
         index=True,
         nullable=False,
     )
+    firebase_uid : str = Field(nullable=True,index=True)
     email: str = Field(unique=True, index=True, nullable=False)
     password: str = Field(nullable=False)
     student_id: str | None = Field(default=None, index=True, nullable=True)

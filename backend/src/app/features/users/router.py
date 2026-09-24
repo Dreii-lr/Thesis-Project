@@ -20,7 +20,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(
-    data: UserCreate,
+    data: UserCreate = Depends(UserCreate.depends),
     uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> UserRead:
     try:

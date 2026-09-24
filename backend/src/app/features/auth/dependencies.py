@@ -4,14 +4,14 @@ dependencies.py — FastAPI dependencies for authentication and authorization.
 from __future__ import annotations
 
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, Cookie
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.exceptions import (
     ForbiddenDomainException,
     UnauthorizedDomainException,
 )
-from app.core.security import decode_token
+from app.core.firebase import verify_firebase_id_token
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.users.models import User, UserRole, UserStatus
 from app.features.users.schemas import UserRead
@@ -20,32 +20,26 @@ security_bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    request: Request,
+    access_token: str | None = Cookie(default=None, alias="access_token"),
     credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
     uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> UserRead:
-    token: str | None = None
-    if credentials:
-        token = credentials.credentials
-    else:
-        token = request.cookies.get("access_token")
+    # Prefer the cookie (browser clients); fall back to Bearer header (API/mobile clients)
+    token = access_token or (credentials.credentials if credentials else None)
 
     if not token:
         raise UnauthorizedDomainException("Authentication token missing.")
 
-    try:
-        payload = decode_token(token)
-        if payload.get("type") != "access":
-            raise UnauthorizedDomainException("Invalid token type.")
-        user_id_str : str = payload.get("sub","")
-        if not user_id_str:
-            raise UnauthorizedDomainException("Token payload missing subject.")
-        user_id : str = user_id_str
-    except Exception as e:
-        raise UnauthorizedDomainException(f"Invalid or expired token: {e}")
+    claims = verify_firebase_id_token(token, check_revoked=True)
+    if not claims:
+        raise UnauthorizedDomainException("Invalid, expired, or revoked token.")
+
+    firebase_uid: str = claims.get("uid", "")
+    if not firebase_uid:
+        raise UnauthorizedDomainException("Token payload missing subject.")
 
     async with uow:
-        user = await uow.users.get_by_id(user_id)
+        user = await uow.users.get_by_firebase_uid(firebase_uid)
         if not user:
             raise UnauthorizedDomainException("User no longer exists.")
         return user

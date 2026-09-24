@@ -1,10 +1,11 @@
-from typing import Any, List
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
 
 class AdditionalData(BaseModel):
-    resources : Any
+    resources : Optional[Any] = None
+    token : Optional[Any] = None
 
 
 

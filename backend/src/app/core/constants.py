@@ -50,6 +50,8 @@ class Constants(BaseSettings):
     FIREBASE_AUTH_PROVIDER_X509_CERT_URL: str
     FIREBASE_CLIENT_X509_CERT_URL: str
     FIREBASE_UNIVERSE_DOMAIN: str
+    FIREBASE_API_KEY : str
+    FIREBASE_APP_ID : str
 
     # ── Auth / Cookies ────────────────────────────────────────────
     JWT_SECRET_KEY: str
@@ -86,7 +88,7 @@ constants = Constants()
 
 FIREBASE_CONFIG: dict = {
     "type": constants.FIREBASE_TYPE,
-    "project_id": constants.FIREBASE_PRIVATE_KEY_ID,
+    "project_id": constants.FIREBASE_PROJECT_ID,
     "private_key_id": constants.FIREBASE_PRIVATE_KEY_ID,
     "private_key": constants.FIREBASE_PRIVATE_KEY,
     "client_email": constants.FIREBASE_CLIENT_EMAIL,
@@ -97,3 +99,5 @@ FIREBASE_CONFIG: dict = {
     "client_x509_cert_url": constants.FIREBASE_CLIENT_X509_CERT_URL,
     "universe_domain": constants.FIREBASE_UNIVERSE_DOMAIN
 }
+IDENTITY_TOOLKIT_BASE = "https://identitytoolkit.googleapis.com/v1"
+SECURE_TOKEN_BASE = "https://securetoken.googleapis.com/v1"

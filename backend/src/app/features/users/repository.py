@@ -3,9 +3,6 @@ repository.py — Data access layer for User entity.
 """
 from __future__ import annotations
 
-from typing import Sequence, List
-import uuid
-
 from sqlalchemy import Sequence, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -18,22 +15,29 @@ class UserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_by_id(self, user_id: str) -> User | None:
-        statement = select(User).where(User.user_id == user_id)
-        result = await self._session.execute(statement)
-        return result.scalar_one_or_none()
-
-    async def get_by_id_no_password(self, user_id) -> UserRead:
+    async def get_by_id(self, user_id: str) -> UserRead | None:
         statement = select(User).where(User.user_id == user_id)
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
-        return UserRead.model_validate(data) if data else data
+        return UserRead.model_validate(data) if data is not None else data
+
+    async def get_by_id_no_password(self, user_id) -> UserRead | None:
+        statement = select(User).where(User.user_id == user_id)
+        result = await self._session.execute(statement)
+        data = result.scalar_one_or_none()
+        return UserRead.model_validate(data) if data is not None else data
 
     async def get_by_email(self, email: str) -> UserRead | None:
         statement = select(User).where(User.email == email.lower())
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
-        return UserRead.model_validate(data) if data else data
+        return UserRead.model_validate(data) if data is not None else data
+
+    async def get_by_student_id(self, student_id) ->UserRead | None:
+        stmt = select(User).where(User.student_id == student_id)
+        result = await self._session.execute(stmt)
+        data = result.scalar_one_or_none()
+        return UserRead.model_validate(data) if data is not None else data
 
     async def list(self, offset: int = 0, limit: int = 100) -> ListUserRead:
         statement = select(User).offset(offset).limit(limit)
@@ -55,10 +59,3 @@ class UserRepository:
 
     async def delete(self, user: User) -> None:
         await self._session.delete(user)
-
-    async def generate_sequence_student_number(self):
-        try:
-            pass
-
-        except Exception as e:
-            raise e

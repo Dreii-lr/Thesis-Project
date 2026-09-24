@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, EmailStr
 
-from app.features.users.schemas import UserRead
+from app.features.users.schemas import UserRead, UserReadLessData
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | str
     password: str
 
 
@@ -18,10 +18,9 @@ class FirebaseLoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    user: UserRead
+    idToken: str
+    refreshToken: str
+    user: UserReadLessData | None = None
 
 
 class RefreshTokenRequest(BaseModel):

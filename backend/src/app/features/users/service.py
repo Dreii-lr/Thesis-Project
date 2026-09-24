@@ -7,6 +7,7 @@ from fastapi.encoders import jsonable_encoder
 from pycparser.c_ast import Return
 
 from app.core.exceptions import EntityAlreadyExistsException, EntityNotFoundException
+from app.core.firebase import create_firebase_new_user
 from app.core.security import hash_password
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.users.models import User
@@ -42,9 +43,12 @@ class UserService:
             await uow.sequence_id_generator.update()
             next_value += 1
 
-                #format student id Value
+        #format student id Value
         user.student_id = UsersUtils.generate_student_id(next_value)
         created_user = await uow.users.create(user)
+        #then insert data also in firebase
+        firebase_new_user = create_firebase_new_user(data.email,data.password)
+        created_user.firebase_uid = firebase_new_user.uid
         read_user = UserRead.model_validate(created_user)
         read_user = jsonable_encoder(read_user)
         response = SuccessfulResponseSchema(message="Successfully created account.",message_status="CREATED", data=AdditionalData(resources=read_user))

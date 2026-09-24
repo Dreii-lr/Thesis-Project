@@ -2,7 +2,7 @@
 security.py — Password hashing and JWT generation/validation.
 """
 from __future__ import annotations
-
+from fastapi import Response, Request
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -60,4 +60,64 @@ def decode_token(token: str) -> dict:
         token,
         constants.JWT_SECRET_KEY,
         algorithms=[constants.JWT_ALGORITHM],
+    )
+
+
+IS_PRODUCTION = getattr(constants, "ENVIRONMENT", "production").lower() == "production"
+
+# Lifespans
+ACCESS_TOKEN_MAX_AGE = 60 * 60            # 1 hour (Firebase idToken expiration)
+REFRESH_TOKEN_MAX_AGE = 30 * 24 * 60 * 60  # 30 days
+
+
+def set_auth_cookies(
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+) -> None:
+    """
+    Sets secure HttpOnly cookies for both the access token (idToken)
+    and the refresh token.
+    """
+    # Short-lived Access Token (idToken)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        max_age=ACCESS_TOKEN_MAX_AGE,
+        httponly=True,
+        secure=IS_PRODUCTION,
+        samesite="lax",
+        path="/",  # Needed on API requests to authenticate endpoints
+    )
+
+    # Long-lived Refresh Token
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        max_age=REFRESH_TOKEN_MAX_AGE,
+        httponly=True,
+        secure=IS_PRODUCTION,
+        samesite="lax",
+        path="/api/v1/auth",  # Restricted: only sent to auth routes (refresh, logout)
+    )
+
+
+def clear_auth_cookies(response: Response) -> None:
+    """
+    Clears both auth cookies.
+    Path must match the original set_cookie path exactly.
+    """
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        httponly=True,
+        secure=IS_PRODUCTION,
+        samesite="lax",
+    )
+    response.delete_cookie(
+        key="refresh_token",
+        path="/api/v1/auth",
+        httponly=True,
+        secure=IS_PRODUCTION,
+        samesite="lax",
     )
