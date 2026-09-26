@@ -7,6 +7,7 @@ import { useStudents } from '@/src/context/StudentContext';
 import OverviewTab from './OverviewTab';
 import QuizzesTab from './QuizzesTab';
 import WrittenActivitiesTab from './WrittenActivitiesTab';
+import AttendanceTab from './AttendanceTab';
 import DocumentsTab from './DocumentsTab';
 
 type TabId = 'overview' | 'quizzes' | 'written' | 'modules' | 'attendance' | 'documents';
@@ -59,6 +60,7 @@ export default function RightContentArea() {
         {activeTab === 'overview' && <OverviewTab student={student} />}
         {activeTab === 'quizzes' && <QuizzesTab student={student} />}
         {activeTab === 'written' && <WrittenActivitiesTab student={student} />}
+        {activeTab === 'attendance' && <AttendanceTab student={student} />}
         {activeTab === 'documents' && <DocumentsTab student={student} />}
 
         {/* Empty States for Unbuilt Tabs */}
