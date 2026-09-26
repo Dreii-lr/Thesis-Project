@@ -26,6 +26,14 @@ export type WrittenActivity = {
   content?: string;
 };
 
+export type StudentAttendance = {
+  id: string;
+  date: string;
+  subject: string;
+  status: 'Present' | 'Absent' | 'Excused';
+  remarks?: string;
+};
+
 export type EnrollmentDocument = {
   id: string;
   type: 'af2' | 'identity' | 'id_photos' | 'form137';
@@ -68,12 +76,11 @@ export type Student = {
   guardianName: string;
   guardianRelation: string;
   guardianPhone: string;
-
-  // Academic Data (New!)
   readinessScore?: number;
   quizzes?: Quiz[];
   writtenActivities?: WrittenActivity[];
   documents?: EnrollmentDocument[];
+  attendance?: StudentAttendance[];
 };
 
 export const mockStudents: Student[] = [
@@ -183,6 +190,14 @@ export const mockStudents: Student[] = [
         description: 'Only if you previously attended formal school (helps determine your starting level)',
         status: 'Missing'
       }
+    ],
+    attendance: [
+      { id: 'att1', date: 'Sept 24, 2026', subject: 'LS1: Communication Skills', status: 'Present' },
+      { id: 'att2', date: 'Sept 23, 2026', subject: 'LS1: Communication Skills', status: 'Present' },
+      { id: 'att3', date: 'Sept 21, 2026', subject: 'LS3: Mathematical & Problem Solving', status: 'Present' },
+      { id: 'att4', date: 'Sept 18, 2026', subject: 'LS1: Communication Skills', status: 'Absent', remarks: 'Sick leave (Medical cert provided)' },
+      { id: 'att5', date: 'Sept 17, 2026', subject: 'LS2: Scientific Literacy', status: 'Present' },
+      { id: 'att6', date: 'Sept 15, 2026', subject: 'LS1: Communication Skills', status: 'Excused', remarks: 'Family emergency' },
     ]
   },
   { 
