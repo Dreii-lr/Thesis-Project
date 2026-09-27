@@ -39,6 +39,12 @@ class UserRepository:
         data = result.scalar_one_or_none()
         return UserRead.model_validate(data) if data is not None else data
 
+    async def get_by_firebase_uid(self, firebase_uid: str) -> UserRead | None:
+        statement = select(User).where(User.firebase_uid == firebase_uid)
+        result = await self._session.execute(statement)
+        data = result.scalar_one_or_none()
+        return UserRead.model_validate(data) if data is not None else data
+
     async def list(self, offset: int = 0, limit: int = 100) -> ListUserRead:
         statement = select(User).offset(offset).limit(limit)
         result = await self._session.execute(statement)

@@ -34,6 +34,7 @@ from app.core.database import async_session_factory
 from app.features import SequenceIDGenerator, SequenceIDGeneratorRepository
 
 if TYPE_CHECKING:
+    from app.features.attendance.repository import AttendanceRepository
     from app.features.auth.repository import SessionRepository
     from app.features.users.repository import UserRepository
 
@@ -49,6 +50,7 @@ class AbstractUnitOfWork(ABC):
     users: "UserRepository"
     sessions: "SessionRepository"
     sequence_id_generator : "SequenceIDGeneratorRepository"
+    attendance: "AttendanceRepository"
 
     async def __aenter__(self) -> "AbstractUnitOfWork":
         return self
@@ -87,6 +89,7 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
 
     async def __aenter__(self) -> "SQLModelUnitOfWork":
         # Late import to avoid circular dependency at module load time
+        from app.features.attendance.repository import AttendanceRepository
         from app.features.auth.repository import SessionRepository
         from app.features.users.repository import UserRepository
 
@@ -94,6 +97,7 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
         self.users = UserRepository(self._session)
         self.sessions = SessionRepository(self._session)
         self.sequence_id_generator = SequenceIDGeneratorRepository(self._session)
+        self.attendance = AttendanceRepository(self._session)
         return self
 
     async def __aexit__(

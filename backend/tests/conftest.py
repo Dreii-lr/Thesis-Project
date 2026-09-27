@@ -34,12 +34,16 @@ class TestSQLModelUnitOfWork(SQLModelUnitOfWork):
     """Override SQLModelUnitOfWork to use in-memory SQLite engine."""
 
     async def __aenter__(self) -> TestSQLModelUnitOfWork:
+        from app.features import SequenceIDGeneratorRepository
+        from app.features.attendance.repository import AttendanceRepository
         from app.features.auth.repository import SessionRepository
         from app.features.users.repository import UserRepository
 
         self._session = test_async_session_factory()
         self.users = UserRepository(self._session)
         self.sessions = SessionRepository(self._session)
+        self.sequence_id_generator = SequenceIDGeneratorRepository(self._session)
+        self.attendance = AttendanceRepository(self._session)
         return self
 
 

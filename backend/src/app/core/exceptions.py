@@ -23,9 +23,9 @@ from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 
-# ==============================================================================
-# 1. PURE DOMAIN EXCEPTIONS (Zero FastAPI / HTTP dependency)
-# ==============================================================================
+# 
+# PURE DOMAIN EXCEPTIONS (Zero FastAPI / HTTP dependency)
+# 
 
 class DomainException(Exception):
     """Base exception for all domain logic and business rules."""
@@ -92,9 +92,9 @@ class SessionRevokedException(DomainException):
         super().__init__(message, error_code="UNAUTHORIZED")
 
 
-# ==============================================================================
-# 2. CUSTOM HTTP EXCEPTIONS (FastAPI / Web coupled)
-# ==============================================================================
+# 
+# CUSTOM HTTP EXCEPTIONS (FastAPI / Web coupled)
+# 
 
 class CustomHTTPException(HTTPException):
     """Custom HTTP Exception wrapping FastAPI HTTPException with machine-readable error_code."""
@@ -148,9 +148,9 @@ ForbiddenException = CustomForbiddenHTTPException
 BadRequestException = CustomBadRequestHTTPException
 
 
-# ==============================================================================
-# 3. DOMAIN EXCEPTION TO CUSTOM HTTP EXCEPTION MAPPER
-# ==============================================================================
+
+# DOMAIN EXCEPTION TO CUSTOM HTTP EXCEPTION MAPPER
+
 
 DOMAIN_TO_HTTP_MAP: dict[Type[DomainException], Type[CustomHTTPException]] = {
     EntityNotFoundException: CustomNotFoundHTTPException,
@@ -173,9 +173,8 @@ def map_domain_to_http_exception(domain_exc: DomainException) -> CustomHTTPExcep
     return http_exc_class(detail=domain_exc.message)
 
 
-# ==============================================================================
-# 4. GLOBAL FASTAPI EXCEPTION HANDLERS
-# ==============================================================================
+# GLOBAL FASTAPI EXCEPTION HANDLERS
+
 
 async def domain_exception_handler(request: Request, exc: DomainException) -> JSONResponse:
     """Catches domain exceptions and maps them to HTTP responses."""

@@ -20,6 +20,7 @@ from app.core.exceptions import (
 )
 from app.core.firebase import initialize_firebase
 from app.features.auth.router import router as auth_router
+from app.features.attendance.router import router as attendance_router
 from app.features.users.router import router as users_router
 
 
@@ -56,6 +57,7 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 # Register routers
 app.include_router(auth_router, prefix=constants.API_V1_PREFIX)
+app.include_router(attendance_router, prefix=constants.API_V1_PREFIX)
 app.include_router(users_router, prefix=constants.API_V1_PREFIX)
 
 

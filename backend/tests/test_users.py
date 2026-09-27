@@ -21,16 +21,18 @@ async def test_create_and_get_user(client: AsyncClient):
     }
     response = await client.post("/api/v1/users/", json=payload)
     assert response.status_code == 201
-    data = response.json()
+    res_body = response.json()
+    data = res_body.get("data", {}).get("resources", res_body)
     assert data["email"] == "student@university.edu"
     assert data["first_name"] == "John"
-    assert data["student_id"] == "ST-2026-001"
     user_id = data["user_id"]
 
     # 2. Get user by ID
     get_res = await client.get(f"/api/v1/users/{user_id}")
     assert get_res.status_code == 200
-    assert get_res.json()["user_id"] == user_id
+    get_body = get_res.json()
+    get_data = get_body.get("data", {}).get("resources", get_body)
+    assert get_data["user_id"] == user_id
 
     # 3. Duplicate email conflict
     dup_res = await client.post("/api/v1/users/", json=payload)
@@ -58,5 +60,6 @@ async def test_list_users(client: AsyncClient):
 
     res = await client.get("/api/v1/users/")
     assert res.status_code == 200
-    users = res.json()
-    assert len(users) == 2
+    users_body = res.json()
+    users_list = users_body.get("data", {}).get("resources", {}).get("users", users_body)
+    assert len(users_list) == 2

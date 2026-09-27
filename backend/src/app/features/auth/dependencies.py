@@ -46,7 +46,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: User = Depends(get_current_user),
+    current_user: UserRead = Depends(get_current_user),
 ) -> UserRead:
     if current_user.status != UserStatus.ENROLLED:
         raise ForbiddenDomainException("Inactive user account.")
@@ -57,9 +57,13 @@ def require_roles(*allowed_roles: UserRole):
     """
     Dependency factory to restrict route access to specific roles.
     """
-    async def role_checker(current_user: User = Depends(get_current_active_user)) -> UserRead:
+    async def role_checker(current_user: UserRead = Depends(get_current_active_user)) -> UserRead:
         if current_user.role not in allowed_roles:
             raise ForbiddenDomainException("Operation not permitted for your role.")
         return current_user
 
     return role_checker
+
+
+# Convenient role dependency for teachers/staff
+require_teacher = require_roles(UserRole.EMPLOYEE, UserRole.ADMIN)
