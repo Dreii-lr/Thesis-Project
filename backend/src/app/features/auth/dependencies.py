@@ -66,4 +66,4 @@ def require_roles(*allowed_roles: UserRole):
 
 
 # Convenient role dependency for teachers/staff
-require_teacher = require_roles(UserRole.EMPLOYEE, UserRole.ADMIN)
+require_teacher = require_roles(UserRole.TEACHER, UserRole.ADMIN)

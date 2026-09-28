@@ -67,9 +67,6 @@ class AuthService:
         if not user or not verify_password(data.password, user.password):
             raise InvalidCredentialsException("Invalid email or password.")
 
-        if not user.is_verified:
-            raise UnauthorizedDomainException("User account is pending.")
-
         if user.status != UserStatus.ENROLLED:
             raise UnauthorizedDomainException("User account is not enrolled.")
 

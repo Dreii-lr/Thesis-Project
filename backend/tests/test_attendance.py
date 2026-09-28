@@ -19,7 +19,7 @@ def teacher_user() -> UserRead:
         user_id="teacher-uuid-001",
         employee_id="EMP-2026-001",
         email="teacher@als.edu.ph",
-        role=UserRole.EMPLOYEE,
+        role=UserRole.TEACHER,
         status=UserStatus.ENROLLED,
         first_name="Maria",
         last_name="Santos",
@@ -66,12 +66,20 @@ async def test_teacher_can_record_and_list_attendance(client: AsyncClient):
         data = res.json()
         assert data["message_status"] == "SUCCESS_SAVED"
         session_data = data["data"]["resources"]
+        # ERD alignment: teacher_id stores user's user_id primary key
+        assert session_data["teacher_id"] == "teacher-uuid-001"
         assert session_data["total_count"] == 4
         assert session_data["present_count"] == 2
         assert session_data["absent_count"] == 1
         assert session_data["excused_count"] == 1
         assert session_data["attendance_rate"] == 50.0
         session_id = session_data["session_id"]
+
+        # ERD & Flowchart alignment: records contain reason_of_absence alongside remarks
+        records = {r["student_id"]: r for r in session_data["records"]}
+        assert records["ALS-0003"]["reason_of_absence"] == "Medical leave"
+        assert records["ALS-0003"]["remarks"] == "Medical leave"
+        assert records["ALS-0004"]["reason_of_absence"] == "Family emergency"
 
         # 2. Teacher lists attendance sessions
         list_res = await client.get("/api/v1/attendance/sessions")
@@ -83,12 +91,51 @@ async def test_teacher_can_record_and_list_attendance(client: AsyncClient):
         # 3. Teacher views session details
         get_res = await client.get(f"/api/v1/attendance/sessions/{session_id}")
         assert get_res.status_code == 200
-        assert get_res.json()["data"]["resources"]["session_id"] == session_id
+        get_session_data = get_res.json()["data"]["resources"]
+        assert get_session_data["session_id"] == session_id
+        get_records = {r["student_id"]: r for r in get_session_data["records"]}
+        assert get_records["ALS-0003"]["reason_of_absence"] == "Medical leave"
 
         # 4. Teacher views student history
         hist_res = await client.get("/api/v1/attendance/students/ALS-0001")
         assert hist_res.status_code == 200
         assert hist_res.json()["data"]["resources"]["student_id"] == "ALS-0001"
+
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_reason_of_absence_payload_interchangeability(client: AsyncClient):
+    """Payloads submitting reason_of_absence (ERD/flowchart format) seamlessly work with remarks."""
+    app.dependency_overrides[get_current_active_user] = teacher_user
+
+    try:
+        payload = {
+            "session_date": "2026-09-25",
+            "level_code": "Elementary",
+            "strand_code": "LS2: Scientific Literacy",
+            "records": [
+                {"student_id": "ALS-0005", "status": "Absent", "reason_of_absence": "Severe flu"},
+                {"student_id": "ALS-0006", "status": "Excused", "reason_of_absence": "Barangay clearance errand"},
+            ],
+        }
+
+        res = await client.post("/api/v1/attendance/sessions", json=payload)
+        assert res.status_code == 200
+        resources = res.json()["data"]["resources"]
+        records = {r["student_id"]: r for r in resources["records"]}
+
+        assert records["ALS-0005"]["reason_of_absence"] == "Severe flu"
+        assert records["ALS-0005"]["remarks"] == "Severe flu"
+        assert records["ALS-0006"]["reason_of_absence"] == "Barangay clearance errand"
+        assert records["ALS-0006"]["remarks"] == "Barangay clearance errand"
+
+        # Check student history returns reason_of_absence
+        hist_res = await client.get("/api/v1/attendance/students/ALS-0005")
+        assert hist_res.status_code == 200
+        hist_items = hist_res.json()["data"]["resources"]["records"]
+        assert any(item["reason_of_absence"] == "Severe flu" for item in hist_items)
 
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)

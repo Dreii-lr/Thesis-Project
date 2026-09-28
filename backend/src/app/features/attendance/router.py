@@ -18,7 +18,7 @@ from app.shared.utils import SharedUtils
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 
 # Role dependency: only teachers (employees) and admins can manage attendance sessions
-require_teacher = require_roles(UserRole.EMPLOYEE, UserRole.ADMIN)
+require_teacher = require_roles(UserRole.TEACHER, UserRole.EMPLOYEE, UserRole.ADMIN)
 
 
 @router.post("/sessions", status_code=status.HTTP_200_OK, tags=["Secured"])
@@ -32,7 +32,8 @@ async def record_attendance_session(
     Protected: Only authenticated teachers (EMPLOYEE) and admins can take attendance.
     Students (STUDENT) are forbidden.
     """
-    teacher_id = current_user.employee_id or current_user.user_id or "teacher-001"
+    # Align with ERD: attendance_sessions.teacher_id references users.user_id
+    teacher_id = current_user.user_id or current_user.employee_id or "teacher-001"
     response = await AttendanceService.record_session(uow, teacher_id, data)
     return SharedUtils.SuccessfulResponse(response)
 
@@ -91,7 +92,7 @@ async def get_student_attendance_history(
       - Students (STUDENT) can only view their own attendance log.
       - Access to another student's record by a student is forbidden (403).
     """
-    is_teacher_or_admin = current_user.role in (UserRole.EMPLOYEE, UserRole.ADMIN)
+    is_teacher_or_admin = current_user.role in (UserRole.TEACHER, UserRole.EMPLOYEE, UserRole.ADMIN)
     is_own_record = current_user.role == UserRole.STUDENT and (
         current_user.student_id == student_id or current_user.user_id == student_id
     )

@@ -92,11 +92,16 @@ class AttendanceRepository:
 
         return sessions, total
 
-    async def get_student_records(self, student_id: str) -> list[tuple[AttendanceRecord, AttendanceSession]]:
+    async def get_student_records(self, student_id: str | list[str]) -> list[tuple[AttendanceRecord, AttendanceSession]]:
+        if isinstance(student_id, list):
+            condition = AttendanceRecord.student_id.in_(student_id)
+        else:
+            condition = AttendanceRecord.student_id == student_id
+
         stmt = (
             select(AttendanceRecord, AttendanceSession)
             .join(AttendanceSession, AttendanceRecord.session_id == AttendanceSession.session_id)
-            .where(AttendanceRecord.student_id == student_id)
+            .where(condition)
             .order_by(AttendanceSession.session_date.desc())
         )
         result = await self._session.execute(stmt)

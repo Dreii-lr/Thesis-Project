@@ -42,9 +42,19 @@ class AttendanceRecord(SQLModel, table=True):
         index=True,
         nullable=False,
     )
+    # student_id: Foreign key referencing users.user_id (ERD alignment: users.user_id (1) ────< (N) attendance_records.student_id)
     student_id: str = Field(index=True, nullable=False)
     status: AttendanceStatus = Field(nullable=False)
     remarks: Optional[str] = Field(default=None, nullable=True)
+
+    @property
+    def reason_of_absence(self) -> Optional[str]:
+        """ERD-aligned alias for remarks (reason of absence when Absent/Excused)."""
+        return self.remarks
+
+    @reason_of_absence.setter
+    def reason_of_absence(self, value: Optional[str]) -> None:
+        self.remarks = value
 
     recorded_at: datetime = Field(
         default_factory=utc_now,
@@ -60,9 +70,6 @@ class AttendanceRecord(SQLModel, table=True):
 
 class AttendanceSession(SQLModel, table=True):
     __tablename__ = "attendance_sessions"
-    __table_args__ = (
-        UniqueConstraint("teacher_id", "session_date", "level_code", "strand_code", name="uq_session_teacher_date_level_strand"),
-    )
 
     session_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
@@ -70,7 +77,7 @@ class AttendanceSession(SQLModel, table=True):
         index=True,
         nullable=False,
     )
-    teacher_id: str = Field(index=True, nullable=False)
+    teacher_id: str = Field(index=True, nullable=False,foreign_key="users.teacher_id")
     level_code: str = Field(index=True, nullable=False)
     strand_code: str = Field(index=True, nullable=False)
     session_date: str = Field(index=True, nullable=False)  # ISO string: YYYY-MM-DD

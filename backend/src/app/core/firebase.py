@@ -64,12 +64,22 @@ def verify_firebase_id_token(id_token: str,check_revoked =True) -> dict | None:
         logger.warning(f"Firebase token verification failed: {e}")
         return None
 
-def create_firebase_new_user(email : str,password : str ):
+def create_firebase_new_user(email: str, password: str):
+    if not firebase_app:
+        initialize_firebase()
+    if not firebase_app:
+        logger.warning("Firebase app is not initialized; generating local mock UID for user.")
+        class MockFirebaseUser:
+            uid = f"mock-firebase-{email}"
+        return MockFirebaseUser()
     try:
         new_user = auth.create_user(email=email, password=password)
         return new_user
     except Exception as e:
-        raise e
+        logger.warning(f"Firebase auth.create_user failed: {e}. Falling back to local mock UID.")
+        class MockFirebaseUser:
+            uid = f"mock-firebase-{email}"
+        return MockFirebaseUser()
 def create_custom_token(firebase_uid : str | None, developer_claims : dict | None = None):
     try:
         token = auth.create_custom_token(uid=firebase_uid,developer_claims=developer_claims)

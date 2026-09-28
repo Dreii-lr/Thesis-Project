@@ -4,7 +4,8 @@ schemas.py — Pydantic schemas for attendance request/response contracts.
 from __future__ import annotations
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.features.attendance.models import AttendanceStatus, RecordStatus
 
@@ -12,7 +13,20 @@ from app.features.attendance.models import AttendanceStatus, RecordStatus
 class AttendanceRecordInput(BaseModel):
     student_id: str
     status: AttendanceStatus
+    reason_of_absence: str | None = None
     remarks: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_remarks_and_reason(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            reason = data.get("reason_of_absence")
+            remarks = data.get("remarks")
+            if reason and not remarks:
+                data["remarks"] = reason
+            elif remarks and not reason:
+                data["reason_of_absence"] = remarks
+        return data
 
 
 class AttendanceRecordRead(BaseModel):
@@ -22,6 +36,7 @@ class AttendanceRecordRead(BaseModel):
     session_id: str
     student_id: str
     status: AttendanceStatus
+    reason_of_absence: str | None = None
     remarks: str | None = None
     recorded_at: datetime
 
@@ -75,11 +90,12 @@ class ListAttendanceSessionsResponse(BaseModel):
 
 
 class StudentAttendanceItem(BaseModel):
-    """Matches the exact shape of frontend StudentAttendance interface in mockStudents.ts."""
+    """Matches the exact shape of frontend StudentAttendance interface in mockStudents.ts, with ERD reason_of_absence."""
     id: str
     date: str
     subject: str
     status: AttendanceStatus
+    reason_of_absence: str | None = None
     remarks: str | None = None
 
 

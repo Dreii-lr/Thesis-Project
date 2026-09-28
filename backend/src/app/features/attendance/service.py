@@ -94,7 +94,7 @@ class AttendanceService:
                 session_id=session_id,
                 student_id=r.student_id,
                 status=r.status,
-                remarks=r.remarks,
+                remarks=r.reason_of_absence or r.remarks,
             )
             for r in data.records
         ]
@@ -122,6 +122,7 @@ class AttendanceService:
                     session_id=rec.session_id,
                     student_id=rec.student_id,
                     status=rec.status,
+                    reason_of_absence=rec.remarks,
                     remarks=rec.remarks,
                     recorded_at=rec.recorded_at,
                 )
@@ -210,6 +211,7 @@ class AttendanceService:
                     session_id=r.session_id,
                     student_id=r.student_id,
                     status=r.status,
+                    reason_of_absence=r.remarks,
                     remarks=r.remarks,
                     recorded_at=r.recorded_at,
                 )
@@ -228,7 +230,19 @@ class AttendanceService:
 
     @staticmethod
     async def get_student_history(uow: AbstractUnitOfWork, student_id: str) -> SuccessfulResponseSchema:
-        raw_items = await uow.attendance.get_student_records(student_id)
+        # Resolve candidate identifiers (user_id and student_id) for ERD alignment
+        candidate_ids = [student_id]
+        if hasattr(uow, "users") and uow.users:
+            user = await uow.users.get_by_student_id(student_id)
+            if not user:
+                user = await uow.users.get_by_id(student_id)
+            if user:
+                if user.user_id and user.user_id not in candidate_ids:
+                    candidate_ids.append(user.user_id)
+                if user.student_id and user.student_id not in candidate_ids:
+                    candidate_ids.append(user.student_id)
+
+        raw_items = await uow.attendance.get_student_records(candidate_ids)
 
         items: list[StudentAttendanceItem] = []
         total_days = len(raw_items)
@@ -250,6 +264,7 @@ class AttendanceService:
                     date=session.display_date,
                     subject=session.strand_code,
                     status=record.status,
+                    reason_of_absence=record.remarks,
                     remarks=record.remarks,
                 )
             )
