@@ -28,9 +28,9 @@ class UserCategory(str, Enum):
 
 
 class UserStatus(str, Enum):
-    ENROLLED = "enrolled"
-    UNENROLL = "unenroll"
-    COMPLETED = "completed"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    COMPLETED = "completed" # if the student is finished the ALS program or graduated.
 
 
 class User(SQLModel, table=True):
@@ -52,8 +52,8 @@ class User(SQLModel, table=True):
     middle_name: Optional[str] = Field(default=None, nullable=True)
     suffix: Optional[str] = Field(default=None, nullable=True)
     role: UserRole = Field(default=UserRole.STUDENT, nullable=False)
-    user_category: UserCategory = Field(default=UserCategory.SECONDARY, nullable=False)
-    status: UserStatus = Field(default=UserStatus.ENROLLED, nullable=False)
+    user_category: UserCategory = Field(default=UserCategory.SECONDARY, nullable=True)
+    status: UserStatus = Field(default=UserStatus.ACTIVE, nullable=False)
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),
@@ -62,6 +62,15 @@ class User(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
+
+    @property
+    def employee_id(self) -> Optional[str]:
+        """Backward-compatible alias for teacher_id."""
+        return self.teacher_id
+
+    @employee_id.setter
+    def employee_id(self, value: Optional[str]) -> None:
+        self.teacher_id = value
 
     # Normalized relationships from USERS.drawio
     personal_details: Optional["PersonalDetails"] = Relationship(
@@ -89,6 +98,7 @@ class PersonalDetails(SQLModel, table=True):
     )
     user_id: str = Field(
         foreign_key="users.user_id",
+        ondelete="CASCADE",
         index=True,
         unique=True,
         nullable=False,
@@ -128,6 +138,7 @@ class ContactDetails(SQLModel, table=True):
     )
     user_id: str = Field(
         foreign_key="users.user_id",
+        ondelete="CASCADE",
         index=True,
         nullable=False,
     )
@@ -168,6 +179,7 @@ class FamilyDetails(SQLModel, table=True):
     )
     user_id: str = Field(
         foreign_key="users.user_id",
+        ondelete="CASCADE",
         index=True,
         nullable=False,
     )

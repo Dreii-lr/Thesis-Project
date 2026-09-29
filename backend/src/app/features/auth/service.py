@@ -67,8 +67,8 @@ class AuthService:
         if not user or not verify_password(data.password, user.password):
             raise InvalidCredentialsException("Invalid email or password.")
 
-        if user.status != UserStatus.ENROLLED:
-            raise UnauthorizedDomainException("User account is not enrolled.")
+        if user.status != UserStatus.ACTIVE:
+            raise UnauthorizedDomainException("User account is inactive.")
 
         # Create tokens
         claims = {"user_role": user.role, "user_uid": user.user_id}

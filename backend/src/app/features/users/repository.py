@@ -3,11 +3,12 @@ repository.py — Data access layer for User entity.
 """
 from __future__ import annotations
 
-from sqlalchemy import Sequence, func, update
+from sqlalchemy import Sequence, func, update, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
+from app.features.users import UserRole
 from app.features.users.models import User, UserStatus, utc_now
 from app.features.users.schemas import UserRead, ListUserRead
 
@@ -88,6 +89,21 @@ class UserRepository:
             return user_read
         return None
 
+    async def get_by_teacher_id(self, teacher_id: str) -> UserRead | None:
+        statement = _user_query().where(User.teacher_id == teacher_id)
+        result = await self._session.execute(statement)
+        data = result.scalar_one_or_none()
+        if data is not None:
+            user_read = UserRead.model_validate(data)
+            user_read.password = None
+            return user_read
+        return None
+
+    async def get_entity_by_teacher_id(self, teacher_id: str) -> User | None:
+        statement = _user_query().where(User.teacher_id == teacher_id)
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none()
+
     async def get_by_firebase_uid(self, firebase_uid: str) -> UserRead | None:
         statement = _user_query().where(User.firebase_uid == firebase_uid)
         result = await self._session.execute(statement)
@@ -103,12 +119,15 @@ class UserRepository:
         List users with pagination, including all normalized details (personal, contact, family)
         matching the ListUserRead response schema.
         """
-        count_stmt = select(func.count(User.user_id))
+        count_stmt = select(func.count(User.user_id)).where(and_(User.role == UserRole.STUDENT,
+                                                                 or_(User.status == UserStatus.ACTIVE,
+                                                                     User.status == UserStatus.COMPLETED)))
         total_res = await self._session.execute(count_stmt)
         total = total_res.scalar_one()
 
         statement = (
-            _user_query()
+            _user_query().where(and_(User.role == UserRole.STUDENT,
+                                     or_(User.status == UserStatus.ACTIVE, User.status == UserStatus.COMPLETED)))
             .order_by(User.created_at.desc())
             .offset(offset)
             .limit(limit)
@@ -137,7 +156,7 @@ class UserRepository:
         self._session.add(user)
         return user
 
-    async def update(self, user_id, data : dict) -> UserRead:
+    async def update(self, user_id, data: dict) -> UserRead:
         stmt = (update(User)
                 .values(**data)
                 .where(User.user_id == user_id))
@@ -151,7 +170,7 @@ class UserRepository:
         user = await self.get_entity_with_details(user_id)
         if not user:
             return None
-        user.status = UserStatus.UNENROLL
+        user.status = UserStatus.INACTIVE
         user.updated_at = utc_now()
         await self._session.flush()
         return await self.get_by_id_with_details(user_id)

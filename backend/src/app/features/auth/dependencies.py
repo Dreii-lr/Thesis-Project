@@ -38,17 +38,17 @@ async def get_current_user(
     if not firebase_uid:
         raise UnauthorizedDomainException("Token payload missing subject.")
 
-    async with uow:
-        user = await uow.users.get_by_firebase_uid(firebase_uid)
-        if not user:
-            raise UnauthorizedDomainException("User no longer exists.")
-        return user
+
+    user = await uow.users.get_by_firebase_uid(firebase_uid)
+    if not user:
+        raise UnauthorizedDomainException("User no longer exists.")
+    return user
 
 
 async def get_current_active_user(
     current_user: UserRead = Depends(get_current_user),
 ) -> UserRead:
-    if current_user.status != UserStatus.ENROLLED:
+    if current_user.status != UserStatus.ACTIVE:
         raise ForbiddenDomainException("Inactive user account.")
     return current_user
 
@@ -67,3 +67,4 @@ def require_roles(*allowed_roles: UserRole):
 
 # Convenient role dependency for teachers/staff
 require_teacher = require_roles(UserRole.TEACHER, UserRole.ADMIN)
+require_students = require_roles(UserRole.STUDENT)
