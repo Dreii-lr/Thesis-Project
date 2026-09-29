@@ -2,17 +2,17 @@
 
 import Image from 'next/image';
 import { useSidebar } from '@/src/context/SidebarContext';
-import { 
-  LayoutDashboard, 
-  GraduationCap, 
-  UserPlus, 
-  ClipboardCheck, 
+import {
+  LayoutDashboard,
+  GraduationCap,
+  UserPlus,
+  ClipboardCheck,
   CloudUpload,
   SquareText,
   FileCheck,
   Library,
   FilePlus,
-  FileText
+  FileText,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -29,7 +29,7 @@ export default function TeacherSidebar() {
         { name: 'Students', icon: GraduationCap, href: '/teacher/students' },
         { name: 'Create Account', icon: UserPlus, href: '/teacher/create-account' },
         { name: 'Attendance', icon: ClipboardCheck, href: '/teacher/attendance' },
-      ]
+      ],
     },
     {
       title: 'MODULE & AI PROCESSING',
@@ -37,7 +37,7 @@ export default function TeacherSidebar() {
         { name: 'Module Uploads', icon: CloudUpload, href: '/teacher/module-uploads' },
         { name: 'Generate Content', icon: SquareText, href: '/teacher/generate-content' },
         { name: 'Review & Approvals', icon: FileCheck, href: '/teacher/review-approvals' },
-      ]
+      ],
     },
     {
       title: 'ACADEMICS & ASSESSMENTS',
@@ -45,66 +45,93 @@ export default function TeacherSidebar() {
         { name: 'Organize Lessons', icon: Library, href: '/teacher/organize-lessons' },
         { name: 'Exams Setups', icon: FilePlus, href: '/teacher/exams-setups' },
         { name: 'Results & Marks', icon: FileText, href: '/teacher/results-marks' },
-      ]
-    }
+      ],
+    },
   ];
+
+  const isItemActive = (href: string) => {
+    if (href === '/teacher/dashboard') {
+      return pathname === '/teacher' || pathname === '/teacher/dashboard';
+    }
+
+    return pathname === href || pathname?.startsWith(`${href}/`);
+  };
 
   return (
     <aside
       className={`${
-        isExpanded ? 'w-[260px]' : 'w-20'
-      } transition-all duration-300 ease-in-out hidden md:flex flex-col bg-white border-r border-gray-200 h-screen sticky top-0 shrink-0 z-20`}
+        isExpanded ? 'w-[272px]' : 'w-[84px]'
+      } sticky top-0 z-20 hidden h-screen shrink-0 flex-col border-r border-slate-200/80 bg-white transition-all duration-300 ease-in-out md:flex`}
     >
-      {/* Header / Logo */}
-      <div className={`h-16 flex items-center border-b border-gray-200 ${isExpanded ? 'px-6 justify-start' : 'justify-center'}`}>
-        <Image 
-          src="/logo.png" 
-          alt="AIS Logo" 
-          width={60} 
-          height={60} 
-          className="rounded-sm object-cover shrink-0"
-        />
+      <div
+        className={`flex h-[72px] items-center border-b border-slate-100 ${
+          isExpanded ? 'justify-start px-5' : 'justify-center px-3'
+        }`}
+      >
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white ring-1 ring-slate-200 shadow-sm">
+          <Image
+            src="/logo.png"
+            alt="ALS Logo"
+            width={44}
+            height={44}
+            className="h-10 w-10 object-contain"
+          />
+        </div>
+
         {isExpanded && (
-          <span className="ml-3 font-bold text-lg text-[#3b27df] truncate tracking-tight">
-            LMS Assistant
-          </span>
+          <div className="ml-3 min-w-0">
+            <p className="truncate text-[15px] font-bold tracking-tight text-slate-900">
+              LMS Assistant
+            </p>
+            <p className="mt-0.5 text-[11px] font-medium text-slate-400">
+              ALS Teacher Portal
+            </p>
+          </div>
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-8">
-        {navSections.map((section, sectionIdx) => (
-          <div key={sectionIdx} className="space-y-2">
-            {/* Section Title */}
+      <nav className="flex-1 space-y-7 overflow-y-auto px-3 py-5">
+        {navSections.map((section) => (
+          <div key={section.title}>
             {isExpanded ? (
-              <h3 className="px-3 text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              <h3 className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                 {section.title}
               </h3>
             ) : (
-              <div className="h-px bg-gray-200 my-4 mx-2" />
+              <div className="mx-3 mb-3 h-px bg-slate-100" />
             )}
-            
-            {/* Items */}
+
             <div className="space-y-1">
-              {section.items.map((item) => {  
-                const isActive = pathname?.includes(item.href.split('/').pop() || '') || (pathname === '/' && item.name === 'Dashboard');
-                
+              {section.items.map((item) => {
+                const isActive = isItemActive(item.href);
+
                 return (
                   <Link
                     key={item.name}
                     href={item.href}
-                    className={`flex items-center ${
+                    className={`group relative flex h-10 items-center rounded-xl transition-all duration-200 ${
                       isExpanded ? 'justify-start px-3' : 'justify-center px-0'
-                    } py-2.5 rounded-lg transition-colors group ${
+                    } ${
                       isActive
-                        ? 'bg-[#e0e7ff] text-[#3730a3] font-medium' // Light indigo background matching the image
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
                     }`}
                     title={!isExpanded ? item.name : undefined}
                   >
-                    <item.icon size={20} className="shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+                    {isActive && isExpanded && (
+                      <span className="absolute left-0 h-5 w-1 rounded-r-full bg-blue-600" />
+                    )}
+
+                    <item.icon
+                      size={18}
+                      className={`shrink-0 transition-colors ${
+                        isActive ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'
+                      }`}
+                      strokeWidth={isActive ? 2.25 : 1.9}
+                    />
+
                     {isExpanded && (
-                      <span className="ml-3 text-[14px]">
+                      <span className="ml-3 truncate text-[13px] font-medium">
                         {item.name}
                       </span>
                     )}
@@ -115,6 +142,17 @@ export default function TeacherSidebar() {
           </div>
         ))}
       </nav>
+
+      {isExpanded && (
+        <div className="border-t border-slate-100 p-4">
+          <div className="rounded-xl bg-slate-50 px-3 py-3 ring-1 ring-inset ring-slate-100">
+            <p className="text-[11px] font-semibold text-slate-700">Alternative Learning System</p>
+            <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+              Lifelong learning through accessible digital tools.
+            </p>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
