@@ -32,19 +32,18 @@ export default function TeacherSidebar() {
       ],
     },
     {
-      title: 'MODULE & AI PROCESSING',
+      title: 'CONTENT MANAGEMENT',
       items: [
         { name: 'Module Uploads', icon: CloudUpload, href: '/teacher/module-uploads' },
         { name: 'Generate Content', icon: SquareText, href: '/teacher/generate-content' },
-        { name: 'Review & Approvals', icon: FileCheck, href: '/teacher/review-approvals' },
+        { name: 'Calendar', icon: Library, href: '/teacher/calendar' },
       ],
     },
     {
       title: 'ACADEMICS & ASSESSMENTS',
       items: [
-        { name: 'Organize Lessons', icon: Library, href: '/teacher/organize-lessons' },
-        { name: 'Exams Setups', icon: FilePlus, href: '/teacher/exams-setups' },
-        { name: 'Results & Marks', icon: FileText, href: '/teacher/results-marks' },
+        { name: 'Assessment Task', icon: FilePlus, href: '/teacher/assessment-tasks' },
+        { name: 'Submissions', icon: FileText, href: '/teacher/submissions' },
       ],
     },
   ];
