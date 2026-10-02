@@ -20,7 +20,7 @@ def teacher_user() -> UserRead:
         employee_id="EMP-2026-001",
         email="teacher@als.edu.ph",
         role=UserRole.TEACHER,
-        status=UserStatus.ENROLLED,
+        status=UserStatus.ACTIVE,
         first_name="Maria",
         last_name="Santos",
     )
@@ -32,7 +32,7 @@ def student_user(student_id: str = "ALS-0001") -> UserRead:
         student_id=student_id,
         email="juan.delacruz@als.edu.ph",
         role=UserRole.STUDENT,
-        status=UserStatus.ENROLLED,
+        status=UserStatus.ACTIVE,
         first_name="Juan",
         last_name="Dela Cruz",
     )

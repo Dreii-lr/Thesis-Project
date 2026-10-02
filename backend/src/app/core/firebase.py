@@ -175,3 +175,38 @@ def logout(access_token  : str):
     except Exception as e:
         return None
 
+
+def update_firebase_user_password(firebase_uid: str, password: str) -> bool:
+    """
+    Updates a user's password in Firebase Authentication using Admin SDK.
+    """
+    if not firebase_app:
+        initialize_firebase()
+    if not firebase_app:
+        logger.warning("Firebase app is not initialized; skipping Firebase password update.")
+        return True
+    try:
+        auth.update_user(firebase_uid, password=password)
+        logger.info(f"Firebase password updated successfully for uid: {firebase_uid}")
+        return True
+    except Exception as exc:
+        logger.error(f"Failed to update Firebase password for uid {firebase_uid}: {exc}")
+        raise exc
+
+
+def revoke_firebase_user_tokens(firebase_uid: str) -> bool:
+    """
+    Revokes all refresh tokens for a user in Firebase Authentication.
+    """
+    if not firebase_app:
+        initialize_firebase()
+    if not firebase_app:
+        return False
+    try:
+        auth.revoke_refresh_tokens(firebase_uid)
+        logger.info(f"Firebase refresh tokens revoked for uid: {firebase_uid}")
+        return True
+    except Exception as exc:
+        logger.warning(f"Failed to revoke Firebase refresh tokens for uid {firebase_uid}: {exc}")
+        return False
+

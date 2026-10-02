@@ -35,7 +35,9 @@ class DomainException(Exception):
         self.message = message
         self.error_code = error_code
 
-
+class UnprocessableEntity(DomainException):
+    def __init__(self, message: str = "Cannot process this data.") -> None:
+        super().__init__(message, error_code="UNPROCSESABLE_ENTITY")
 class EntityNotFoundException(DomainException):
     """Raised when a requested domain entity is missing."""
 

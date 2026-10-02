@@ -22,6 +22,7 @@ from app.core.firebase import initialize_firebase
 from app.features.auth.router import router as auth_router
 from app.features.attendance.router import router as attendance_router
 from app.features.users.router import router as users_router
+from app.features.assessments.router import router as assessments_router
 
 
 @asynccontextmanager
@@ -59,6 +60,7 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 app.include_router(auth_router, prefix=constants.API_V1_PREFIX)
 app.include_router(attendance_router, prefix=constants.API_V1_PREFIX)
 app.include_router(users_router, prefix=constants.API_V1_PREFIX)
+app.include_router(assessments_router, prefix=constants.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])
@@ -72,4 +74,4 @@ async def health_check():
 
 
 if __name__ == '__main__':
-    uvicorn.run("src.app.main:app", host="0.0.0.0",port=9090, reload=True)
+    uvicorn.run("src.app.main:app", host="0.0.0.0",port=8989, reload=True)

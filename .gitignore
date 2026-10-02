@@ -6,16 +6,23 @@ firebase-credentials*.json
 *.pem
 *.key
 *.cert
-
+*.pyc
 # ─── Python & Virtual Environments ───────────────────────────────
 .venv/
 venv/
 ENV/
 env/
+**/__pycache__/
 __pycache__/
+**/*.py[cod]
 *.py[cod]
+**/*.pyc
+*.pyc
+**/*.pyo
+*.pyo
 *$py.class
 *.so
+**/.pytest_cache/
 .pytest_cache/
 .coverage
 htmlcov/

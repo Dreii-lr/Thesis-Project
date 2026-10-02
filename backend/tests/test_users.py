@@ -6,6 +6,51 @@ from __future__ import annotations
 from httpx import AsyncClient
 import pytest
 
+from app.features.auth.dependencies import get_current_active_user
+from app.features.users.models import UserRole, UserStatus
+from app.features.users.schemas import UserRead
+from app.main import app
+
+
+def teacher_auth_user() -> UserRead:
+    return UserRead(
+        user_id="teacher-auth-uuid",
+        email="teacher@als.edu.ph",
+        role=UserRole.TEACHER,
+        status=UserStatus.ACTIVE,
+        first_name="Maria",
+        last_name="Santos",
+    )
+
+
+def admin_auth_user() -> UserRead:
+    return UserRead(
+        user_id="admin-auth-uuid",
+        email="admin@als.edu.ph",
+        role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
+        first_name="Admin",
+        last_name="System",
+    )
+
+
+def student_auth_user() -> UserRead:
+    return UserRead(
+        user_id="student-auth-uuid",
+        email="student@als.edu.ph",
+        role=UserRole.STUDENT,
+        status=UserStatus.ACTIVE,
+        first_name="Juan",
+        last_name="Cruz",
+    )
+
+
+@pytest.fixture(autouse=True)
+def default_auth():
+    app.dependency_overrides[get_current_active_user] = teacher_auth_user
+    yield
+    app.dependency_overrides.pop(get_current_active_user, None)
+
 
 @pytest.mark.asyncio
 async def test_create_and_get_user(client: AsyncClient):
@@ -232,3 +277,170 @@ async def test_soft_delete_unenroll_user(client: AsyncClient):
     unenroll_res = await client.patch(f"/api/v1/users/{user_id}/unenroll")
     assert unenroll_res.status_code == 200
     assert unenroll_res.json()["data"]["resources"]["status"] == "unenroll"
+
+
+# ── Teacher Creation Tests (Admin Only) ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_admin_can_create_teacher_user(client: AsyncClient):
+    """Admin can create a teacher user via POST /api/v1/users/teachers."""
+    app.dependency_overrides[get_current_active_user] = admin_auth_user
+
+    payload = {
+        "email": "teacher.santos@als.edu.ph",
+        "password": "TeacherPassword123!",
+        "first_name": "Maria",
+        "last_name": "Santos",
+        "middle_name": "Reyes",
+        "teacher_id": "TCH-2026-001",
+        "personal_details": {
+            "gender": "Female",
+            "civil_status": "Married",
+        },
+        "contact_details": {
+            "municipality": "Quezon City",
+            "province": "Metro Manila",
+            "contact_no": "09181234567",
+        },
+    }
+
+    res = await client.post("/api/v1/users/teachers", json=payload)
+    assert res.status_code == 201
+    body = res.json()["data"]["resources"]
+
+    assert body["email"] == "teacher.santos@als.edu.ph"
+    assert body["first_name"] == "Maria"
+    assert body["last_name"] == "Santos"
+    assert body["role"] == "teacher"
+    assert body["teacher_id"] == "TCH-2026-001"
+    assert body["student_id"] is None
+    assert body["personal_details"]["civil_status"] == "Married"
+    assert body["contact_details"]["contact_no"] == "09181234567"
+
+    # Verify retrieval
+    user_id = body["user_id"]
+    get_res = await client.get(f"/api/v1/users/{user_id}")
+    assert get_res.status_code == 200
+    retrieved = get_res.json()["data"]["resources"]
+    assert retrieved["teacher_id"] == "TCH-2026-001"
+    assert retrieved["role"] == "teacher"
+
+
+@pytest.mark.asyncio
+async def test_admin_create_teacher_auto_generates_id(client: AsyncClient):
+    """If teacher_id is not provided, it is automatically generated with TCH- prefix."""
+    app.dependency_overrides[get_current_active_user] = admin_auth_user
+
+    payload = {
+        "email": "auto.teacher@als.edu.ph",
+        "first_name": "Jose",
+        "last_name": "Rizal",
+    }
+
+    res = await client.post("/api/v1/users/teachers", json=payload)
+    assert res.status_code == 201
+    body = res.json()["data"]["resources"]
+
+    assert body["email"] == "auto.teacher@als.edu.ph"
+    assert body["role"] == "teacher"
+    assert body["teacher_id"] is not None
+    assert body["teacher_id"].startswith("TCH-")
+
+
+@pytest.mark.asyncio
+async def test_teacher_singular_route_alias(client: AsyncClient):
+    """POST /api/v1/users/teacher also works as an alias for /teachers."""
+    app.dependency_overrides[get_current_active_user] = admin_auth_user
+
+    payload = {
+        "email": "singular.teacher@als.edu.ph",
+        "first_name": "Emilio",
+        "last_name": "Aguinaldo",
+    }
+
+    res = await client.post("/api/v1/users/teacher", json=payload)
+    assert res.status_code == 201
+    assert res.json()["data"]["resources"]["role"] == "teacher"
+
+
+@pytest.mark.asyncio
+async def test_non_admin_forbidden_from_creating_teacher(client: AsyncClient):
+    """Teachers and students cannot create teacher accounts (403 Forbidden)."""
+    payload = {
+        "email": "unauthorized.teacher@als.edu.ph",
+        "first_name": "Test",
+        "last_name": "Teacher",
+    }
+
+    # 1. Teacher tries to create teacher -> 403 Forbidden
+    app.dependency_overrides[get_current_active_user] = teacher_auth_user
+    res_teacher = await client.post("/api/v1/users/teachers", json=payload)
+    assert res_teacher.status_code == 403
+    assert res_teacher.json()["error_code"] == "FORBIDDEN"
+
+    # 2. Student tries to create teacher -> 403 Forbidden
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+    res_student = await client.post("/api/v1/users/teachers", json=payload)
+    assert res_student.status_code == 403
+    assert res_student.json()["error_code"] == "FORBIDDEN"
+
+    # 3. Unauthenticated request -> 401 Unauthorized
+    app.dependency_overrides.pop(get_current_active_user, None)
+    res_anon = await client.post("/api/v1/users/teachers", json=payload)
+    assert res_anon.status_code == 401
+    assert res_anon.json()["error_code"] == "UNAUTHORIZED"
+
+
+@pytest.mark.asyncio
+async def test_create_teacher_conflict_checks(client: AsyncClient):
+    """Duplicate email or teacher_id returns 409 Conflict."""
+    app.dependency_overrides[get_current_active_user] = admin_auth_user
+
+    payload1 = {
+        "email": "conflict.teacher@als.edu.ph",
+        "first_name": "First",
+        "last_name": "Teacher",
+        "teacher_id": "TCH-UNIQUE-001",
+    }
+    res1 = await client.post("/api/v1/users/teachers", json=payload1)
+    assert res1.status_code == 201
+
+    # Duplicate email
+    dup_email_payload = {
+        "email": "conflict.teacher@als.edu.ph",
+        "first_name": "Another",
+        "last_name": "Person",
+        "teacher_id": "TCH-DIFFERENT-002",
+    }
+    res_dup_email = await client.post("/api/v1/users/teachers", json=dup_email_payload)
+    assert res_dup_email.status_code == 409
+    assert res_dup_email.json()["error_code"] == "CONFLICT"
+
+    # Duplicate teacher_id
+    dup_id_payload = {
+        "email": "different.email@als.edu.ph",
+        "first_name": "Third",
+        "last_name": "Person",
+        "teacher_id": "TCH-UNIQUE-001",
+    }
+    res_dup_id = await client.post("/api/v1/users/teachers", json=dup_id_payload)
+    assert res_dup_id.status_code == 409
+    assert res_dup_id.json()["error_code"] == "CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_create_teacher_forces_teacher_role(client: AsyncClient):
+    """Even if caller provides 'role': 'admin' or 'student', role is always saved as 'teacher'."""
+    app.dependency_overrides[get_current_active_user] = admin_auth_user
+
+    payload = {
+        "email": "role.forced@als.edu.ph",
+        "first_name": "Forced",
+        "last_name": "Role",
+        "role": "admin",
+    }
+
+    res = await client.post("/api/v1/users/teachers", json=payload)
+    assert res.status_code == 201
+    body = res.json()["data"]["resources"]
+    assert body["role"] == "teacher"

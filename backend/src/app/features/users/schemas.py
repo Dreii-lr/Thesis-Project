@@ -7,9 +7,10 @@ from datetime import date, datetime
 from typing import Any, List, Optional
 
 from fastapi import Form, Body
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.features.users.models import UserRole, UserStatus, UserCategory
+from app.shared.utils import SharedUtils
 
 
 class PersonalDetailsInput(BaseModel):
@@ -21,7 +22,6 @@ class PersonalDetailsInput(BaseModel):
     religion: str | None = None
     place_of_birth: str | None = None
     lrn_number: str | None = None
-
 
     @field_validator("birth_date", mode="before")
     @classmethod
@@ -57,6 +57,14 @@ class ContactDetailsInput(BaseModel):
     province: str | None = None
     contact_no: str | None = None
 
+    @field_validator(
+        "street_building_no", "municipality", "province", mode="before"
+    )
+    @classmethod
+    def capitalize_first_letter(cls, value: str | None) -> str | None:
+
+        return SharedUtils.capitalized_first_letter(value)
+
 
 
 class ContactDetailsRead(BaseModel):
@@ -78,6 +86,12 @@ class FamilyDetailsInput(BaseModel):
     guardian_relation: str | None = None
     contact_no: str | None = None
 
+    @field_validator(
+        "mother_name", "father_name", "guardian_name",'guardian_relation', mode="before"
+    )
+    @classmethod
+    def capitalize_first_letter(cls, value: str | None) -> str | None:
+      return SharedUtils.capitalized_first_letter(value)
 
 
 class FamilyDetailsRead(BaseModel):
@@ -94,45 +108,78 @@ class FamilyDetailsRead(BaseModel):
 
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     email: EmailStr
     password: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
-    middle_name: str | None = None
+    first_name: str = Field(default="", )
+    last_name: str = Field(default="", )
+    middle_name: str | None = Field(default=None, )
     suffix: str | None = None
-    student_id: str | None = None
-    employee_id: str | None = None
+    student_id: str | None = Field(default=None, )
+    teacher_id: str | None = Field(default=None, )
     role: UserRole = UserRole.STUDENT
-    user_category: UserCategory = UserCategory.SECONDARY
-    status: UserStatus = UserStatus.ENROLLED
+    user_category: UserCategory = Field(default=UserCategory.SECONDARY, )
+    status: UserStatus = UserStatus.ACTIVE
     firebase_uid: str | None = None
-    personal_details: PersonalDetailsInput | None = None
-    contact_details: ContactDetailsInput | None = None
-    family_details: FamilyDetailsInput | None = None
+    personal_details: PersonalDetailsInput | None = Field(default=None, )
+    contact_details: ContactDetailsInput | None = Field(default=None, )
+    family_details: FamilyDetailsInput | None = Field(default=None, )
 
-    @staticmethod
-    def get_user_create_dependency(
-        # --- Core User Fields ---
-        email: EmailStr = Body(...),
-        first_name: Optional[str] = Body(None),
-        last_name: Optional[str] = Body(None),
-        middle_name: Optional[str] = Body(None),
-        suffix: Optional[str] = Body(None),
-        user_category: Optional[UserCategory] = Body(None),
-        personal_details: Optional[PersonalDetailsInput] = Body(None),
-        contact_details: Optional[ContactDetailsInput] = Body(None),
-        family_details: Optional[FamilyDetailsInput] = Body(None),
-    ) -> UserCreate:
-        return UserCreate(
+
+    @field_validator("first_name","last_name","middle_name","suffix",)
+    @classmethod
+    def capitalized_first_letter(cls,value : str ):
+        return SharedUtils.capitalized_first_letter(value)
+
+    @classmethod
+    def get_user_create_dependency(cls, email: EmailStr | str = Body(),
+                                   first_name: str = Body(default="", ),
+                                   last_name: str = Body(default="", ),
+                                   middle_name: str | None = Body(default=None, ),
+                                   suffix: str | None =Body(),
+                                   user_category: UserCategory = Body(default=UserCategory.SECONDARY, ),
+                                   personal_details: PersonalDetailsInput | None = Body(default=None, ),
+                                   contact_details: ContactDetailsInput | None = Body(default=None, ),
+                                   family_details: FamilyDetailsInput | None = Body(default=None, )) -> UserCreate:
+        return UserCreate(email=email,
+                          first_name=first_name,
+                          last_name=last_name,
+                          middle_name=middle_name,
+                          suffix=suffix,
+                          user_category=user_category,
+                          personal_details=personal_details,
+                          contact_details=contact_details,
+                          family_details=family_details)
+
+
+class TeacherCreate(UserCreate):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    role: UserRole = UserRole.TEACHER
+
+
+
+    @classmethod
+    def get_teacher_create_dependency(cls, email: EmailStr | str = Body(),
+                                      password: str | None = Body(default=None),
+                                      first_name: str = Body(default=""),
+                                      last_name: str = Body(default=""),
+                                      middle_name: str | None = Body(default=""),
+                                      suffix: str | None = Body(default=None),
+                                      personal_details: PersonalDetailsInput | None = Body(default=None, ),
+                                      contact_details: ContactDetailsInput | None = Body(default=None, ),
+                                      family_details: FamilyDetailsInput | None = Body(
+                                          default=None, )) -> TeacherCreate:
+        return TeacherCreate(
             email=email,
-            first_name=first_name or "",
-            last_name=last_name or "",
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
             middle_name=middle_name,
             suffix=suffix,
-            user_category=user_category or UserCategory.SECONDARY,
             personal_details=personal_details,
             contact_details=contact_details,
-            family_details=family_details,
+            family_details=family_details
         )
 
 
@@ -140,6 +187,7 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     user_id: str | None = None
     student_id: str | None = None
+    teacher_id: str | None = None
     employee_id: str | None = None
     firebase_uid: str | None = None
     email: EmailStr | None = None
@@ -163,6 +211,9 @@ class UserReadLessData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     user_id: str | None = None
+    student_id: str | None = None
+    teacher_id: str | None = None
+    employee_id: str | None = None
     firebase_uid: str | None = None
     email: EmailStr | None = None
     first_name: str | None = None
@@ -196,14 +247,14 @@ class UserUpdate(BaseModel):
 
     @staticmethod
     def depends(first_name: str = Body(default=None),
-    last_name: str | None= Body(default=None),
-    middle_name: str | None = Body(default=None),
-    suffix: str | None = Body(default=None),
-    user_category: UserCategory | None = None,
-    status: UserStatus | None = None,
-    personal_details: PersonalDetailsInput | None = None,
-    contact_details: ContactDetailsInput | None = None,
-    family_details: FamilyDetailsInput | None = None):
+                last_name: str | None = Body(default=None),
+                middle_name: str | None = Body(default=None),
+                suffix: str | None = Body(default=None),
+                user_category: UserCategory | None = None,
+                status: UserStatus | None = None,
+                personal_details: PersonalDetailsInput | None = None,
+                contact_details: ContactDetailsInput | None = None,
+                family_details: FamilyDetailsInput | None = None):
         return UserUpdate(first_name=first_name,
                           last_name=last_name,
                           middle_name=middle_name,
@@ -213,3 +264,10 @@ class UserUpdate(BaseModel):
                           personal_details=personal_details,
                           contact_details=contact_details,
                           family_details=family_details)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, description="Current password of the user")
+    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
+    confirm_password: Optional[str] = Field(default=None, description="Confirmation of new password")
+
