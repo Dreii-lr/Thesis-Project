@@ -6,10 +6,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, status
 from starlette.responses import JSONResponse
 
+from app.core.exceptions import ForbiddenDomainException
+from app.core.security import clear_auth_cookies
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
-from app.features.auth.dependencies import require_roles, require_teacher
+from app.features.auth.dependencies import get_current_active_user, require_roles, require_teacher
 from app.features.users.models import UserRole
 from app.features.users.schemas import (
+    ChangePasswordRequest,
     ListUserRead,
     TeacherCreate,
     UserCreate,
@@ -64,6 +67,43 @@ async def list_users(
     """
     response = await UserService.list_users(uow, offset=offset, limit=limit)
     return SharedUtils.SuccessfulResponse(response)
+
+
+@router.post("/change-password", status_code=status.HTTP_200_OK)
+async def change_password(
+        data: ChangePasswordRequest,
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Change password for the authenticated user.
+    Synchronously updates Firebase Auth and PostgreSQL database,
+    revokes refresh tokens on Firebase only, and clears browser auth cookies.
+    """
+    response = await UserService.change_password(uow, current_user.user_id, data)
+    json_response = SharedUtils.SuccessfulResponse(response)
+    clear_auth_cookies(json_response)
+    return json_response
+
+
+@router.patch("/{user_id}/change-password", status_code=status.HTTP_200_OK)
+async def change_password_by_id(
+        user_id: str,
+        data: ChangePasswordRequest,
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Change password by user ID.
+    Users can change their own password, and admins can change passwords for any user.
+    """
+    if current_user.user_id != user_id and current_user.role != UserRole.ADMIN:
+        raise ForbiddenDomainException("You do not have permission to change another user's password.")
+    response = await UserService.change_password(uow, user_id, data)
+    json_response = SharedUtils.SuccessfulResponse(response)
+    if current_user.user_id == user_id:
+        clear_auth_cookies(json_response)
+    return json_response
 
 
 @router.get("/{user_id}", status_code=status.HTTP_200_OK)

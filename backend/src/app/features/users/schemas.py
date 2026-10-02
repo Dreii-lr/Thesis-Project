@@ -264,3 +264,10 @@ class UserUpdate(BaseModel):
                           personal_details=personal_details,
                           contact_details=contact_details,
                           family_details=family_details)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, description="Current password of the user")
+    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
+    confirm_password: Optional[str] = Field(default=None, description="Confirmation of new password")
+

@@ -4,14 +4,26 @@ service.py — User management business logic consuming Unit of Work and normali
 from __future__ import annotations
 
 from datetime import date
+import logging
 from typing import Any
 import uuid
 
 from fastapi.encoders import jsonable_encoder
 
-from app.core.exceptions import EntityAlreadyExistsException, EntityNotFoundException
-from app.core.firebase import create_firebase_new_user, check_email_in_firebase
-from app.core.security import hash_password
+from app.core.exceptions import (
+    DomainException,
+    EntityAlreadyExistsException,
+    EntityNotFoundException,
+    InvalidCredentialsException,
+    ValidationDomainException,
+)
+from app.core.firebase import (
+    create_firebase_new_user,
+    check_email_in_firebase,
+    update_firebase_user_password,
+    revoke_firebase_user_tokens,
+)
+from app.core.security import hash_password, verify_password
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.users.models import (
     ContactDetails,
@@ -24,6 +36,7 @@ from app.features.users.models import (
     utc_now,
 )
 from app.features.users.schemas import (
+    ChangePasswordRequest,
     ListUserRead,
     TeacherCreate,
     UserCreate,
@@ -32,6 +45,8 @@ from app.features.users.schemas import (
 )
 from app.features.users.utils import UsersUtils
 from app.shared.schema import AdditionalData, SuccessfulResponseSchema
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -405,3 +420,64 @@ class UserService:
     @staticmethod
     async def delete_user(uow: AbstractUnitOfWork, user_id: str) -> SuccessfulResponseSchema:
         return await UserService.soft_delete_user(uow, user_id)
+
+    @staticmethod
+    async def change_password(
+        uow: AbstractUnitOfWork,
+        user_id: str,
+        data: ChangePasswordRequest,
+    ) -> SuccessfulResponseSchema:
+        """
+        Changes user password synchronously across Firebase Auth and PostgreSQL.
+        - Validates current password against local database bcrypt hash.
+        - Updates Firebase Authentication password first (Cloud-First).
+        - Encrypts with bcrypt and updates PostgreSQL database.
+        - Triggers compensating rollback on Firebase if DB write fails.
+        - Revokes refresh tokens on Firebase ONLY (no DB session table).
+        """
+        if data.confirm_password and data.new_password != data.confirm_password:
+            raise ValidationDomainException("New password and confirm password do not match.")
+
+        user = await uow.users.get_entity_with_details(user_id)
+        if not user:
+            raise EntityNotFoundException(f"User '{user_id}' not found.")
+
+        # Verify current password
+        if not verify_password(data.current_password, user.password):
+            raise InvalidCredentialsException("Current password is incorrect.")
+
+        if data.current_password == data.new_password:
+            raise ValidationDomainException("New password cannot be the same as the current password.")
+
+        # Update Firebase Auth (Cloud-First)
+        if user.firebase_uid:
+            try:
+                update_firebase_user_password(user.firebase_uid, data.new_password)
+            except Exception as exc:
+                logger.error(f"Firebase password update failed for user {user_id}: {exc}")
+                raise DomainException("Failed to update cloud authentication credentials.", error_code="FIREBASE_SYNC_ERROR")
+
+        # Update PostgreSQL Database
+        new_hashed_pwd = hash_password(data.new_password)
+        user.password = new_hashed_pwd
+
+        # Compensating rollback: Revert Firebase back to old password
+
+        if user.firebase_uid:
+            try:
+                update_firebase_user_password(user.firebase_uid, data.current_password)
+                logger.info(f"Compensating rollback: Successfully reverted Firebase password for user {user_id}")
+            except Exception as revert_exc:
+                logger.critical(f"Compensating rollback failed to revert Firebase password for user {user_id}: {revert_exc}")
+                raise DomainException("Database error occurred while changing password. Cloud credentials reverted.", error_code="DATABASE_SYNC_ERROR")
+
+        # Revoke tokens on Firebase ONLY
+        if user.firebase_uid:
+            revoke_firebase_user_tokens(user.firebase_uid)
+
+        return SuccessfulResponseSchema(
+            message="Password changed successfully.",
+            message_status="PASSWORD_CHANGED",
+            status_code=200,
+        )
+

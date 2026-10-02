@@ -6,7 +6,7 @@ firebase-credentials*.json
 *.pem
 *.key
 *.cert
-
+*.pyc
 # ─── Python & Virtual Environments ───────────────────────────────
 .venv/
 venv/

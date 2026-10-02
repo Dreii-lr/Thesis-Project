@@ -51,9 +51,9 @@ class AuthService:
 
         if "@" in data.email: #checking if the user used email as login method, then use firebase
             firebase_data = await sign_in_with_password(data.email, data.password)
-
             #handling firebase login if it type email
             if firebase_data:
+
                 #store access token and refresh token on Cookies
                 response_schema = SuccessfulResponseSchema(message="Successfully logged in.",
                                                            message_status="OK")
@@ -64,6 +64,7 @@ class AuthService:
 
         #login using the student number
         user = await uow.users.get_by_student_id(data.email)
+
         if not user or not verify_password(data.password, user.password):
             raise InvalidCredentialsException("Invalid email or password.")
 

@@ -85,7 +85,6 @@ class UserRepository:
         data = result.scalar_one_or_none()
         if data is not None:
             user_read = UserRead.model_validate(data)
-            user_read.password = None
             return user_read
         return None
 
@@ -95,7 +94,6 @@ class UserRepository:
         data = result.scalar_one_or_none()
         if data is not None:
             user_read = UserRead.model_validate(data)
-            user_read.password = None
             return user_read
         return None
 
