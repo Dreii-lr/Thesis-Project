@@ -26,6 +26,7 @@ from app.core.constants import constants  # noqa: E402
 import app.features.users.models  #   – registers User
 import app.features.auth.models   #   – registers UserSession
 import app.features.attendance.models  #   – registers AttendanceSession & AttendanceRecord
+import app.features.assessments.models  #   – registers Assessment, AssessmentQuestions, AssessmentMaterial, AssessmentSubmission
 from app.features import SequenceIDGenerator
 
 

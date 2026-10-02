@@ -35,6 +35,7 @@ class TestSQLModelUnitOfWork(SQLModelUnitOfWork):
 
     async def __aenter__(self) -> TestSQLModelUnitOfWork:
         from app.features import SequenceIDGeneratorRepository
+        from app.features.assessments.repository import AssessmentRepository
         from app.features.attendance.repository import AttendanceRepository
         from app.features.auth.repository import SessionRepository
         from app.features.users.repository import UserRepository
@@ -44,6 +45,7 @@ class TestSQLModelUnitOfWork(SQLModelUnitOfWork):
         self.sessions = SessionRepository(self._session)
         self.sequence_id_generator = SequenceIDGeneratorRepository(self._session)
         self.attendance = AttendanceRepository(self._session)
+        self.assessments = AssessmentRepository(self._session)
         return self
 
 

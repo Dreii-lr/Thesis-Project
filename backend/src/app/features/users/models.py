@@ -7,6 +7,7 @@ from typing import Optional
 import uuid
 
 from sqlalchemy import Column, Date, DateTime, func
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -73,15 +74,15 @@ class User(SQLModel, table=True):
         self.teacher_id = value
 
     # Normalized relationships from USERS.drawio
-    personal_details: Optional["PersonalDetails"] = Relationship(
+    personal_details: Optional[PersonalDetails] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={"cascade": "all, delete-orphan", "uselist": False, "lazy": "selectin"},
     )
-    contact_details: Optional["ContactDetails"] = Relationship(
+    contact_details: Optional[ContactDetails] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={"cascade": "all, delete-orphan", "uselist": False, "lazy": "selectin"},
     )
-    family_details: Optional["FamilyDetails"] = Relationship(
+    family_details: Optional[FamilyDetails] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={"cascade": "all, delete-orphan", "uselist": False, "lazy": "selectin"},
     )
