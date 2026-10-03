@@ -1,102 +1,182 @@
 'use client';
 
-import Image from 'next/image';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { BookOpen, GraduationCap, LogOut, UserRound } from 'lucide-react';
-import { clearDemoSession } from '@/src/components/auth/DemoAuthGuard';
-import { getCurrentUser } from '@/src/lib/auth-api';
+import {
+  ArrowRight,
+  BookOpen,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  Flame,
+  Play,
+  Trophy,
+} from 'lucide-react';
+import { getDemoSession } from '@/src/components/auth/DemoAuthGuard';
+
+const modules = [
+  {
+    title: 'Introduction to Computing',
+    subject: 'Digital Literacy',
+    progress: 72,
+    lesson: 'Lesson 4 · Computer Hardware',
+    time: '18 min left',
+  },
+  {
+    title: 'Communication Skills',
+    subject: 'English',
+    progress: 45,
+    lesson: 'Lesson 3 · Effective Communication',
+    time: '25 min left',
+  },
+  {
+    title: 'Practical Mathematics',
+    subject: 'Mathematics',
+    progress: 30,
+    lesson: 'Lesson 2 · Fractions and Decimals',
+    time: '32 min left',
+  },
+];
+
+const upcoming = [
+  { title: 'Digital Literacy Quiz', meta: 'Today · 3:00 PM', type: 'Quiz' },
+  { title: 'Written Activity 2', meta: 'Tomorrow · 11:59 PM', type: 'Activity' },
+  { title: 'Math Module Checkpoint', meta: 'Oct 4 · 5:00 PM', type: 'Assessment' },
+];
 
 export default function StudentDashboardPage() {
-  const router = useRouter();
   const [identity, setIdentity] = useState('Learner');
-  const [signingOut, setSigningOut] = useState(false);
-  const [error, setError] = useState('');
 
   useEffect(() => {
-    let active = true;
-    getCurrentUser().then((user) => {
-      if (active && user) setIdentity(user.first_name || user.email);
-    });
-    return () => { active = false; };
+    const session = getDemoSession();
+    if (session?.identity) setIdentity(session.identity);
   }, []);
 
-  const signOut = async () => {
-    if (signingOut) return;
-    setSigningOut(true);
-    setError('');
-    try {
-      await clearDemoSession();
-      router.replace('/login');
-      router.refresh();
-    } catch {
-      setError('Unable to sign out. Please check your connection and try again.');
-    } finally {
-      setSigningOut(false);
-    }
-  };
-
   return (
-    <main className="min-h-screen bg-[#f6f8fc] px-5 py-8 text-slate-900 sm:px-8 lg:px-12">
-      <div className="mx-auto max-w-6xl">
-        <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white p-1.5">
-              <Image src="/logo.png" alt="ALS Logo" width={42} height={42} className="h-full w-full object-contain" />
-            </div>
-            <div>
-              <p className="text-sm font-extrabold text-slate-900">ALS LMS Assistant</p>
-              <p className="text-xs font-medium text-slate-400">Student Portal</p>
-            </div>
+    <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#1f5fe0] via-[#2d6af0] to-[#4f46e5] px-6 py-7 text-white shadow-[0_24px_60px_rgba(37,99,235,0.20)] sm:px-8 sm:py-8">
+        <div className="absolute -right-12 -top-20 h-64 w-64 rounded-full bg-white/10" />
+        <div className="absolute -bottom-20 right-24 h-44 w-44 rounded-full bg-cyan-300/10" />
+        <div className="relative z-10 flex flex-col justify-between gap-8 xl:flex-row xl:items-center">
+          <div>
+            <p className="text-sm font-semibold text-blue-100">Welcome back,</p>
+            <h1 className="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">{identity}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-blue-100 sm:text-base">
+              Keep your momentum going. Continue your lessons, complete upcoming activities, and track your learning progress.
+            </p>
           </div>
 
-          <button
-            type="button"
-            onClick={signOut}
-            disabled={signingOut}
-            className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 hover:text-red-600"
-          >
-            <LogOut size={16} />
-            {signingOut ? 'Signing out...' : 'Sign out'}
-          </button>
-        </header>
-        {error && <p role="alert" className="mt-4 text-red-600">{error}</p>}
-
-        <section className="mt-8 overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 p-7 text-white shadow-[0_24px_60px_rgba(37,99,235,0.20)] sm:p-10">
-          <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1.5 text-xs font-bold ring-1 ring-white/20">
-              <GraduationCap size={15} />
-              STUDENT PORTAL
+          <div className="grid grid-cols-3 gap-3 sm:min-w-[390px]">
+            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur-sm">
+              <BookOpen size={20} />
+              <p className="mt-3 text-2xl font-bold">3</p>
+              <p className="mt-1 text-[11px] text-blue-100">Active modules</p>
             </div>
-            <h1 className="mt-5 text-3xl font-extrabold tracking-tight sm:text-4xl">Student sign-in successful</h1>
-            <p className="mt-3 text-sm leading-6 text-blue-100 sm:text-base">
-              Welcome, <span className="font-bold text-white">{identity}</span>. You are signed in to your student account.
-            </p>
+            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur-sm">
+              <Flame size={20} />
+              <p className="mt-3 text-2xl font-bold">6</p>
+              <p className="mt-1 text-[11px] text-blue-100">Day streak</p>
+            </div>
+            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur-sm">
+              <Trophy size={20} />
+              <p className="mt-3 text-2xl font-bold">78%</p>
+              <p className="mt-1 text-[11px] text-blue-100">Overall progress</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: 'Lessons completed', value: '18', note: '+4 this week', icon: CheckCircle2 },
+          { label: 'Activities submitted', value: '12', note: '2 pending', icon: FileText },
+          { label: 'Attendance', value: '94%', note: 'This month', icon: CalendarDays },
+          { label: 'Learning time', value: '14h 20m', note: 'This month', icon: Clock3 },
+        ].map((item) => (
+          <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <item.icon size={19} />
+              </div>
+              <span className="text-xs font-medium text-slate-400">{item.note}</span>
+            </div>
+            <p className="mt-4 text-2xl font-extrabold tracking-tight text-slate-900">{item.value}</p>
+            <p className="mt-1 text-sm text-slate-500">{item.label}</p>
+          </div>
+        ))}
+      </section>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
+        <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-extrabold tracking-tight text-slate-900">Continue learning</h2>
+              <p className="mt-1 text-sm text-slate-500">Pick up where you left off.</p>
+            </div>
+            <Link href="/student/modules" className="flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700">
+              View all <ArrowRight size={15} />
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            {modules.map((module) => (
+              <article key={module.title} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                  <BookOpen size={20} />
+                </div>
+                <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.12em] text-blue-600">{module.subject}</p>
+                <h3 className="mt-1.5 min-h-12 text-[15px] font-bold leading-5 text-slate-900">{module.title}</h3>
+                <p className="mt-2 text-xs leading-5 text-slate-500">{module.lesson}</p>
+
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                    <span>{module.progress}% complete</span>
+                    <span>{module.time}</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full rounded-full bg-blue-600" style={{ width: `${module.progress}%` }} />
+                  </div>
+                </div>
+
+                <button type="button" className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold text-blue-600 ring-1 ring-inset ring-slate-200 hover:bg-blue-50 hover:ring-blue-100">
+                  <Play size={15} fill="currentColor" /> Continue
+                </button>
+              </article>
+            ))}
           </div>
         </section>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <BookOpen size={21} />
+        <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-extrabold tracking-tight text-slate-900">Upcoming</h2>
+              <p className="mt-1 text-sm text-slate-500">Activities that need attention.</p>
             </div>
-            <h2 className="mt-4 text-lg font-extrabold text-slate-900">Your learning space</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Learning materials and activities will appear here as student features become available.
-            </p>
+            <CalendarDays size={20} className="text-slate-400" />
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <UserRound size={21} />
-            </div>
-            <h2 className="mt-4 text-lg font-extrabold text-slate-900">Your school account</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Your teacher manages your student account. Contact your teacher if you need help with your sign-in details.
-            </p>
+          <div className="mt-5 space-y-3">
+            {upcoming.map((item) => (
+              <div key={item.title} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">{item.title}</p>
+                    <p className="mt-1 text-xs text-slate-500">{item.meta}</p>
+                  </div>
+                  <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-600 ring-1 ring-slate-200">
+                    {item.type}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+
+          <Link href="/student/activities" className="mt-4 flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+            View activities <ArrowRight size={15} />
+          </Link>
+        </section>
       </div>
-    </main>
+    </div>
   );
 }
