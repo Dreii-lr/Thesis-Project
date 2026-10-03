@@ -1,0 +1,63 @@
+# ─── Environment & Secrets ───────────────────────────────────────
+.env
+.env.*
+!.env.example
+firebase-credentials*.json
+*.pem
+*.key
+*.cert
+
+# ─── Python & Virtual Environments ───────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+
+# ─── Node & Frontend ──────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.nuxt/
+.output/
+.vuepress/dist
+.vitepress/cache
+.astro/
+coverage/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── IDEs & Editors ───────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ─── OS & System Files ────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
