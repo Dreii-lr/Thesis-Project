@@ -1,3 +1,4 @@
+// src/components/layout/teacher/generate-content/ContentHeader.tsx
 'use client';
 
 import { Database } from 'lucide-react';
@@ -10,7 +11,7 @@ export default function ContentHeader({
   onExportDatabaseJson,
 }: ContentHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 flex h-14 w-full shrink-0 items-center justify-end border-b border-slate-100 bg-white/95 px-6 backdrop-blur-xs">
+    <header className="flex h-14 w-full shrink-0 items-center justify-end border-b border-slate-100 bg-white px-6">
       <button
         type="button"
         onClick={onExportDatabaseJson}

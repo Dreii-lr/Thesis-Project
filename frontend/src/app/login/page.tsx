@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
   EyeOff,
   GraduationCap,
   KeyRound,
+  Loader2,
   LockKeyhole,
   Mail,
   UserRoundCheck,
@@ -19,32 +20,43 @@ import {
   saveDemoSession,
   type DemoRole,
 } from '@/src/components/auth/DemoAuthGuard';
+import {
+  loginAndFetchUser,
+  normalizeUserRole,
+  requestAccountRecovery,
+} from '@/src/lib/auth-api';
 
 type RecoveryState = 'idle' | 'success';
+
+function subscribeRememberedIdentity(callback: () => void) {
+  window.addEventListener('storage', callback);
+  return () => window.removeEventListener('storage', callback);
+}
+
+function readRememberedIdentity() {
+  try { return localStorage.getItem('als-lms-demo-remember') || ''; } catch { return ''; }
+}
 
 export default function LoginPage() {
   const router = useRouter();
 
   const [role, setRole] = useState<DemoRole>('student');
-  const [identity, setIdentity] = useState('');
+  const rememberedIdentity = useSyncExternalStore(subscribeRememberedIdentity, readRememberedIdentity, () => '');
+  const [identityInput, setIdentity] = useState<string | null>(null);
+  const identity = identityInput ?? rememberedIdentity;
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberInput, setRememberMe] = useState<boolean | null>(null);
+  const rememberMe = rememberInput ?? Boolean(rememberedIdentity);
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryIdentity, setRecoveryIdentity] = useState('');
   const [recoveryState, setRecoveryState] = useState<RecoveryState>('idle');
+  const [isRecovering, setIsRecovering] = useState(false);
 
-  useEffect(() => {
-    const remembered = localStorage.getItem('als-lms-demo-remember');
-    if (remembered) {
-      setIdentity(remembered);
-      setRememberMe(true);
-    }
-  }, []);
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
 
@@ -58,15 +70,33 @@ export default function LoginPage() {
       return;
     }
 
-    saveDemoSession(role, identity.trim());
+    setIsSubmitting(true);
 
-    if (rememberMe) {
-      localStorage.setItem('als-lms-demo-remember', identity.trim());
-    } else {
-      localStorage.removeItem('als-lms-demo-remember');
+    try {
+      const user = await loginAndFetchUser(identity.trim(), password, role);
+      const resolvedRole = normalizeUserRole(user);
+      if (!resolvedRole) throw new Error('This account has no supported role.');
+
+      saveDemoSession(resolvedRole, user.email || identity.trim());
+
+      try {
+      if (rememberMe) {
+        localStorage.setItem('als-lms-demo-remember', identity.trim());
+      } else {
+        localStorage.removeItem('als-lms-demo-remember');
+      }
+      } catch { /* Remembering the identity is optional; authentication uses cookies. */ }
+
+      router.replace(
+        resolvedRole === 'teacher' ? '/teacher/dashboard' : '/student/dashboard'
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Login failed. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
-
-    router.push(role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
   };
 
   const openRecovery = () => {
@@ -75,10 +105,20 @@ export default function LoginPage() {
     setRecoveryOpen(true);
   };
 
-  const submitRecovery = (event: FormEvent<HTMLFormElement>) => {
+  const submitRecovery = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!recoveryIdentity.trim()) return;
-    setRecoveryState('success');
+
+    setIsRecovering(true);
+    try {
+      await requestAccountRecovery(recoveryIdentity.trim());
+      setRecoveryState('success');
+    } catch {
+      // Still show success screen to prevent account enumeration
+      setRecoveryState('success');
+    } finally {
+      setIsRecovering(false);
+    }
   };
 
   return (
@@ -86,7 +126,6 @@ export default function LoginPage() {
       <div className="grid min-h-screen lg:grid-cols-2">
         {/* LEFT PANEL */}
         <section className="relative hidden min-h-screen overflow-hidden bg-white lg:block">
-          {/* soft decorative circles like the approved mockup */}
           <div className="pointer-events-none absolute -left-28 -top-28 h-72 w-72 rounded-full bg-[#cfd8ff]/85" />
           <div className="pointer-events-none absolute -left-4 top-20 h-36 w-36 rounded-full bg-[#e8ecff]/90" />
           <div className="pointer-events-none absolute left-16 top-12 h-24 w-24 rounded-full bg-[#d9efe7]/90" />
@@ -117,7 +156,6 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {/* REAL CLASSROOM / LEARNING VISUAL */}
             <div className="relative -mx-14 mt-auto h-[38vh] min-h-[320px] overflow-hidden xl:-mx-20 xl:h-[42vh] 2xl:-mx-24">
               <Image
                 src="/login-learning-scene.png"
@@ -167,6 +205,7 @@ export default function LoginPage() {
               <div className="mt-8 grid grid-cols-2 rounded-full border border-slate-200 bg-white p-1.5">
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => {
                     setRole('student');
                     setError('');
@@ -183,6 +222,7 @@ export default function LoginPage() {
 
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => {
                     setRole('teacher');
                     setError('');
@@ -209,6 +249,7 @@ export default function LoginPage() {
                     <input
                       id="identity"
                       type="text"
+                      disabled={isSubmitting}
                       value={identity}
                       onChange={(event) => setIdentity(event.target.value)}
                       placeholder="Enter your email or ID"
@@ -228,6 +269,7 @@ export default function LoginPage() {
                     <input
                       id="password"
                       type={showPassword ? 'text' : 'password'}
+                      disabled={isSubmitting}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="Enter your password"
@@ -250,6 +292,7 @@ export default function LoginPage() {
                   <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
                     <input
                       type="checkbox"
+                      disabled={isSubmitting}
                       checked={rememberMe}
                       onChange={(event) => setRememberMe(event.target.checked)}
                       className="h-4 w-4 rounded border-slate-300 accent-[#2f6df6]"
@@ -274,10 +317,20 @@ export default function LoginPage() {
 
                 <button
                   type="submit"
-                  className="flex h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-[#2f6df6] text-base font-semibold text-white shadow-[0_12px_30px_rgba(47,109,246,0.28)] transition hover:bg-[#245de0]"
+                  disabled={isSubmitting}
+                  className="flex h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-[#2f6df6] text-base font-semibold text-white shadow-[0_12px_30px_rgba(47,109,246,0.28)] transition hover:bg-[#245de0] disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  <KeyRound size={17} />
-                  Sign In
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Signing In...
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound size={17} />
+                      Sign In
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -360,9 +413,10 @@ export default function LoginPage() {
 
                   <button
                     type="submit"
-                    className="h-11 rounded-xl bg-[#2f6df6] text-sm font-bold text-white hover:bg-[#245de0]"
+                    disabled={isRecovering}
+                    className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#2f6df6] text-sm font-bold text-white hover:bg-[#245de0] disabled:opacity-70"
                   >
-                    Continue
+                    {isRecovering ? <Loader2 size={16} className="animate-spin" /> : 'Continue'}
                   </button>
                 </div>
               </form>

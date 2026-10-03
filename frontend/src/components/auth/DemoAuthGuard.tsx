@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getCurrentUser, logoutUser, normalizeUserRole, SessionError } from '@/src/lib/auth-api';
 
 export type DemoRole = 'student' | 'teacher';
 
@@ -20,7 +21,7 @@ export function saveDemoSession(role: DemoRole, identity: string) {
     signedInAt: new Date().toISOString(),
   };
 
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch { /* Display cache only. */ }
 }
 
 export function getDemoSession(): DemoSession | null {
@@ -36,8 +37,9 @@ export function getDemoSession(): DemoSession | null {
   }
 }
 
-export function clearDemoSession() {
-  localStorage.removeItem(SESSION_KEY);
+export async function clearDemoSession() {
+  await logoutUser();
+  try { localStorage.removeItem(SESSION_KEY); } catch { /* The server session is already revoked. */ }
 }
 
 export default function DemoAuthGuard({
@@ -49,17 +51,60 @@ export default function DemoAuthGuard({
 }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const session = getDemoSession();
+    let active = true;
 
-    if (!session || session.role !== role) {
-      router.replace('/login');
-      return;
+    async function verifyBackendSession() {
+      try {
+      const user = await getCurrentUser(true);
+
+      if (!active) return;
+
+      if (!user) {
+        localStorage.removeItem(SESSION_KEY);
+        router.replace('/login');
+        return;
+      }
+
+      const backendRole = normalizeUserRole(user);
+
+      if (backendRole !== role) {
+        router.replace(backendRole ? `/${backendRole}/dashboard` : '/login');
+        return;
+      }
+
+      saveDemoSession(role, user.email || String(user.user_id));
+      setReady(true);
+      setError('');
+      } catch (err) {
+        if (!active) return;
+        setReady(false);
+        if (err instanceof SessionError && (err.status === 401 || err.status === 403)) {
+          router.replace('/login');
+        } else {
+          setError(err instanceof Error ? err.message : 'Unable to check your session. Please try again.');
+        }
+      }
     }
 
-    setReady(true);
+    verifyBackendSession();
+    const onFocus = () => { void verifyBackendSession(); };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      active = false;
+      window.removeEventListener('focus', onFocus);
+    };
   }, [role, router]);
+
+  if (error) {
+    return <div role="alert" className="p-8 text-center">
+      <p>{error}</p>
+      <button onClick={() => window.location.reload()} className="mt-4 underline">Try again</button>
+    </div>;
+  }
 
   if (!ready) {
     return (

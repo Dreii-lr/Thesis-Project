@@ -166,8 +166,8 @@ export default function DocumentViewPage({ params }: { params: Promise<{ id: str
   };
 
   return (
-    <div>
-      <div className="flex min-h-0 w-full overflow-hidden bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+    <div className="h-screen overflow-hidden">
+      <div className="flex h-full min-h-0 w-full overflow-hidden bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         <DocumentSidebar
           lessons={lessons}
           activeFileId={activeFileId}
@@ -179,12 +179,12 @@ export default function DocumentViewPage({ params }: { params: Promise<{ id: str
           onRenameFile={handleRenameFile}
         />
 
-        <div className="min-w-0 flex-1 overflow-y-auto bg-slate-50/50">
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
           {activeContent && activeLesson ? (
             <>
               <ContentHeader onExportDatabaseJson={handleExportDatabaseJson} />
 
-              <article className="h-full bg-white shadow-[0_10px_30px_rgba(15,23,42,0.04)] sm:px-8 sm:py-8 lg:px-10">
+              <article className="min-h-0 flex-1 overflow-y-auto bg-white shadow-[0_10px_30px_rgba(15,23,42,0.04)] sm:px-8 sm:py-8 lg:px-10">
                 <div className="mb-7 flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="mb-1.5 text-[12px] font-medium text-blue-600">
