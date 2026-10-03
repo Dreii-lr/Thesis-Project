@@ -93,8 +93,9 @@ export default function ContentSidebar({
   };
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-slate-200/80 bg-white">
-      <div className="flex h-14 items-center justify-between border-b border-slate-100 px-4">
+    <aside className="flex h-full w-72 shrink-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white">
+      {/* Fixed Sidebar Header */}
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
             Content outline
@@ -102,6 +103,7 @@ export default function ContentSidebar({
           <p className="mt-0.5 text-[11px] text-slate-500">Lessons & files</p>
         </div>
         <button
+          type="button"
           className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
           aria-label="Document outline"
         >
@@ -109,17 +111,15 @@ export default function ContentSidebar({
         </button>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-3">
+      {/* Independently Scrollable Lessons List (No outer box container) */}
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {lessons.map((lesson) => {
           const isOpen = openFolders[lesson.id];
           const isEditingThisLesson =
             editingItem?.type === 'lesson' && editingItem.lessonId === lesson.id;
 
           return (
-            <div
-              key={lesson.id}
-              className="rounded-xl border border-slate-100 bg-slate-50/50 p-1.5"
-            >
+            <div key={lesson.id}>
               {/* Main Topic (Folder) Row */}
               {isEditingThisLesson ? (
                 <div className="flex items-center gap-1 rounded-lg bg-white px-2 py-1.5 ring-1 ring-blue-500">
@@ -150,7 +150,7 @@ export default function ContentSidebar({
                   </button>
                 </div>
               ) : (
-                <div className="group flex w-full items-center justify-between rounded-lg px-2 py-2 text-slate-700 transition-colors hover:bg-white">
+                <div className="group flex w-full items-center justify-between rounded-lg px-2 py-2 text-slate-700 transition-colors hover:bg-slate-50">
                   <button
                     type="button"
                     onClick={() => toggleFolder(lesson.id)}
@@ -177,9 +177,9 @@ export default function ContentSidebar({
                 </div>
               )}
 
-              {/* Sub-Topics (Files) List */}
+              {/* Sub-Topics (Files) List with Vertical Tree Line */}
               {isOpen && (
-                <div className="mt-1 space-y-1 pb-1 pl-3">
+                <div className="mt-1 mb-1 ml-6 space-y-1 border-l border-slate-200 py-0.5 pl-3">
                   {lesson.files.map((file) => {
                     const isActive = activeFileId === file.id;
                     const isEditingThisFile =
@@ -227,8 +227,8 @@ export default function ContentSidebar({
                         key={file.id}
                         className={`group flex w-full items-center justify-between rounded-lg px-3 py-2 transition-all ${
                           isActive
-                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-inset ring-blue-100'
-                            : 'text-slate-500 hover:bg-white hover:text-slate-800'
+                            ? 'bg-blue-50/60 text-blue-700 shadow-2xs ring-1 ring-inset ring-blue-100'
+                            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                         }`}
                       >
                         <button

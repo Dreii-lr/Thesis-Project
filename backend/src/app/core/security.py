@@ -63,7 +63,7 @@ def decode_token(token: str) -> dict:
     )
 
 
-IS_PRODUCTION = getattr(constants, "ENVIRONMENT", "production").lower() == "production"
+COOKIE_SECURE = constants.COOKIE_SECURE or constants.APP_ENV.lower() == "production"
 
 # Lifespans
 ACCESS_TOKEN_MAX_AGE = 60 * 60            # 1 hour (Firebase idToken expiration)
@@ -85,7 +85,7 @@ def set_auth_cookies(
         value=access_token,
         max_age=ACCESS_TOKEN_MAX_AGE,
         httponly=True,
-        secure=IS_PRODUCTION,
+        secure=COOKIE_SECURE,
         samesite="lax",
         path="/",  # Needed on API requests to authenticate endpoints
     )
@@ -96,7 +96,7 @@ def set_auth_cookies(
         value=refresh_token,
         max_age=REFRESH_TOKEN_MAX_AGE,
         httponly=True,
-        secure=IS_PRODUCTION,
+        secure=COOKIE_SECURE,
         samesite="lax",
         path="/api/v1/auth",  # Restricted: only sent to auth routes (refresh, logout)
     )
@@ -111,13 +111,13 @@ def clear_auth_cookies(response: Response) -> None:
         key="access_token",
         path="/",
         httponly=True,
-        secure=IS_PRODUCTION,
+        secure=COOKIE_SECURE,
         samesite="lax",
     )
     response.delete_cookie(
         key="refresh_token",
         path="/api/v1/auth",
         httponly=True,
-        secure=IS_PRODUCTION,
+        secure=COOKIE_SECURE,
         samesite="lax",
     )
