@@ -30,7 +30,7 @@ require_admin = require_roles(UserRole.ADMIN)
 @router.post("/teacher", status_code=status.HTTP_201_CREATED)
 async def create_teacher(
         data: TeacherCreate = Depends(TeacherCreate.get_teacher_create_dependency),
-        # current_user: UserRead = Depends(require_admin),
+        current_user: UserRead = Depends(require_admin),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
