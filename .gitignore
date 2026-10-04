@@ -71,3 +71,11 @@ Thumbs.db
 /docs
 
 AGENTS.md
+# Environment & Secrets
+.env
+.env.*
+*.env
+!.env.example
+*.pem
+*.key
+*.cert
