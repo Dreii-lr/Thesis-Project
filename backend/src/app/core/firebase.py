@@ -7,11 +7,14 @@ Never hard-code credentials here; they live exclusively in .env.
 from __future__ import annotations
 
 import logging
-import os
 
 import firebase_admin
 from firebase_admin import auth, credentials
-from sentry_sdk.integrations import httpx
+from firebase_admin import exceptions as firebase_exceptions
+import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from app.core.exceptions import AuthenticationUnavailableException, UnauthorizedDomainException
 
 from app.core.constants import constants, FIREBASE_CONFIG, IDENTITY_TOOLKIT_BASE, SECURE_TOKEN_BASE
 from app.features.auth.schemas import TokenResponse
@@ -27,11 +30,11 @@ def initialize_firebase() -> firebase_admin.App | None:
         return firebase_app
     try:
         cred = credentials.Certificate(FIREBASE_CONFIG)
-        firebase_app = firebase_admin.initialize_app(cred)
+        firebase_app = firebase_admin.initialize_app(cred, options={"httpTimeout": 10})
         logger.info("Firebase Admin SDK initialised.")
         return firebase_app
     except Exception as e:
-        logger.error(f"Failed to initialize Firebase Admin SDK: {e}")
+        logger.error("Failed to initialize Firebase Admin SDK (%s).", type(e).__name__)
         return None
 
 
@@ -49,118 +52,131 @@ def check_email_in_firebase(email : str):
         return None
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def verify_firebase_id_token(id_token: str,check_revoked =True) -> dict | None:
-    """
-    Verify a Firebase ID token and return its decoded claims dict.
-    Returns None if verification fails or Firebase is uninitialized.
-    """
+def _require_firebase() -> firebase_admin.App:
     if not firebase_app:
         initialize_firebase()
     if not firebase_app:
-        return None
+        raise AuthenticationUnavailableException()
+    return firebase_app
+
+
+@retry(
+    retry=retry_if_exception_type((auth.CertificateFetchError, firebase_exceptions.UnavailableError,
+                                 firebase_exceptions.DeadlineExceededError)),
+    stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.2, max=1), reraise=True,
+)
+def _verify_id_token(id_token: str, check_revoked: bool) -> dict:
+    return auth.verify_id_token(
+        id_token, app=_require_firebase(), check_revoked=check_revoked,
+        clock_skew_seconds=constants.FIREBASE_CLOCK_SKEW_SECONDS,
+    )
+
+
+def verify_firebase_id_token(id_token: str, check_revoked: bool = True) -> dict:
+    """Reject invalid credentials, but report provider failures as unavailable."""
     try:
-        return auth.verify_id_token(id_token,check_revoked=check_revoked)
-    except Exception as e:
-        logger.warning(f"Firebase token verification failed: {e}")
-        return None
+        return _verify_id_token(id_token, check_revoked)
+    except auth.ExpiredIdTokenError as exc:
+        raise UnauthorizedDomainException("Your session needs to be refreshed.", "TOKEN_EXPIRED") from exc
+    except auth.RevokedIdTokenError as exc:
+        raise UnauthorizedDomainException("Your session was revoked. Please sign in again.", "TOKEN_REVOKED") from exc
+    except (auth.UserDisabledError, auth.UserNotFoundError) as exc:
+        raise UnauthorizedDomainException("This account is unavailable. Please contact your administrator.", "ACCOUNT_UNAVAILABLE") from exc
+    except auth.InvalidIdTokenError as exc:
+        logger.warning("Firebase rejected an ID token (%s).", type(exc).__name__)
+        raise UnauthorizedDomainException("Your session is invalid. Please sign in again.", "TOKEN_INVALID") from exc
+    except AuthenticationUnavailableException:
+        raise
+    except Exception as exc:
+        # Never log tokens, passwords, request URLs with API keys, or provider bodies.
+        logger.error("Firebase verification unavailable (%s).", type(exc).__name__)
+        raise AuthenticationUnavailableException() from exc
 
 def create_firebase_new_user(email: str, password: str):
-    if not firebase_app:
-        initialize_firebase()
-    if not firebase_app:
-        logger.warning("Firebase app is not initialized; generating local mock UID for user.")
-        class MockFirebaseUser:
-            uid = f"mock-firebase-{email}"
-        return MockFirebaseUser()
+    _require_firebase()
     try:
         new_user = auth.create_user(email=email, password=password)
         return new_user
     except Exception as e:
-        logger.warning(f"Firebase auth.create_user failed: {e}. Falling back to local mock UID.")
-        class MockFirebaseUser:
-            uid = f"mock-firebase-{email}"
-        return MockFirebaseUser()
+        logger.error("Firebase account creation failed (%s).", type(e).__name__)
+        raise AuthenticationUnavailableException("Unable to create the sign-in account. Please try again.") from e
 def create_custom_token(firebase_uid : str | None, developer_claims : dict | None = None):
+    _require_firebase()
     try:
         token = auth.create_custom_token(uid=firebase_uid,developer_claims=developer_claims)
 
         return token.decode('utf-8')
-    except Exception as e:
-        return None
-
-
-async def exchange_custom_token_for_id_tokens(custom_token: str) -> TokenResponse | None:
-    """
-    Exchanges a custom token created by the Admin SDK for an idToken and refreshToken.
-    Calls POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=[API_KEY]
-    """
-    url = f"{IDENTITY_TOOLKIT_BASE}/accounts:signInWithCustomToken?key={constants.FIREBASE_API_KEY}"
-    payload = {
-        "token": custom_token,
-        "returnSecureToken": True,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, json=payload)
-
-        if resp.status_code != 200:
-
-            logger.error(f"Failed custom token exchange: {resp.text}")
-            return None
-
-        data = resp.json()
-        token =  TokenResponse(idToken=data.get("idToken",""),refreshToken=data.get("refreshToken",""))
-
-        return token
     except Exception as exc:
-        logger.error(f"Error exchanging custom token: {exc}")
-        return None
+        logger.error("Firebase token signing failed (%s).", type(exc).__name__)
+        raise AuthenticationUnavailableException() from exc
+
+
+class _TransientFirebaseError(Exception):
+    pass
+
+
+@retry(
+    retry=retry_if_exception_type((httpx.TransportError, _TransientFirebaseError)),
+    stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.2, max=1), reraise=True,
+)
+async def _post_token_request(url: str, **kwargs) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(url, **kwargs)
+    if response.status_code >= 500:
+        raise _TransientFirebaseError()
+    return response
+
+
+async def _token_request(url: str, rejected_codes: set[str], **kwargs) -> dict | None:
+    try:
+        response = await _post_token_request(url, **kwargs)
+        data = response.json()
+        if response.is_success and isinstance(data, dict):
+            return data
+        error = data.get("error", {}) if isinstance(data, dict) else {}
+        message = error.get("message", "") if isinstance(error, dict) else ""
+        code = message.split(" : ")[0] if isinstance(message, str) else ""
+        if response.status_code == 400 and code in rejected_codes:
+            return None
+        logger.warning("Firebase token request rejected (HTTP %s).", response.status_code)
+    except (httpx.TransportError, _TransientFirebaseError, ValueError, TypeError):
+        logger.warning("Firebase token request unavailable.")
+    raise AuthenticationUnavailableException()
+
+
+def _token_pair(data: dict, access_key: str = "idToken", refresh_key: str = "refreshToken") -> TokenResponse:
+    access, refresh = data.get(access_key), data.get(refresh_key)
+    if not isinstance(access, str) or not access or not isinstance(refresh, str) or not refresh:
+        raise AuthenticationUnavailableException()
+    return TokenResponse(idToken=access, refreshToken=refresh)
+
+
+async def exchange_custom_token_for_id_tokens(custom_token: str) -> TokenResponse:
+    url = f"{IDENTITY_TOOLKIT_BASE}/accounts:signInWithCustomToken?key={constants.FIREBASE_API_KEY}"
+    data = await _token_request(url, set(), json={"token": custom_token, "returnSecureToken": True})
+    return _token_pair(data)
 
 
 async def sign_in_with_password(email: str, password: str) -> dict | None:
-    """
-    Verifies credentials against Firebase and returns idToken/refreshToken.
-    This REST call is required — Admin SDK has no password-verification method.
-    """
     url = f"{IDENTITY_TOOLKIT_BASE}/accounts:signInWithPassword?key={constants.FIREBASE_API_KEY}"
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                url, json={"email": email, "password": password, "returnSecureToken": True}
-            )
-        if resp.status_code != 200:
-            logger.info(f"Firebase sign-in failed for {email}: {resp.text}")
-            return None
-        return resp.json()
-    except Exception as exc:
-        logger.error(f"Firebase sign-in error for {email}: {exc}")
-        return None
+    data = await _token_request(
+        url, {"INVALID_LOGIN_CREDENTIALS", "EMAIL_NOT_FOUND", "INVALID_PASSWORD", "USER_DISABLED"},
+        json={"email": email, "password": password, "returnSecureToken": True},
+    )
+    if data is not None:
+        _token_pair(data)
+        if not isinstance(data.get("localId"), str) or not data["localId"]:
+            raise AuthenticationUnavailableException()
+    return data
 
 
 async def refresh_firebase_token(refresh_token: str) -> TokenResponse | None:
-    """
-    Exchanges a Firebase refresh token for a new idToken/refreshToken pair.
-    Required — Admin SDK does not expose a refresh operation.
-    """
     url = f"{SECURE_TOKEN_BASE}/token?key={constants.FIREBASE_API_KEY}"
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                url,
-                data={"grant_type": "refresh_token", "refresh_token": refresh_token},
-            )
-        if resp.status_code != 200:
-            logger.info(f"Firebase token refresh failed: {resp.text}")
-            return None
-        data = resp.json()
-
-        # Note: refresh response uses different key names than sign-in response
-        return TokenResponse(idToken=data.get("id_token",""), refreshToken=data.get("refresh_token",""))
-
-    except Exception as exc:
-
-        logger.error(f"Firebase token refresh error: {exc}")
-        return None
+    data = await _token_request(
+        url, {"TOKEN_EXPIRED", "USER_DISABLED", "USER_NOT_FOUND", "INVALID_REFRESH_TOKEN"},
+        data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+    )
+    return _token_pair(data, "id_token", "refresh_token") if data is not None else None
 
 def logout(access_token  : str):
     try:
@@ -172,19 +188,19 @@ def logout(access_token  : str):
             if claims:
                 auth.revoke_refresh_tokens(str(claims["uid"]))
             return True
-    except Exception as e:
-        return None
+    except UnauthorizedDomainException:
+        # Invalid/expired credentials must not prevent clearing the local cookies.
+        return True
+    except Exception as exc:
+        logger.error("Firebase logout unavailable (%s).", type(exc).__name__)
+        raise AuthenticationUnavailableException() from exc
 
 
 def update_firebase_user_password(firebase_uid: str, password: str) -> bool:
     """
     Updates a user's password in Firebase Authentication using Admin SDK.
     """
-    if not firebase_app:
-        initialize_firebase()
-    if not firebase_app:
-        logger.warning("Firebase app is not initialized; skipping Firebase password update.")
-        return True
+    _require_firebase()
     try:
         auth.update_user(firebase_uid, password=password)
         logger.info(f"Firebase password updated successfully for uid: {firebase_uid}")

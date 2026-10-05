@@ -460,16 +460,21 @@ class UserService:
         # Update PostgreSQL Database
         new_hashed_pwd = hash_password(data.new_password)
         user.password = new_hashed_pwd
+        firebase_uid = user.firebase_uid
 
-        # Compensating rollback: Revert Firebase back to old password
-
-        if user.firebase_uid:
-            try:
-                update_firebase_user_password(user.firebase_uid, data.current_password)
-                logger.info(f"Compensating rollback: Successfully reverted Firebase password for user {user_id}")
-            except Exception as revert_exc:
-                logger.critical(f"Compensating rollback failed to revert Firebase password for user {user_id}: {revert_exc}")
-                raise DomainException("Database error occurred while changing password. Cloud credentials reverted.", error_code="DATABASE_SYNC_ERROR")
+        # Only compensate when persistence fails. An unconditional rollback left
+        # email login using the old password while ID login used the new one.
+        try:
+            await uow.commit()
+        except Exception:
+            await uow.rollback()
+            if firebase_uid:
+                try:
+                    update_firebase_user_password(firebase_uid, data.current_password)
+                except Exception as revert_exc:
+                    logger.error("Password rollback failed (%s).", type(revert_exc).__name__)
+                    raise DomainException("Password synchronization failed. Please contact your administrator.", error_code="DATABASE_SYNC_ERROR") from revert_exc
+            raise DomainException("Unable to save your new password. Please try again.", error_code="DATABASE_SYNC_ERROR")
 
         # Revoke tokens on Firebase ONLY
         if user.firebase_uid:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 from dotenv import load_dotenv
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Load .env before BaseSettings resolves field values
@@ -52,6 +52,7 @@ class Constants(BaseSettings):
     FIREBASE_UNIVERSE_DOMAIN: str
     FIREBASE_API_KEY : str
     FIREBASE_APP_ID : str
+    FIREBASE_CLOCK_SKEW_SECONDS: int = Field(default=5, ge=0, le=60)
 
     # ── Auth / Cookies ────────────────────────────────────────────
     JWT_SECRET_KEY: str

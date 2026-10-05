@@ -42,51 +42,90 @@ export async function loginAndFetchUser(
   password: string,
   expectedRole: DemoRole
 ): Promise<UserRead> {
-  const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      email: identity.trim(),
-      password,
-      role: expectedRole,
-    }),
+  return mutateSession(async () => {
+    const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({
+        email: identity.trim(),
+        password,
+        role: expectedRole,
+      }),
+    });
+
+    if (!loginRes.ok) {
+      const msg = await extractErrorMessage(loginRes, 'Invalid email/ID or password.');
+      throw new Error(msg);
+    }
+
+    sessionVersion += 1;
+    sessionEnded = false;
+    // A newly issued session must work without refreshing it immediately.
+    const meRes = await fetch(`${API_BASE_URL}/auth/me`, {
+      credentials: 'include', cache: 'no-store',
+    });
+    if (!meRes.ok) {
+      throw new SessionError(await extractErrorMessage(meRes,
+        'Your session could not be verified. Please allow cookies for this site and try again.'), meRes.status);
+    }
+    const user: UserRead = await meRes.json();
+
+    const actualRole = normalizeUserRole(user);
+    if (!actualRole || actualRole !== expectedRole) {
+      // The backend checks the selected role before issuing session cookies.
+      // Never revoke every session as a side effect of selecting the wrong portal.
+      throw new Error(actualRole
+        ? `This account is registered as a ${actualRole}, not a ${expectedRole}.`
+        : 'This account does not have access to the teacher or student portal.');
+    }
+
+    return user;
   });
-
-  if (!loginRes.ok) {
-    const msg = await extractErrorMessage(loginRes, 'Invalid email/ID or password.');
-    throw new Error(msg);
-  }
-
-  const user = await getCurrentUser(true);
-  if (!user) {
-    throw new Error('Your session could not be verified. Please allow cookies for this site and try again.');
-  }
-
-  const actualRole = normalizeUserRole(user);
-  if (!actualRole || actualRole !== expectedRole) {
-    await logoutUser();
-    throw new Error(actualRole
-      ? `This account is registered as a ${actualRole}, not a ${expectedRole}.`
-      : 'This account does not have access to the teacher or student portal.');
-  }
-
-  return user;
 }
 
 export class SessionError extends Error {
   constructor(message: string, public status: number) {
     super(message);
+    this.name = 'SessionError';
   }
 }
 
 let refreshInFlight: Promise<Response> | null = null;
+let logoutInFlight: Promise<void> | null = null;
+let sessionQueue: Promise<unknown> = Promise.resolve();
+let sessionVersion = 0;
+let sessionEnded = false;
 
-async function refreshSession(): Promise<Response> {
+function mutateSession<T>(action: () => Promise<T>): Promise<T> {
+  const result = sessionQueue.then(async (): Promise<T> => {
+    // Same-origin tabs share HttpOnly cookies, so coordinate their writes too.
+    if (typeof navigator !== 'undefined' && navigator.locks) {
+      return await navigator.locks.request('als-auth-session', action);
+    }
+    return action();
+  });
+  sessionQueue = result.catch(() => undefined);
+  return result;
+}
+
+function requireOpenSession() {
+  if (sessionEnded) throw new SessionError('Please sign in to continue.', 401);
+}
+
+async function refreshSession(requestVersion: number): Promise<Response> {
   // Parallel profile/guard checks must share one refresh request.
   if (!refreshInFlight) {
-    refreshInFlight = fetch(`${API_BASE_URL}/auth/refresh`, {
-      method: 'POST', credentials: 'include',
+    refreshInFlight = mutateSession(async () => {
+      requireOpenSession();
+      // A delayed 401 may belong to cookies already replaced by another request.
+      if (requestVersion !== sessionVersion) return new Response(null, { status: 204 });
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST', credentials: 'include', cache: 'no-store',
+      });
+      if (response.ok) sessionVersion += 1;
+      return response;
     }).finally(() => { refreshInFlight = null; });
   }
   return (await refreshInFlight).clone();
@@ -96,6 +135,9 @@ export async function authenticatedFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
+  await sessionQueue;
+  requireOpenSession();
+  const requestVersion = sessionVersion;
   const request = () => fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: 'include',
@@ -104,7 +146,15 @@ export async function authenticatedFetch(
   const response = await request();
   if (response.status !== 401) return response;
 
-  const refreshed = await refreshSession();
+  await sessionQueue;
+  requireOpenSession();
+  if (requestVersion !== sessionVersion) return request();
+  const error = await response.clone().json().catch(() => ({}));
+  // Revoked/disabled/invalid credentials need sign-in, not another token refresh.
+  if (error?.error_code && !['TOKEN_EXPIRED', 'TOKEN_MISSING', 'UNAUTHORIZED'].includes(error.error_code)) {
+    return response;
+  }
+  const refreshed = await refreshSession(requestVersion);
   if (!refreshed.ok) {
     throw new SessionError(
       await extractErrorMessage(refreshed, 'Your session has expired. Please sign in again.'),
@@ -112,6 +162,7 @@ export async function authenticatedFetch(
     );
   }
   // Retry only once: an invalid session must never cause a refresh loop.
+  requireOpenSession();
   return request();
 }
 
@@ -138,13 +189,25 @@ export async function getCurrentUser(reportErrors = false): Promise<UserRead | n
 }
 
 export async function logoutUser(): Promise<void> {
+  if (logoutInFlight) return logoutInFlight;
+  const previouslyEnded = sessionEnded;
+  sessionEnded = true;
+  logoutInFlight = mutateSession(async () => {
     const response = await fetch(`${API_BASE_URL}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
+      cache: 'no-store',
     });
     if (!response.ok) {
       throw new Error(await extractErrorMessage(response, 'Sign out failed. Please try again.'));
     }
+    sessionVersion += 1;
+    sessionEnded = true;
+  }).catch((error) => {
+    sessionEnded = previouslyEnded;
+    throw error;
+  }).finally(() => { logoutInFlight = null; });
+  return logoutInFlight;
 }
 
 export async function requestAccountRecovery(identity: string): Promise<void> {

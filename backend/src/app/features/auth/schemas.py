@@ -4,6 +4,7 @@ schemas.py — Pydantic DTOs for authentication requests and responses.
 from __future__ import annotations
 
 from pydantic import BaseModel, EmailStr
+from typing import Literal
 
 from app.features.users.schemas import UserRead, UserReadLessData
 
@@ -11,6 +12,7 @@ from app.features.users.schemas import UserRead, UserReadLessData
 class LoginRequest(BaseModel):
     email: EmailStr | str
     password: str
+    role: Literal["student", "teacher"] | None = None
 
 
 class FirebaseLoginRequest(BaseModel):

@@ -79,6 +79,7 @@ def set_auth_cookies(
     Sets secure HttpOnly cookies for both the access token (idToken)
     and the refresh token.
     """
+    response.headers["Cache-Control"] = "no-store"
     # Short-lived Access Token (idToken)
     response.set_cookie(
         key="access_token",
@@ -107,6 +108,7 @@ def clear_auth_cookies(response: Response) -> None:
     Clears both auth cookies.
     Path must match the original set_cookie path exactly.
     """
+    response.headers["Cache-Control"] = "no-store"
     response.delete_cookie(
         key="access_token",
         path="/",

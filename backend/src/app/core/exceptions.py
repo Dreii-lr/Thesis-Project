@@ -62,8 +62,15 @@ class InvalidCredentialsException(DomainException):
 class UnauthorizedDomainException(DomainException):
     """Raised when an operation lacks authentication."""
 
-    def __init__(self, message: str = "Authentication required.") -> None:
-        super().__init__(message, error_code="UNAUTHORIZED")
+    def __init__(self, message: str = "Authentication required.", error_code: str = "UNAUTHORIZED") -> None:
+        super().__init__(message, error_code=error_code)
+
+
+class AuthenticationUnavailableException(DomainException):
+    """Authentication could not be checked; this does not invalidate the session."""
+
+    def __init__(self, message: str = "The sign-in service is temporarily unavailable. Please try again.") -> None:
+        super().__init__(message, error_code="AUTH_UNAVAILABLE")
 
 
 class ForbiddenDomainException(DomainException):
@@ -141,6 +148,11 @@ class CustomInternalServerErrorHTTPException(CustomHTTPException):
         super().__init__(status.HTTP_500_INTERNAL_SERVER_ERROR, detail, "INTERNAL_SERVER_ERROR")
 
 
+class CustomServiceUnavailableHTTPException(CustomHTTPException):
+    def __init__(self, detail: str = "Authentication service unavailable.") -> None:
+        super().__init__(status.HTTP_503_SERVICE_UNAVAILABLE, detail, "AUTH_UNAVAILABLE")
+
+
 # Backward compatibility aliases
 AppException = CustomHTTPException
 NotFoundException = CustomNotFoundHTTPException
@@ -155,6 +167,7 @@ BadRequestException = CustomBadRequestHTTPException
 
 
 DOMAIN_TO_HTTP_MAP: dict[Type[DomainException], Type[CustomHTTPException]] = {
+    AuthenticationUnavailableException: CustomServiceUnavailableHTTPException,
     EntityNotFoundException: CustomNotFoundHTTPException,
     EntityAlreadyExistsException: CustomConflictHTTPException,
     InvalidCredentialsException: CustomUnauthorizedHTTPException,
@@ -183,7 +196,7 @@ async def domain_exception_handler(request: Request, exc: DomainException) -> JS
     http_exc = map_domain_to_http_exception(exc)
     return JSONResponse(
         status_code=http_exc.status_code,
-        content={"success": False, "error_code": http_exc.error_code, "message": http_exc.detail},
+        content={"success": False, "error_code": exc.error_code, "message": http_exc.detail},
     )
 
 

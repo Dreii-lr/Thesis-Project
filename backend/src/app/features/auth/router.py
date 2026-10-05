@@ -90,6 +90,8 @@ async def logout(
 
 @router.get("/me", response_model=UserRead)
 async def get_me(
+        response: Response,
         current_user: User = Depends(get_current_active_user),
 ) -> UserRead:
+    response.headers["Cache-Control"] = "no-store"
     return UserRead.model_validate(current_user)

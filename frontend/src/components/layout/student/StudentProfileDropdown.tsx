@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, LogOut, User } from 'lucide-react';
 import { clearDemoSession, getDemoSession } from '@/src/components/auth/DemoAuthGuard';
@@ -9,27 +9,31 @@ import { clearDemoSession, getDemoSession } from '@/src/components/auth/DemoAuth
 const PROFILE_PHOTO_KEY = 'als-student-profile-photo';
 const PROFILE_PHOTO_EVENT = 'als-student-profile-photo-updated';
 
+function subscribeProfile(callback: () => void) {
+  window.addEventListener(PROFILE_PHOTO_EVENT, callback);
+  window.addEventListener('storage', callback);
+  return () => {
+    window.removeEventListener(PROFILE_PHOTO_EVENT, callback);
+    window.removeEventListener('storage', callback);
+  };
+}
+
+function readProfilePhoto() {
+  try { return localStorage.getItem(PROFILE_PHOTO_KEY); } catch { return null; }
+}
+
+function readIdentity() {
+  return getDemoSession()?.identity || 'ALS Learner';
+}
+
 export default function StudentProfileDropdown() {
   const [isOpen, setIsOpen] = useState(false);
-  const [identity, setIdentity] = useState('ALS Learner');
-  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
+  const identity = useSyncExternalStore(subscribeProfile, readIdentity, () => 'ALS Learner');
+  const profilePhoto = useSyncExternalStore(subscribeProfile, readProfilePhoto, () => null);
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const session = getDemoSession();
-    if (session?.identity) setIdentity(session.identity);
-
-    const loadPhoto = () => setProfilePhoto(localStorage.getItem(PROFILE_PHOTO_KEY));
-    loadPhoto();
-    window.addEventListener(PROFILE_PHOTO_EVENT, loadPhoto);
-    window.addEventListener('storage', loadPhoto);
-
-    return () => {
-      window.removeEventListener(PROFILE_PHOTO_EVENT, loadPhoto);
-      window.removeEventListener('storage', loadPhoto);
-    };
-  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -49,10 +53,20 @@ export default function StudentProfileDropdown() {
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'AL';
 
-  const handleSignOut = () => {
-    clearDemoSession();
-    setIsOpen(false);
-    router.replace('/login');
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    setSignOutError('');
+    try {
+      await clearDemoSession();
+      setIsOpen(false);
+      router.replace('/login');
+      router.refresh();
+    } catch {
+      setSignOutError('Unable to sign out. Please try again.');
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   const openProfile = () => {
@@ -62,6 +76,7 @@ export default function StudentProfileDropdown() {
 
   return (
     <div className="relative shrink-0" ref={dropdownRef}>
+      {signOutError && <p role="alert" className="text-sm text-red-600">{signOutError}</p>}
       <button
         onClick={() => setIsOpen((current) => !current)}
         className="flex max-w-[190px] items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-slate-50"
@@ -112,9 +127,10 @@ export default function StudentProfileDropdown() {
             type="button"
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium text-slate-600 transition hover:bg-red-50 hover:text-red-600"
             onClick={handleSignOut}
+            disabled={isSigningOut}
           >
             <LogOut size={16} className="text-slate-400" />
-            Sign Out
+            {isSigningOut ? 'Signing out...' : 'Sign Out'}
           </button>
         </div>
       )}

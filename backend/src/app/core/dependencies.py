@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from fastapi import Cookie, Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.concurrency import run_in_threadpool
 
 from app.core.exceptions import (
     ForbiddenDomainException,
@@ -34,9 +35,10 @@ async def get_current_user(
     token = access_token or (credentials.credentials if credentials else None)
 
     if not token:
-        raise UnauthorizedDomainException("Authentication token missing.")
+        raise UnauthorizedDomainException("Authentication token missing.", "TOKEN_MISSING")
 
-    claims = verify_firebase_id_token(token, check_revoked=True)
+    # Firebase performs blocking certificate/revocation requests.
+    claims = await run_in_threadpool(verify_firebase_id_token, token, check_revoked=True)
     if not claims:
         raise UnauthorizedDomainException("Invalid, expired, or revoked token.")
 

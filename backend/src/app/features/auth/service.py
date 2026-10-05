@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 
 from app.core.exceptions import (
+    AuthenticationUnavailableException,
+    ForbiddenDomainException,
     InvalidCredentialsException,
     SessionExpiredException,
     SessionRevokedException,
@@ -32,6 +34,13 @@ from app.features.users.models import User, UserRole, UserStatus
 from app.features.users.schemas import UserRead
 from app.shared import retry_on_transient
 from app.shared.schema import SuccessfulResponseSchema, AdditionalData
+from starlette.concurrency import run_in_threadpool
+
+
+def _check_login_role(user, expected_role: str | None) -> None:
+    if expected_role and user.role != expected_role:
+        role = getattr(user.role, "value", user.role)
+        raise ForbiddenDomainException(f"This account is registered as a {role}, not a {expected_role}.")
 
 
 def _hash_token(token: str) -> str:
@@ -54,6 +63,13 @@ class AuthService:
             #handling firebase login if it type email
             if firebase_data:
 
+                user = await uow.users.get_by_firebase_uid(firebase_data.get("localId", ""))
+                if not user:
+                    raise UnauthorizedDomainException("Your account is not registered in this application. Please contact your administrator.")
+                if user.status != UserStatus.ACTIVE:
+                    raise UnauthorizedDomainException("User account is inactive.")
+                _check_login_role(user, data.role)
+
                 #store access token and refresh token on Cookies
                 response_schema = SuccessfulResponseSchema(message="Successfully logged in.",
                                                            message_status="OK")
@@ -62,19 +78,26 @@ class AuthService:
 
                 return response_schema
 
-        #login using the student number
-        user = await uow.users.get_by_student_id(data.email)
+            raise InvalidCredentialsException("Invalid email or password.")
 
-        if not user or not verify_password(data.password, user.password):
+        # Both student and teacher portals accept an institutional ID.
+        user = await uow.users.get_by_student_id(data.email)
+        if not user:
+            user = await uow.users.get_by_teacher_id(data.email)
+
+        if not user or not user.password or not verify_password(data.password, user.password):
             raise InvalidCredentialsException("Invalid email or password.")
 
         if user.status != UserStatus.ACTIVE:
             raise UnauthorizedDomainException("User account is inactive.")
+        _check_login_role(user, data.role)
 
         # Create tokens
         claims = {"user_role": user.role, "user_uid": user.user_id}
-        custom_token = create_custom_token(user.firebase_uid, developer_claims=claims)
+        custom_token = await run_in_threadpool(create_custom_token, user.firebase_uid, developer_claims=claims)
         tokens = await exchange_custom_token_for_id_tokens(custom_token)
+        if not tokens or not tokens.idToken or not tokens.refreshToken:
+            raise AuthenticationUnavailableException("Unable to start your session. Please try again.")
         # access_token = create_access_token(
         #     {"sub": str(user.user_id), "role": user.role.value}
         # )
@@ -102,12 +125,12 @@ class AuthService:
     # app/core/firebase.py (already have this — no change needed)
     async def refresh_firebase_token(refresh_token: str) -> SuccessfulResponseSchema:
         if not refresh_token:
-            raise UnauthorizedDomainException("No refresh token.")
+            raise UnauthorizedDomainException("Please sign in to continue.", "TOKEN_MISSING")
 
 
         tokens = await refresh_firebase_token(refresh_token)
         if not tokens:
-            raise UnauthorizedDomainException("Session expired or revoked.")
+            raise UnauthorizedDomainException("Your session has ended. Please sign in again.", "TOKEN_REVOKED")
 
         success_schema = SuccessfulResponseSchema(message="Successfully refreshed token.",message_status="OK")
         success_schema.data =  AdditionalData(token=tokens)
@@ -123,6 +146,6 @@ class AuthService:
             response.message = "Already logged out. Back to log in."
             return response
 
-        logout(access_token)
+        await run_in_threadpool(logout, access_token)
 
         return response
