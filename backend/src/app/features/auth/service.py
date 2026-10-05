@@ -69,6 +69,7 @@ class AuthService:
         return SuccessfulResponseSchema(message="Successfully logged in.", data=AdditionalData(token=tokens))
 
     @staticmethod
+    @retry_on_transient
     async def recover_account(
         uow: AbstractUnitOfWork, data: AccountRecoveryRequest,
     ) -> SuccessfulResponseSchema:
@@ -89,6 +90,7 @@ class AuthService:
         )
 
     @staticmethod
+    @retry_on_transient
     async def refresh_firebase_token(refresh_token: str) -> SuccessfulResponseSchema:
         if not refresh_token:
             raise UnauthorizedDomainException("Please sign in to continue.", "TOKEN_MISSING")
