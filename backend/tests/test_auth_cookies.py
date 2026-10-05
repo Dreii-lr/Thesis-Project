@@ -53,6 +53,31 @@ class AuthCookieTests(unittest.TestCase):
                     self.assertEqual(deleted[name]['path'], cookies[name]['path'])
                     self.assertEqual(bool(deleted[name]['secure']), expected)
                     self.assertEqual(deleted[name]['max-age'], '0')
+                    self.assertIn('1970', deleted[name]['expires'])
+
+    def test_dynamic_expiration_arguments(self):
+        from datetime import timedelta
+        security = self.load_security('development', False)
+        response = Response()
+        custom_access = timedelta(hours=3)
+        custom_refresh = timedelta(days=14)
+
+        security.set_auth_cookies(
+            response,
+            'access-val',
+            'refresh-val',
+            access_token_expires=custom_access,
+            refresh_token_expires=custom_refresh,
+        )
+
+        cookies = SimpleCookie()
+        for header in response.headers.getlist('set-cookie'):
+            cookies.load(header)
+
+        self.assertEqual(cookies['access_token']['max-age'], str(int(custom_access.total_seconds())))
+        self.assertTrue(len(cookies['access_token']['expires']) > 0)
+        self.assertEqual(cookies['refresh_token']['max-age'], str(int(custom_refresh.total_seconds())))
+        self.assertTrue(len(cookies['refresh_token']['expires']) > 0)
 
 
 if __name__ == '__main__':

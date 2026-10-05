@@ -31,11 +31,12 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/recover", response_model=SuccessfulResponseSchema)
 async def recover_account(
     data: AccountRecoveryRequest,
-    response: Response,
     uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> SuccessfulResponseSchema:
+    response  = await AuthService.recover_account(uow, data)
+    response = SharedUtils.SuccessfulResponse(response)
     response.headers["Cache-Control"] = "no-store"
-    return await AuthService.recover_account(uow, data)
+    return response
 
 
 @router.post("/login", response_model=SuccessfulResponseSchema)
