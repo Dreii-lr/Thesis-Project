@@ -1,61 +1,67 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AssessmentForm from '@/src/components/layout/teacher/assessment-tasks/AssessmentForm';
-import AssignStudentsModal from '@/src/components/ui/teacher/assessment-tasks/AssignStudentsModal';
+import { initialTasks, AssessmentPayload } from '@/src/data/mockAssessment';
 import { ArrowLeft } from 'lucide-react';
 
-export default function ExamPage() {
+function ExamContent() {
   const router = useRouter();
-  
-  // Modal State
-  const [showModal, setShowModal] = useState(false);
-  const [taskTitle, setTaskTitle] = useState('');
+  const searchParams = useSearchParams();
+  const editId = searchParams.get('edit');
 
-  // 1. When the teacher clicks "Publish Exam" in the AssessmentForm
-  const handleSave = (task: any) => {
-    setTaskTitle(task.title);
-    setShowModal(true); // Open the student assignment modal
-  };
+  const [editingTask, setEditingTask] = useState<AssessmentPayload | null>(null);
 
-  // 2. When the teacher confirms the student selection in the Modal
-  const confirmAssignment = () => {
-    setShowModal(false);
-    // Ideally, you would save to your database here.
-    // For now, we return them to the main dashboard.
+  useEffect(() => {
+    if (editId) {
+      const existingRaw = localStorage.getItem('als_assessments');
+      const existing: AssessmentPayload[] = existingRaw ? JSON.parse(existingRaw) : initialTasks;
+      const found = existing.find((t) => t.id === editId);
+      if (found) setEditingTask(found);
+    }
+  }, [editId]);
+
+  const handleSave = (task: AssessmentPayload) => {
+    const existingRaw = localStorage.getItem('als_assessments');
+    const existing: AssessmentPayload[] = existingRaw ? JSON.parse(existingRaw) : initialTasks;
+
+    const updated = editId
+      ? existing.map((t) => (t.id === editId ? task : t))
+      : [task, ...existing];
+
+    localStorage.setItem('als_assessments', JSON.stringify(updated));
     router.push('/teacher/assessment-tasks');
   };
 
   return (
     <div className="w-full p-4 sm:p-6 lg:p-8 font-sans">
       <div className="mx-auto w-full max-w-[1480px]">
-        
-        {/* Top Navigation */}
         <div className="flex items-center justify-between mb-6">
-          <button 
-            onClick={() => router.back()} 
+          <button
+            type="button"
+            onClick={() => router.back()}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-white border border-slate-200 px-4 text-[13px] font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50"
           >
             <ArrowLeft size={16} strokeWidth={2.2} /> Back
           </button>
         </div>
 
-        {/* The Form */}
-        <AssessmentForm 
-          type="Exam" 
-          onSave={handleSave} 
-          onCancel={() => router.back()} 
-        />
-        
-        {/* Assignment Popup Modal */}
-        <AssignStudentsModal 
-          isOpen={showModal} 
-          onClose={() => setShowModal(false)} 
-          onConfirm={confirmAssignment} 
-          taskTitle={taskTitle} 
+        <AssessmentForm
+          type="Exam"
+          initialData={editingTask}
+          onSave={handleSave}
+          onCancel={() => router.back()}
         />
       </div>
     </div>
+  );
+}
+
+export default function ExamPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-sm text-slate-500">Loading exam editor...</div>}>
+      <ExamContent />
+    </Suspense>
   );
 }
