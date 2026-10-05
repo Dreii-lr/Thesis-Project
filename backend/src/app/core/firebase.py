@@ -14,7 +14,8 @@ from firebase_admin import exceptions as firebase_exceptions
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from app.core.exceptions import AuthenticationUnavailableException, UnauthorizedDomainException
+from app.core.exceptions import AuthenticationUnavailableException, RecoveryRateLimitException, UnauthorizedDomainException
+from starlette.concurrency import run_in_threadpool
 
 from app.core.constants import constants, FIREBASE_CONFIG, IDENTITY_TOOLKIT_BASE, SECURE_TOKEN_BASE
 from app.features.auth.schemas import TokenResponse
@@ -168,6 +169,41 @@ async def sign_in_with_password(email: str, password: str) -> dict | None:
         if not isinstance(data.get("localId"), str) or not data["localId"]:
             raise AuthenticationUnavailableException()
     return data
+
+
+async def send_password_reset_email(firebase_uid: str) -> None:
+    """Send Firebase's hosted reset link to the account's actual Firebase email."""
+    unavailable_message = "Unable to send the recovery email right now. Please try again later."
+    try:
+        firebase_user = await run_in_threadpool(auth.get_user, firebase_uid, app=_require_firebase())
+        if firebase_user.disabled or not firebase_user.email:
+            return
+        url = f"{IDENTITY_TOOLKIT_BASE}/accounts:sendOobCode?key={constants.FIREBASE_API_KEY}"
+        # Sending email is not idempotent: do not retry an ambiguous timeout and
+        # send multiple reset links. Firebase handles codes and email delivery.
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json={
+                "requestType": "PASSWORD_RESET", "email": firebase_user.email,
+            })
+        data = response.json()
+        if response.is_success and isinstance(data, dict):
+            return
+        error = data.get("error", {}) if isinstance(data, dict) else {}
+        message = error.get("message", "") if isinstance(error, dict) else ""
+        code = message.split(" : ")[0] if isinstance(message, str) else ""
+        if response.status_code == 400 and code in {"EMAIL_NOT_FOUND", "USER_DISABLED"}:
+            return  # An account may disappear between lookup and sending.
+        if response.status_code == 429 or code in {"TOO_MANY_ATTEMPTS_TRY_LATER", "RESET_PASSWORD_EXCEED_LIMIT"}:
+            raise RecoveryRateLimitException()
+        logger.warning("Password reset email rejected (HTTP %s).", response.status_code)
+    except auth.UserNotFoundError:
+        return
+    except RecoveryRateLimitException:
+        raise
+    except Exception as exc:
+        # Do not log email addresses, reset codes, API keys, or provider bodies.
+        logger.warning("Password reset email unavailable (%s).", type(exc).__name__)
+    raise AuthenticationUnavailableException(unavailable_message)
 
 
 async def refresh_firebase_token(refresh_token: str) -> TokenResponse | None:

@@ -1,151 +1,111 @@
-"""
-service.py — Authentication business logic consuming Unit of Work.
-"""
+"""Authentication services; Firebase is the password authority for every login."""
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
-import hashlib
+
+from starlette.concurrency import run_in_threadpool
 
 from app.core.exceptions import (
-    AuthenticationUnavailableException,
     ForbiddenDomainException,
     InvalidCredentialsException,
-    SessionExpiredException,
-    SessionRevokedException,
     UnauthorizedDomainException,
-    ValidationDomainException, DomainException,
 )
-from app.core.firebase import verify_firebase_id_token, check_email_in_firebase, sign_in_with_password, \
-    create_custom_token, exchange_custom_token_for_id_tokens, refresh_firebase_token, logout
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    decode_token,
-    verify_password, hash_password,
+from app.core.firebase import (
+    logout,
+    refresh_firebase_token,
+    send_password_reset_email,
+    sign_in_with_password,
 )
 from app.core.unit_of_work import AbstractUnitOfWork
-from app.features.auth.models import UserSession
-from app.features.auth.schemas import (
-    FirebaseLoginRequest,
-    LoginRequest,
-    RefreshTokenResponse,
-    TokenResponse,
-)
-from app.features.users.models import User, UserRole, UserStatus
+from app.features.auth.schemas import AccountRecoveryRequest, LoginRequest, TokenResponse
+from app.features.users.models import UserStatus
 from app.features.users.schemas import UserRead
 from app.shared import retry_on_transient
 from app.shared.schema import SuccessfulResponseSchema, AdditionalData
-from starlette.concurrency import run_in_threadpool
 
 
-def _check_login_role(user, expected_role: str | None) -> None:
+def _check_login_role(user: UserRead, expected_role: str | None) -> None:
     if expected_role and user.role != expected_role:
         role = getattr(user.role, "value", user.role)
         raise ForbiddenDomainException(f"This account is registered as a {role}, not a {expected_role}.")
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 class AuthService:
     @staticmethod
     @retry_on_transient
     async def login_with_password(
-            uow: AbstractUnitOfWork,
-            data: LoginRequest,
-            user_agent: str | None = None,
-            ip_address: str | None = None,
+        uow: AbstractUnitOfWork,
+        data: LoginRequest,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
     ) -> SuccessfulResponseSchema:
-        #check first if login using email
+        identity = data.email.strip()
+        user = None
+        if "@" in identity:
+            email = identity.lower()
+        else:
+            user = await uow.users.get_by_student_id(identity)
+            if not user:
+                user = await uow.users.get_by_teacher_id(identity)
+            if not user or not user.email or not user.firebase_uid:
+                raise InvalidCredentialsException("Invalid email/ID or password.")
+            email = user.email
 
-        if "@" in data.email: #checking if the user used email as login method, then use firebase
-            firebase_data = await sign_in_with_password(data.email, data.password)
-            #handling firebase login if it type email
-            if firebase_data:
-
-                user = await uow.users.get_by_firebase_uid(firebase_data.get("localId", ""))
-                if not user:
-                    raise UnauthorizedDomainException("Your account is not registered in this application. Please contact your administrator.")
-                if user.status != UserStatus.ACTIVE:
-                    raise UnauthorizedDomainException("User account is inactive.")
-                _check_login_role(user, data.role)
-
-                #store access token and refresh token on Cookies
-                response_schema = SuccessfulResponseSchema(message="Successfully logged in.",
-                                                           message_status="OK")
-                response_token = TokenResponse(idToken=firebase_data.get("idToken", ""), refreshToken=firebase_data.get("refreshToken", ""))
-                response_schema.data = AdditionalData(token=response_token)
-
-                return response_schema
-
-            raise InvalidCredentialsException("Invalid email or password.")
-
-        # Both student and teacher portals accept an institutional ID.
-        user = await uow.users.get_by_student_id(data.email)
+        # A local hash can be stale after an email reset. Never use it to bypass
+        # Firebase's current password, disabled-account checks, or reset flow.
+        firebase_data = await sign_in_with_password(email, data.password)
+        if not firebase_data:
+            raise InvalidCredentialsException("Invalid email/ID or password.")
+        firebase_uid = firebase_data["localId"]
+        if user is not None and user.firebase_uid != firebase_uid:
+            raise InvalidCredentialsException("Invalid email/ID or password.")
+        if user is None:
+            user = await uow.users.get_by_firebase_uid(firebase_uid)
         if not user:
-            user = await uow.users.get_by_teacher_id(data.email)
-
-        if not user or not user.password or not verify_password(data.password, user.password):
-            raise InvalidCredentialsException("Invalid email or password.")
-
+            raise UnauthorizedDomainException("Your account is not registered in this application. Please contact your administrator.")
         if user.status != UserStatus.ACTIVE:
             raise UnauthorizedDomainException("User account is inactive.")
         _check_login_role(user, data.role)
 
-        # Create tokens
-        claims = {"user_role": user.role, "user_uid": user.user_id}
-        custom_token = await run_in_threadpool(create_custom_token, user.firebase_uid, developer_claims=claims)
-        tokens = await exchange_custom_token_for_id_tokens(custom_token)
-        if not tokens or not tokens.idToken or not tokens.refreshToken:
-            raise AuthenticationUnavailableException("Unable to start your session. Please try again.")
-        # access_token = create_access_token(
-        #     {"sub": str(user.user_id), "role": user.role.value}
-        # )
-        # refresh_token = create_refresh_token({"sub": str(user.user_id)})
-        #
-        # # Store session
-        # refresh_hash = _hash_token(refresh_token)
-        # expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-        #
-        # session = UserSession(
-        #     user_id=user.user_id,
-        #     refresh_token_hash=refresh_hash,
-        #     user_agent=user_agent,
-        #     ip_address=ip_address,
-        #     expires_at=expires_at,
-        # )
-        # await uow.sessions.create(session)
-
-        response_schema = SuccessfulResponseSchema(message="Successfully logged in.", message_status="OK")
-        response_schema.data = AdditionalData(token=tokens)
-        return response_schema
+        tokens = TokenResponse(idToken=firebase_data["idToken"], refreshToken=firebase_data["refreshToken"])
+        return SuccessfulResponseSchema(message="Successfully logged in.", data=AdditionalData(token=tokens))
 
     @staticmethod
-    @retry_on_transient
-    # app/core/firebase.py (already have this — no change needed)
+    async def recover_account(
+        uow: AbstractUnitOfWork, data: AccountRecoveryRequest,
+    ) -> SuccessfulResponseSchema:
+        identity = data.email
+        if "@" in identity:
+            user = await uow.users.get_by_email(identity.lower())
+        else:
+            user = await uow.users.get_by_student_id(identity)
+            if not user:
+                user = await uow.users.get_by_teacher_id(identity)
+
+        if user and user.status == UserStatus.ACTIVE and user.firebase_uid:
+            await send_password_reset_email(user.firebase_uid)
+
+        # Never disclose existence, account status, or the destination address.
+        return SuccessfulResponseSchema(
+            message="If an active account matches those details, a password reset link will be sent to its registered email address.",
+        )
+
+    @staticmethod
     async def refresh_firebase_token(refresh_token: str) -> SuccessfulResponseSchema:
         if not refresh_token:
             raise UnauthorizedDomainException("Please sign in to continue.", "TOKEN_MISSING")
-
-
         tokens = await refresh_firebase_token(refresh_token)
         if not tokens:
             raise UnauthorizedDomainException("Your session has ended. Please sign in again.", "TOKEN_REVOKED")
+        return SuccessfulResponseSchema(
+            message="Successfully refreshed token.", data=AdditionalData(token=tokens),
+        )
 
-        success_schema = SuccessfulResponseSchema(message="Successfully refreshed token.",message_status="OK")
-        success_schema.data =  AdditionalData(token=tokens)
-
-        return success_schema
     @staticmethod
-    @retry_on_transient
     async def logout(access_token: str) -> SuccessfulResponseSchema:
-        response = SuccessfulResponseSchema(message="Successfully logged out.",
-                                            message_status="LOGGED_OUT",
-                                            )
+        response = SuccessfulResponseSchema(
+            message="Successfully logged out.", message_status="LOGGED_OUT",
+        )
         if not access_token:
             response.message = "Already logged out. Back to log in."
             return response
-
         await run_in_threadpool(logout, access_token)
-
         return response

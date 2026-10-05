@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
-from app.core.exceptions import DomainException
+from app.core.exceptions import DomainException, InvalidCredentialsException
 from app.features.users import service
 from app.features.users.schemas import ChangePasswordRequest
 
@@ -16,7 +16,7 @@ def setup_test_db():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("commit_fails", [False, True])
 async def test_password_is_reverted_only_when_database_commit_fails(monkeypatch, commit_fails):
-    user = SimpleNamespace(firebase_uid="firebase-1", password="old-hash")
+    user = SimpleNamespace(firebase_uid="firebase-1", password="old-hash", email="user@example.com")
     uow = SimpleNamespace(
         users=SimpleNamespace(get_entity_with_details=AsyncMock(return_value=user)),
         commit=AsyncMock(side_effect=RuntimeError("database unavailable") if commit_fails else None),
@@ -24,7 +24,8 @@ async def test_password_is_reverted_only_when_database_commit_fails(monkeypatch,
     )
     update = Mock(return_value=True)
     revoke = Mock(return_value=True)
-    monkeypatch.setattr(service, "verify_password", Mock(return_value=True))
+    verify = AsyncMock(return_value={"localId": "firebase-1"})
+    monkeypatch.setattr(service, "sign_in_with_password", verify)
     monkeypatch.setattr(service, "hash_password", Mock(return_value="new-hash"))
     monkeypatch.setattr(service, "update_firebase_user_password", update)
     monkeypatch.setattr(service, "revoke_firebase_user_tokens", revoke)
@@ -42,3 +43,19 @@ async def test_password_is_reverted_only_when_database_commit_fails(monkeypatch,
         revoke.assert_called_once_with("firebase-1")
         uow.rollback.assert_not_awaited()
     uow.commit.assert_awaited_once()
+    verify.assert_awaited_once_with(user.email, "old-password")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("credentials", [None, {"localId": "another-account"}])
+async def test_password_change_rejects_stale_password_or_mismatched_account(monkeypatch, credentials):
+    user = SimpleNamespace(firebase_uid="firebase-1", email="user@example.com", password="stale-hash")
+    uow = SimpleNamespace(users=SimpleNamespace(get_entity_with_details=AsyncMock(return_value=user)))
+    monkeypatch.setattr(service, "sign_in_with_password", AsyncMock(return_value=credentials))
+    update = Mock()
+    monkeypatch.setattr(service, "update_firebase_user_password", update)
+    with pytest.raises(InvalidCredentialsException):
+        await service.UserService.change_password(uow, "user-1", ChangePasswordRequest(
+            current_password="old-password", new_password="new-password",
+        ))
+    update.assert_not_called()

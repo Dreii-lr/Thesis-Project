@@ -73,6 +73,11 @@ class AuthenticationUnavailableException(DomainException):
         super().__init__(message, error_code="AUTH_UNAVAILABLE")
 
 
+class RecoveryRateLimitException(DomainException):
+    def __init__(self, message: str = "Too many recovery requests. Please wait a few minutes before trying again.") -> None:
+        super().__init__(message, error_code="RECOVERY_RATE_LIMITED")
+
+
 class ForbiddenDomainException(DomainException):
     """Raised when an authenticated user lacks permission for an action."""
 
@@ -153,6 +158,11 @@ class CustomServiceUnavailableHTTPException(CustomHTTPException):
         super().__init__(status.HTTP_503_SERVICE_UNAVAILABLE, detail, "AUTH_UNAVAILABLE")
 
 
+class CustomTooManyRequestsHTTPException(CustomHTTPException):
+    def __init__(self, detail: str = "Too many requests.") -> None:
+        super().__init__(status.HTTP_429_TOO_MANY_REQUESTS, detail, "RECOVERY_RATE_LIMITED")
+
+
 # Backward compatibility aliases
 AppException = CustomHTTPException
 NotFoundException = CustomNotFoundHTTPException
@@ -167,6 +177,7 @@ BadRequestException = CustomBadRequestHTTPException
 
 
 DOMAIN_TO_HTTP_MAP: dict[Type[DomainException], Type[CustomHTTPException]] = {
+    RecoveryRateLimitException: CustomTooManyRequestsHTTPException,
     AuthenticationUnavailableException: CustomServiceUnavailableHTTPException,
     EntityNotFoundException: CustomNotFoundHTTPException,
     EntityAlreadyExistsException: CustomConflictHTTPException,

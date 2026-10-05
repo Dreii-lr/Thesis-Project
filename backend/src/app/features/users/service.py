@@ -22,8 +22,9 @@ from app.core.firebase import (
     check_email_in_firebase,
     update_firebase_user_password,
     revoke_firebase_user_tokens,
+    sign_in_with_password,
 )
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.users.models import (
     ContactDetails,
@@ -429,7 +430,7 @@ class UserService:
     ) -> SuccessfulResponseSchema:
         """
         Changes user password synchronously across Firebase Auth and PostgreSQL.
-        - Validates current password against local database bcrypt hash.
+        - Validates current password with Firebase (including emailed resets).
         - Updates Firebase Authentication password first (Cloud-First).
         - Encrypts with bcrypt and updates PostgreSQL database.
         - Triggers compensating rollback on Firebase if DB write fails.
@@ -442,8 +443,11 @@ class UserService:
         if not user:
             raise EntityNotFoundException(f"User '{user_id}' not found.")
 
-        # Verify current password
-        if not verify_password(data.current_password, user.password):
+        # Email resets update Firebase directly; the legacy database hash may be stale.
+        if not user.email or not user.firebase_uid:
+            raise InvalidCredentialsException("This account cannot change its password. Please contact your administrator.")
+        credentials = await sign_in_with_password(user.email, data.current_password)
+        if not credentials or credentials["localId"] != user.firebase_uid:
             raise InvalidCredentialsException("Current password is incorrect.")
 
         if data.current_password == data.new_password:

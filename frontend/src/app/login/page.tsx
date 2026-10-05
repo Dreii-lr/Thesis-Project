@@ -54,6 +54,7 @@ export default function LoginPage() {
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryIdentity, setRecoveryIdentity] = useState('');
   const [recoveryState, setRecoveryState] = useState<RecoveryState>('idle');
+  const [recoveryError, setRecoveryError] = useState('');
   const [isRecovering, setIsRecovering] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -102,20 +103,25 @@ export default function LoginPage() {
   const openRecovery = () => {
     setRecoveryIdentity(identity);
     setRecoveryState('idle');
+    setRecoveryError('');
     setRecoveryOpen(true);
   };
 
   const submitRecovery = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!recoveryIdentity.trim()) return;
+    if (isRecovering) return;
+    setRecoveryError('');
+    if (!recoveryIdentity.trim()) {
+      setRecoveryError('Please enter your email or ID.');
+      return;
+    }
 
     setIsRecovering(true);
     try {
       await requestAccountRecovery(recoveryIdentity.trim());
       setRecoveryState('success');
-    } catch {
-      // Still show success screen to prevent account enumeration
-      setRecoveryState('success');
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : 'Unable to send the recovery email. Please try again.');
     } finally {
       setIsRecovering(false);
     }
@@ -341,7 +347,7 @@ export default function LoginPage() {
       {/* ACCOUNT RECOVERY MODAL */}
       {recoveryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_30px_100px_rgba(15,23,42,0.3)]">
+          <div role="dialog" aria-modal="true" aria-labelledby="recovery-title" className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_30px_100px_rgba(15,23,42,0.3)]">
             <div className="flex items-start justify-between">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                 {recoveryState === 'success' ? (
@@ -356,6 +362,7 @@ export default function LoginPage() {
                 onClick={() => setRecoveryOpen(false)}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 aria-label="Close account recovery"
+                disabled={isRecovering}
               >
                 <X size={18} />
               </button>
@@ -363,12 +370,13 @@ export default function LoginPage() {
 
             {recoveryState === 'success' ? (
               <div className="mt-5">
-                <h3 className="text-xl font-extrabold text-slate-900">
-                  Recovery request received
+                <h3 id="recovery-title" className="text-xl font-extrabold text-slate-900">
+                  Check your email
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Your recovery request has been recorded. Please contact your ALS teacher or system administrator if you still cannot access your account.
+                  If an active account matches those details, a password reset link will be sent to its registered email address. Open the link to choose a new password, then return here to sign in with your email or ID.
                 </p>
+                <p className="mt-2 text-sm leading-6 text-slate-500">Check your spam or junk folder too. If you no longer have access to that email address, contact your ALS teacher or administrator.</p>
                 <button
                   type="button"
                   onClick={() => setRecoveryOpen(false)}
@@ -379,11 +387,11 @@ export default function LoginPage() {
               </div>
             ) : (
               <form onSubmit={submitRecovery} className="mt-5">
-                <h3 className="text-xl font-extrabold text-slate-900">
+                <h3 id="recovery-title" className="text-xl font-extrabold text-slate-900">
                   Recover your account
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Enter your email address or ID associated with your Alternative Learning System account.
+                  Enter your account email address or student/teacher ID. We’ll email a link to reset your password.
                 </p>
 
                 <label htmlFor="recoveryIdentity" className="mt-5 block text-sm font-bold text-slate-800">
@@ -397,15 +405,22 @@ export default function LoginPage() {
                     value={recoveryIdentity}
                     onChange={(event) => setRecoveryIdentity(event.target.value)}
                     required
+                    maxLength={254}
+                    disabled={isRecovering}
+                    autoComplete="username"
+                    autoFocus
                     placeholder="Enter your email or ID"
                     className="ml-3 h-full flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
                   />
                 </div>
 
+                {recoveryError && <p role="alert" className="mt-3 text-sm text-red-600">{recoveryError}</p>}
+
                 <div className="mt-6 grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setRecoveryOpen(false)}
+                    disabled={isRecovering}
                     className="h-11 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50"
                   >
                     Cancel
@@ -416,7 +431,8 @@ export default function LoginPage() {
                     disabled={isRecovering}
                     className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#2f6df6] text-sm font-bold text-white hover:bg-[#245de0] disabled:opacity-70"
                   >
-                    {isRecovering ? <Loader2 size={16} className="animate-spin" /> : 'Continue'}
+                    {isRecovering && <Loader2 size={16} className="animate-spin" />}
+                    {isRecovering ? 'Sending...' : 'Send reset link'}
                   </button>
                 </div>
               </form>

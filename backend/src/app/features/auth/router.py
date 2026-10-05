@@ -11,6 +11,7 @@ from app.core.security import set_auth_cookies, clear_auth_cookies
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user
 from app.features.auth.schemas import (
+    AccountRecoveryRequest,
     FirebaseLoginRequest,
     LoginRequest,
     MessageResponse,
@@ -25,6 +26,16 @@ from app.shared.schema import SuccessfulResponseSchema
 from app.shared.utils import SharedUtils
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/recover", response_model=SuccessfulResponseSchema)
+async def recover_account(
+    data: AccountRecoveryRequest,
+    response: Response,
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> SuccessfulResponseSchema:
+    response.headers["Cache-Control"] = "no-store"
+    return await AuthService.recover_account(uow, data)
 
 
 @router.post("/login", response_model=SuccessfulResponseSchema)

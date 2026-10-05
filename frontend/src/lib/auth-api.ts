@@ -211,13 +211,19 @@ export async function logoutUser(): Promise<void> {
 }
 
 export async function requestAccountRecovery(identity: string): Promise<void> {
+  let response: Response;
   try {
-    await fetch(`${API_BASE_URL}/auth/recover`, {
+    response = await fetch(`${API_BASE_URL}/auth/recover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({ email: identity.trim() }),
     });
   } catch {
-    // Gracefully resolve if backend /auth/recover endpoint is not implemented yet
+    throw new Error('Unable to reach the server. Please check your connection and try again.');
+  }
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response,
+      'Unable to send the recovery email. Please try again later.'));
   }
 }
