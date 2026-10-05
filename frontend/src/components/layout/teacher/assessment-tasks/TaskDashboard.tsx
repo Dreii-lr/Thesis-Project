@@ -1,192 +1,503 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Task, mockSubjects } from '@/src/data/mockAssessment';
-import { FileText, GraduationCap, ListTodo, Search, ChevronRight, ChevronLeft } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Calendar,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  FileEdit,
+  Send,
+  Users,
+  BookOpen,
+  Pencil,
+  Trash2,
+  X,
+  UserCheck,
+  CheckSquare,
+  Square,
+} from 'lucide-react';
+import {
+  TargetCategory,
+  CATEGORY_LABELS,
+  mockStudents,
+} from '@/src/data/mockAssessment';
 
-export default function TaskDashboard({ tasks }: { tasks: Task[] }) {
-  const [activeTab, setActiveTab] = useState('All Tasks');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSubject, setSelectedSubject] = useState('All Subjects');
-  
-  // Pagination State
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 5;
+interface TaskDashboardProps {
+  tasks: any[];
+  onUpdateTasks?: (tasks: any[]) => void;
+}
 
-  // Filter Logic
-  const filteredTasks = useMemo(() => {
-    let filtered = tasks.filter((task) => {
-      const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesSubject = selectedSubject === 'All Subjects' || task.subject === selectedSubject;
-      
-      let matchesTab = true;
-      if (activeTab === 'Activities') matchesTab = task.type === 'Activity';
-      if (activeTab === 'Quizzes') matchesTab = task.type === 'Quiz';
-      if (activeTab === 'Exams') matchesTab = task.type === 'Exam';
+export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboardProps) {
+  const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const [localTasks, setLocalTasks] = useState<any[]>(tasks);
+  const [selectedCategory, setSelectedCategory] = useState<'all' | TargetCategory>('all');
+  const [selectedStatus, setSelectedStatus] = useState<'ALL' | 'DRAFT' | 'PENDING' | 'PUBLISHED'>('ALL');
 
-      return matchesSearch && matchesSubject && matchesTab;
-    });
-    return filtered;
-  }, [tasks, activeTab, searchQuery, selectedSubject]);
+  // Built-in Publish Modal State
+  const [publishingTask, setPublishingTask] = useState<any | null>(null);
+  const [modalCategory, setModalCategory] = useState<TargetCategory>('junior_high_school');
+  const [assignType, setAssignType] = useState<'all' | 'specific'>('all');
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
-  // Pagination Logic
-  const totalPages = Math.ceil(filteredTasks.length / ITEMS_PER_PAGE);
-  const paginatedTasks = filteredTasks.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  useEffect(() => {
+    setMounted(true);
+    setLocalTasks(tasks);
+  }, [tasks]);
 
-  // Reset page when filters change
-  React.useEffect(() => { setCurrentPage(1); }, [searchQuery, selectedSubject, activeTab]);
+  const formatDateTime = (isoOrDateStr?: string, fallback?: string) => {
+    if (!mounted) return '...';
+    if (!isoOrDateStr) return fallback || 'Not set';
+    const d = new Date(isoOrDateStr);
+    if (isNaN(d.getTime())) return isoOrDateStr;
+    return `${d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })} • ${d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    })}`;
+  };
 
-  const getTypeIcon = (type: string) => {
-    switch(type) {
-      case 'Activity': return <FileText size={18} className="text-blue-600" />;
-      case 'Exam': return <GraduationCap size={18} className="text-orange-600" />;
-      case 'Quiz': return <ListTodo size={18} className="text-purple-600" />;
-      default: return null;
+  const normalizeStatus = (t: any): 'DRAFT' | 'PENDING' | 'PUBLISHED' => {
+    const raw = String(t.status || 'PENDING').toUpperCase();
+    if (raw === 'DRAFT') return 'DRAFT';
+    if (raw === 'PUBLISHED' || raw === 'ACTIVE') return 'PUBLISHED';
+    return 'PENDING';
+  };
+
+  const normalizeCategory = (t: any): TargetCategory => {
+    const raw = String(t.target_category || t.program || t.subject || '').toLowerCase();
+    if (raw.includes('elem')) return 'elementary';
+    if (raw.includes('basic') || raw.includes('blp')) return 'basic_literacy_program';
+    return 'junior_high_school';
+  };
+
+  const normalizeType = (t: any): 'QUIZ' | 'EXAM' | 'ACTIVITY' => {
+    const raw = String(t.assessment_type || t.type || 'QUIZ').toUpperCase();
+    if (raw === 'EXAM') return 'EXAM';
+    if (raw === 'ACTIVITY') return 'ACTIVITY';
+    return 'QUIZ';
+  };
+
+  const filteredTasks = localTasks.filter((t) => {
+    const cat = normalizeCategory(t);
+    const st = normalizeStatus(t);
+    const matchesCategory = selectedCategory === 'all' || cat === selectedCategory;
+    const matchesStatus = selectedStatus === 'ALL' || st === selectedStatus;
+    return matchesCategory && matchesStatus;
+  });
+
+  const openPublishModal = (task: any) => {
+    const cat = normalizeCategory(task);
+    setPublishingTask(task);
+    setModalCategory(cat);
+    setAssignType(task.assign_type || 'all');
+    setSelectedStudentIds(task.assigned_student_ids || []);
+  };
+
+  const handleEditTask = (task: any) => {
+    if (!task.id) return;
+    const aType = normalizeType(task);
+    if (aType === 'QUIZ') {
+      router.push(`/teacher/assessment-tasks/quizzes?edit=${task.id}`);
+    } else if (aType === 'EXAM') {
+      router.push(`/teacher/assessment-tasks/exam?edit=${task.id}`);
+    } else {
+      router.push(`/teacher/assessment-tasks/activity?edit=${task.id}`);
     }
   };
 
-  const getTypeColor = (type: string) => {
-    switch(type) {
-      case 'Activity': return 'ring-blue-200/50 text-blue-700 bg-blue-50';
-      case 'Exam': return 'ring-orange-200/50 text-orange-700 bg-orange-50';
-      case 'Quiz': return 'ring-purple-200/50 text-purple-700 bg-purple-50';
-      default: return '';
-    }
+  const handleDeleteTask = (id?: string) => {
+    if (!id) return;
+    if (!window.confirm('Are you sure you want to delete this assessment?')) return;
+    const updated = localTasks.filter((t) => t.id !== id);
+    setLocalTasks(updated);
+    localStorage.setItem('als_assessments', JSON.stringify(updated));
+    if (onUpdateTasks) onUpdateTasks(updated);
   };
+
+  const toggleStudentSelection = (id: string) => {
+    setSelectedStudentIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleConfirmPublish = () => {
+    if (!publishingTask) return;
+
+    const classStudents = mockStudents.filter((s) => s.target_category === modalCategory);
+    if (assignType === 'specific' && selectedStudentIds.length === 0) {
+      alert('Please select at least one student for manual assignment.');
+      return;
+    }
+
+    const finalStudentIds =
+      assignType === 'all' ? classStudents.map((s) => s.id) : selectedStudentIds;
+
+    const updated = localTasks.map((t) =>
+      t.id === publishingTask.id
+        ? {
+            ...t,
+            status: 'PUBLISHED',
+            target_category: modalCategory,
+            assign_type: assignType,
+            assigned_student_ids: finalStudentIds,
+          }
+        : t
+    );
+
+    setLocalTasks(updated);
+    localStorage.setItem('als_assessments', JSON.stringify(updated));
+    if (onUpdateTasks) onUpdateTasks(updated);
+    setPublishingTask(null);
+  };
+
+  const modalClassStudents = mockStudents.filter((s) => s.target_category === modalCategory);
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] overflow-hidden">
-      
-      {/* Top Filters */}
-      <div className="flex flex-col gap-4 border-b border-slate-100 p-5 bg-slate-50/30">
-        
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/50 w-fit">
-            {['All Tasks', 'Activities', 'Quizzes', 'Exams'].map(tab => (
-              <button 
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 rounded-lg text-[13px] font-semibold transition-all ${activeTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <select 
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full sm:w-48 bg-white border border-slate-200 text-[13px] font-semibold text-slate-700 rounded-xl px-4 py-2 focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 appearance-none shadow-sm cursor-pointer"
+    <div className="space-y-6">
+      {/* Filter Bar by Target Class Category & Status */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(
+            [
+              { key: 'all', label: 'All Classes' },
+              { key: 'elementary', label: 'Elementary' },
+              { key: 'junior_high_school', label: 'Junior High School' },
+              { key: 'basic_literacy_program', label: 'Basic Literacy Program' },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setSelectedCategory(tab.key)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                selectedCategory === tab.key
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
             >
-              {mockSubjects.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-            </select>
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input 
-                type="text" 
-                placeholder="Search tasks..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white border border-slate-200 text-[13px] text-slate-900 rounded-xl pl-9 pr-4 py-2 focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all placeholder:text-slate-400 shadow-sm"
-              />
+        <div className="flex flex-wrap items-center gap-1.5 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+          {(
+            [
+              { key: 'ALL', label: 'All Status' },
+              { key: 'DRAFT', label: 'Drafts' },
+              { key: 'PENDING', label: 'Pending' },
+              { key: 'PUBLISHED', label: 'Published' },
+            ] as const
+          ).map((st) => (
+            <button
+              key={st.key}
+              type="button"
+              onClick={() => setSelectedStatus(st.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                selectedStatus === st.key
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              {st.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Empty State */}
+      {filteredTasks.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
+          <p className="text-sm font-semibold text-slate-700">No assessments found</p>
+          <p className="text-xs text-slate-400 mt-1">
+            Try switching filters or create a new activity, quiz, or exam.
+          </p>
+        </div>
+      )}
+
+      {/* Assessment Cards Grid */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {filteredTasks.map((task, idx) => {
+          const status = normalizeStatus(task);
+          const category = normalizeCategory(task);
+          const aType = normalizeType(task);
+          const isDraft = status === 'DRAFT';
+          const isPending = status === 'PENDING';
+
+          return (
+            <div
+              key={task.id || `${task.title}-${idx}`}
+              className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:shadow-md"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                    <BookOpen size={12} />
+                    {CATEGORY_LABELS[category]}
+                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    {isDraft ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-200">
+                        <FileEdit size={11} /> Draft
+                      </span>
+                    ) : isPending ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+                        <AlertCircle size={12} /> Pending
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                        <CheckCircle2 size={12} /> Published
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleEditTask(task)}
+                      title="Edit Assessment"
+                      className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                    >
+                      <Pencil size={13} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTask(task.id)}
+                      title="Delete Assessment"
+                      className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-blue-600">
+                  {aType} • {task.subject_code || task.subject || 'ALS'} •{' '}
+                  {task.max_score ?? task.totalPoints ?? 0} pts
+                </div>
+                <h3 className="text-base font-bold text-slate-900 line-clamp-1">{task.title}</h3>
+                {task.description && (
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">{task.description}</p>
+                )}
+
+                <div className="mt-4 space-y-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 border border-slate-100">
+                  {aType !== 'ACTIVITY' && (
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-slate-500 flex items-center gap-1.5">
+                        <Calendar size={13} /> Start:
+                      </span>
+                      <span className="font-semibold text-slate-800">
+                        {formatDateTime(task.start_date, task.deadline)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-500 flex items-center gap-1.5">
+                      <Clock size={13} /> {aType === 'ACTIVITY' ? 'Deadline:' : 'End:'}
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {formatDateTime(task.end_date, task.deadline)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                {isDraft ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleEditTask(task)}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 transition-all"
+                    >
+                      <FileEdit size={14} /> Continue Draft
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openPublishModal(task)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-all"
+                    >
+                      <Send size={13} /> Publish
+                    </button>
+                  </>
+                ) : isPending ? (
+                  <button
+                    type="button"
+                    onClick={() => openPublishModal(task)}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition-all"
+                  >
+                    <Send size={14} /> Click to Publish to Students
+                  </button>
+                ) : (
+                  <div className="flex w-full items-center justify-between text-xs text-slate-500">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
+                      <Users size={14} className="text-emerald-600" />
+                      {task.assign_type === 'specific'
+                        ? `${task.assigned_student_ids?.length || 0} Specific Student(s)`
+                        : `All ${CATEGORY_LABELS[category]} Students`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openPublishModal(task)}
+                      className="text-blue-600 font-semibold hover:underline"
+                    >
+                      Edit Access
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Built-in Publish & Assign Students Modal */}
+      {publishingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Publish & Assign Assessment</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{publishingTask.title}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPublishingTask(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-5">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">
+                  1. Select Class Program
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {(
+                    [
+                      'elementary',
+                      'junior_high_school',
+                      'basic_literacy_program',
+                    ] as TargetCategory[]
+                  ).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => {
+                        setModalCategory(cat);
+                        setSelectedStudentIds([]);
+                      }}
+                      className={`rounded-xl border p-2.5 text-left text-xs font-semibold transition-all ${
+                        modalCategory === cat
+                          ? 'border-blue-600 bg-blue-50/70 text-blue-700 ring-1 ring-blue-600'
+                          : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {CATEGORY_LABELS[cat]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-2">
+                  2. Recipient Option
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAssignType('all')}
+                    className={`flex items-center gap-2.5 rounded-xl border p-3 text-xs font-semibold transition-all ${
+                      assignType === 'all'
+                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Users size={16} />
+                    <div className="text-left">
+                      <div>All Students</div>
+                      <div className="text-[10px] font-normal text-slate-500">
+                        Entire {CATEGORY_LABELS[modalCategory]}
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAssignType('specific')}
+                    className={`flex items-center gap-2.5 rounded-xl border p-3 text-xs font-semibold transition-all ${
+                      assignType === 'specific'
+                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <UserCheck size={16} />
+                    <div className="text-left">
+                      <div>Manual Selection</div>
+                      <div className="text-[10px] font-normal text-slate-500">
+                        Specific students only
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {assignType === 'specific' && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-700">
+                    <span>Select Students ({CATEGORY_LABELS[modalCategory]})</span>
+                    <span className="text-blue-600">{selectedStudentIds.length} selected</span>
+                  </div>
+                  <div className="max-h-44 overflow-y-auto space-y-1.5">
+                    {modalClassStudents.map((student) => {
+                      const checked = selectedStudentIds.includes(student.id);
+                      return (
+                        <div
+                          key={student.id}
+                          onClick={() => toggleStudentSelection(student.id)}
+                          className={`flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-xs font-medium transition-all ${
+                            checked
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span>{student.name}</span>
+                          {checked ? <CheckSquare size={15} /> : <Square size={15} />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setPublishingTask(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmPublish}
+                className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
+              >
+                Confirm & Publish Now
+              </button>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto min-h-[380px]">
-        <table className="w-full text-left text-[13px]">
-          <thead className="text-[11px] uppercase font-bold text-slate-500 border-b border-slate-100 bg-slate-50/50">
-            <tr>
-              <th className="px-6 py-4">Task Name & Subject</th>
-              <th className="px-6 py-4">Type</th>
-              <th className="px-6 py-4">Deadline</th>
-              <th className="px-6 py-4 text-center">Submissions</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {paginatedTasks.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-medium">
-                  No tasks found matching your filters.
-                </td>
-              </tr>
-            ) : paginatedTasks.map(task => (
-              <tr key={task.id} className="hover:bg-slate-50/80 transition-colors cursor-pointer group">
-                <td className="px-6 py-4 flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center shrink-0">
-                    {getTypeIcon(task.type)}
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-900">{task.title}</h3>
-                    <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">{task.subject}</p>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold ring-1 ring-inset ${getTypeColor(task.type)}`}>
-                    {task.type}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-slate-600 whitespace-pre-line text-xs font-medium">
-                  {task.deadline}
-                </td>
-                <td className="px-6 py-4 text-center">
-                  <span className="font-bold text-slate-900 block">{task.submissions}</span>
-                  {task.needsGrading ? (
-                    <span className="text-[10px] font-semibold text-rose-500">{task.needsGrading} to grade</span>
-                  ) : (
-                    <span className="text-[10px] font-semibold text-slate-400">Up to date</span>
-                  )}
-                </td>
-                <td className="px-6 py-4">
-                  <div className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-md ring-1 ring-inset ${
-                    task.status === 'Active' ? 'text-emerald-700 bg-emerald-50 ring-emerald-200/50' : 
-                    task.status === 'Draft' ? 'text-slate-600 bg-slate-50 ring-slate-200/50' : 'text-blue-700 bg-blue-50 ring-blue-200/50'
-                  }`}>
-                    {task.status}
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <button className="text-slate-400 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors inline-flex items-center justify-center">
-                    <ChevronRight size={18} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination Footer */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50">
-          <p className="text-[12px] font-medium text-slate-500">
-            Showing <span className="font-bold text-slate-900">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to <span className="font-bold text-slate-900">{Math.min(currentPage * ITEMS_PER_PAGE, filteredTasks.length)}</span> of <span className="font-bold text-slate-900">{filteredTasks.length}</span> results
-          </p>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed bg-slate-50 transition-colors shadow-sm"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="text-[13px] font-semibold text-slate-700 px-2">{currentPage} / {totalPages}</span>
-            <button 
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed bg-slate-50 transition-colors shadow-sm"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
       )}
-    </section>
+    </div>
   );
 }

@@ -1,13 +1,32 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ClipboardList, Plus } from 'lucide-react';
 import TaskDashboard from '@/src/components/layout/teacher/assessment-tasks/TaskDashboard';
-import { initialTasks } from '@/src/data/mockAssessment';
+import { initialTasks, AssessmentPayload } from '@/src/data/mockAssessment';
 
 export default function AssessmentsDashboardPage() {
   const router = useRouter();
+  const [tasks, setTasks] = useState<AssessmentPayload[]>(initialTasks);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('als_assessments');
+    if (saved) {
+      try {
+        setTasks(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse saved assessments:', e);
+      }
+    } else {
+      localStorage.setItem('als_assessments', JSON.stringify(initialTasks));
+    }
+  }, []);
+
+  const handleUpdateTasks = (updated: AssessmentPayload[]) => {
+    setTasks(updated);
+    localStorage.setItem('als_assessments', JSON.stringify(updated));
+  };
 
   return (
     <div className="w-full p-4 sm:p-6 lg:p-8 font-sans">
@@ -24,7 +43,8 @@ export default function AssessmentsDashboardPage() {
               Manage and track all your created activities, quizzes, and exams.
             </p>
           </div>
-          <button 
+          <button
+            type="button"
             onClick={() => router.push('/teacher/assessment-tasks/choice')}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-[13px] font-semibold text-white shadow-sm shadow-blue-600/15 transition-all hover:bg-blue-700 hover:shadow-md focus:outline-none"
           >
@@ -32,7 +52,7 @@ export default function AssessmentsDashboardPage() {
           </button>
         </div>
 
-        <TaskDashboard tasks={initialTasks} />
+        <TaskDashboard tasks={tasks} onUpdateTasks={handleUpdateTasks} />
       </div>
     </div>
   );
