@@ -16,6 +16,7 @@ from app.features.assessments.models import (
     SubmissionStatus,
     TaskStatus,
 )
+from app.features.assessments.schemas import AssessmentDetailResponse
 from app.features.users.models import UserCategory
 
 
@@ -61,7 +62,7 @@ class AssessmentRepository:
         target_category: Optional[UserCategory] = None,
         offset: int = 0,
         limit: int = 50,
-    ) -> List[Assessment]:
+    ) -> List[AssessmentDetailResponse]:
         stmt = (
             select(Assessment)
             .where(Assessment.teacher_id == teacher_id)
@@ -77,7 +78,8 @@ class AssessmentRepository:
 
         stmt = stmt.order_by(Assessment.created_at.desc()).offset(offset).limit(limit)
         result = await self._session.execute(stmt)
-        return list(result.scalars().all())
+        data = result.scalars().all()
+        return data
 
     async def list_assessments_for_student(
         self,

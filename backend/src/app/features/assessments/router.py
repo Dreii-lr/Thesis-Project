@@ -63,7 +63,7 @@ async def update_assessment(
     return SharedUtils.SuccessfulResponse(response)
 
 
-@router.get("/teacher/list", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
+@router.get("/teacher/my-tasks", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
 async def list_teacher_assessments(
     status_filter: Optional[TaskStatus] = Query(default=None, alias="status"),
     target_category: Optional[UserCategory] = Query(default=None),
@@ -74,6 +74,7 @@ async def list_teacher_assessments(
 ) -> JSONResponse:
     """
     List assessments authored by teacher formatted for dashboard presentation.
+    Supports both /teacher/list and /teacher/my-tasks endpoints.
     """
     response = await service.list_teacher_assessments(
         teacher_id=current_user.user_id,
@@ -110,6 +111,25 @@ async def list_assessment_submissions(
     View all student submissions for an assessment.
     """
     response = await service.list_assessment_submissions(assessment_id)
+    response.status_code = status.HTTP_200_OK
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.get(
+    "/{assessment_id}/submissions/{submission_id}",
+    status_code=status.HTTP_200_OK,
+    tags=["Teacher Assessments"],
+)
+async def get_assessment_submission_details(
+    assessment_id: str,
+    submission_id: str,
+    current_user: UserRead = Depends(require_teacher),
+    service: AssessmentService = Depends(get_assessment_service),
+) -> JSONResponse:
+    """
+    Fetch single student submission details including question breakdown, prompt, and scores.
+    """
+    response = await service.get_assessment_submission_details(assessment_id, submission_id)
     response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 

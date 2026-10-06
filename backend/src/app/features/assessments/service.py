@@ -9,6 +9,7 @@ import copy
 from datetime import datetime, timezone
 import random
 from typing import Any, List, Optional
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.exceptions import (
     EntityNotFoundException,
@@ -200,40 +201,40 @@ class AssessmentService:
             offset=offset,
             limit=limit,
         )
-        items = []
-        for a in assessments:
-            # Format deadline string matching frontend expectations
-            deadline_str = "No Deadline"
-            if a.start_date and a.end_date:
-                deadline_str = (
-                    f"{a.start_date.strftime('%b %d, %Y %I:%M %p')} to\n"
-                    f"{a.end_date.strftime('%b %d, %Y %I:%M %p')}"
-                )
-            elif a.end_date:
-                deadline_str = f"{a.end_date.strftime('%b %d, %Y')}\n11:59 PM"
-
-            submissions_count = len(a.submissions) if a.submissions else 0
-            needs_grading = sum(1 for s in (a.submissions or []) if s.status == SubmissionStatus.SUBMITTED)
-
-            items.append(
-                AssessmentListItem(
-                    id=a.assessment_id,
-                    title=a.title,
-                    subject=a.subject_code,
-                    type=a.assessment_type,
-                    targetCategory=a.target_category,
-                    deadline=deadline_str,
-                    submissions=submissions_count,
-                    needsGrading=needs_grading,
-                    status=a.status,
-                    maxScore=a.max_score,
-                )
-            )
-
+        # items = []
+        # for a in assessments:
+        #     # Format deadline string matching frontend expectations
+        #     deadline_str = "No Deadline"
+        #     if a.start_date and a.end_date:
+        #         deadline_str = (
+        #             f"{a.start_date.strftime('%b %d, %Y %I:%M %p')} to\n"
+        #             f"{a.end_date.strftime('%b %d, %Y %I:%M %p')}"
+        #         )
+        #     elif a.end_date:
+        #         deadline_str = f"{a.end_date.strftime('%b %d, %Y')}\n11:59 PM"
+        #
+        #     submissions_count = len(a.submissions) if a.submissions else 0
+        #     needs_grading = sum(1 for s in (a.submissions or []) if s.status == SubmissionStatus.SUBMITTED)
+        #
+        #     items.append(
+        #         AssessmentListItem(
+        #             id=a.assessment_id,
+        #             title=a.title,
+        #             subject=a.subject_code,
+        #             type=a.assessment_type,
+        #             targetCategory=a.target_category,
+        #             deadline=deadline_str,
+        #             submissions=submissions_count,
+        #             needsGrading=needs_grading,
+        #             status=a.status,
+        #             maxScore=a.max_score,
+        #         )
+        #     )
+        print(assessments)
         return SuccessfulResponseSchema(
             message="Assessments retrieved successfully.",
             message_status="SUCCESS_FETCHED",
-            data=AdditionalData(resources=[item.model_dump(mode="json") for item in items]),
+            data=AdditionalData(resources=[item.model_dump(mode="json") for item in assessments]),
         )
 
     async def list_student_tasks(
@@ -453,13 +454,17 @@ class AssessmentService:
         # ── EVALUATION & GRADING ──────────────────────────────────────────
         if assessment.assessment_type == TaskType.ACTIVITY:
             # Subjective Activity: Store attachments and route to teacher queue
-            submission.attachments_payload = payload.attachments or []
+            submission.attachments_payload = list(payload.attachments or [])
+            flag_modified(submission, "attachments_payload")
             submission.status = SubmissionStatus.SUBMITTED
         else:
             # Objective Quiz or Exam: Auto-Grading Engine
             questions_record = await self.uow.assessments.get_questions_by_assessment_id(assessment_id)
             answer_key_map = {}
             points_map = {}
+            question_text_map = {}
+            guidelines_map = {}
+            essay_qids = set()
 
             if questions_record and questions_record.categories_data:
                 for cat in questions_record.categories_data:
@@ -467,7 +472,11 @@ class AssessmentService:
                     pts = float(cat.get("points_per_item", 1.0))
                     for q in cat.get("questions", []):
                         qid = q.get("id")
-                        if c_type == "Matching Type":
+                        question_text_map[qid] = q.get("text", "")
+                        guidelines_map[qid] = q.get("premise", "")
+                        if str(c_type).lower() == "essay":
+                            essay_qids.add(qid)
+                        elif c_type == "Matching Type":
                             answer_key_map[qid] = q.get("match", "")
                         else:
                             answer_key_map[qid] = q.get("correct_answer", "")
@@ -480,32 +489,60 @@ class AssessmentService:
             for item in payload.answers or []:
                 qid = item.question_id
                 ans = item.student_answer.strip() if item.student_answer else ""
-                expected = str(answer_key_map.get(qid, "")).strip()
 
-                is_correct = False
-                points_awarded = 0.0
+                if qid in essay_qids:
+                    # Subjective Essay answer: requires teacher evaluation
+                    graded_answers.append(
+                        {
+                            "question_id": qid,
+                            "question_text": question_text_map.get(qid, ""),
+                            "guidelines": guidelines_map.get(qid, ""),
+                            "student_answer": ans,
+                            "is_correct": None,
+                            "points_awarded": 0.0,
+                            "max_points": points_map.get(qid, 1.0),
+                            "type": "Essay",
+                            "needs_teacher_review": True,
+                        }
+                    )
+                else:
+                    # Objective auto-grading (Multiple Choice, True/False, Matching Type)
+                    expected = str(answer_key_map.get(qid, "")).strip()
+                    is_correct = False
+                    points_awarded = 0.0
 
-                if expected and ans.lower() == expected.lower():
-                    is_correct = True
-                    points_awarded = points_map.get(qid, 1.0)
-                    total_earned += points_awarded
+                    if expected and ans.lower() == expected.lower():
+                        is_correct = True
+                        points_awarded = points_map.get(qid, 1.0)
+                        total_earned += points_awarded
 
-                graded_answers.append(
-                    {
-                        "question_id": qid,
-                        "student_answer": ans,
-                        "is_correct": is_correct,
-                        "points_awarded": points_awarded,
-                    }
-                )
+                    graded_answers.append(
+                        {
+                            "question_id": qid,
+                            "question_text": question_text_map.get(qid, ""),
+                            "student_answer": ans,
+                            "is_correct": is_correct,
+                            "points_awarded": points_awarded,
+                            "max_points": points_map.get(qid, 1.0),
+                            "type": "Objective",
+                        }
+                    )
 
             # Persist evaluated answers
-            current_payload = submission.answers_payload or {}
+            current_payload = dict(submission.answers_payload or {})
             current_payload["answers"] = graded_answers
             submission.answers_payload = current_payload
+            flag_modified(submission, "answers_payload")
             submission.auto_score = total_earned
-            submission.final_score = total_earned
-            submission.status = SubmissionStatus.GRADED
+
+            # If the assessment includes essay questions, route to teacher grading queue
+            if essay_qids:
+                submission.status = SubmissionStatus.SUBMITTED
+                submission.manual_score = 0.0
+                submission.final_score = total_earned  # Provisional objective score
+            else:
+                submission.status = SubmissionStatus.GRADED
+                submission.final_score = total_earned
 
         await self.uow.commit()
 
@@ -548,7 +585,10 @@ class AssessmentService:
             raise EntityNotFoundException("Submission not found for this assessment.")
 
         submission.manual_score = grade_data.manual_score
-        submission.final_score = grade_data.manual_score
+        if assessment.assessment_type in (TaskType.QUIZ, TaskType.EXAM):
+            submission.final_score = submission.auto_score + grade_data.manual_score
+        else:
+            submission.final_score = grade_data.manual_score
         submission.feedback = grade_data.feedback
         submission.status = SubmissionStatus.GRADED
         submission.updated_at = utc_now()
@@ -585,11 +625,14 @@ class AssessmentService:
         submissions = await self.uow.assessments.list_submissions_for_assessment(assessment_id)
         results = []
         for s in submissions:
+            student = await self.uow.users.get_by_id(s.student_id)
+            student_name = f"{student.first_name} {student.last_name}" if student else None
             results.append(
                 SubmissionDetailResponse(
                     submission_id=s.submission_id,
                     assessment_id=s.assessment_id,
                     student_id=s.student_id,
+                    student_name=student_name,
                     student_category=s.student_category,
                     auto_score=s.auto_score,
                     manual_score=s.manual_score,
@@ -610,6 +653,42 @@ class AssessmentService:
             data=AdditionalData(resources=[r.model_dump(mode="json") for r in results]),
         )
 
+    async def get_assessment_submission_details(
+        self,
+        assessment_id: str,
+        submission_id: str,
+    ) -> SuccessfulResponseSchema:
+        submission = await self.uow.assessments.get_submission_by_id(submission_id)
+        if not submission or submission.assessment_id != assessment_id:
+            raise EntityNotFoundException("Submission not found for this assessment.")
+
+        student = await self.uow.users.get_by_id(submission.student_id)
+        student_name = f"{student.first_name} {student.last_name}" if student else None
+
+        result = SubmissionDetailResponse(
+            submission_id=submission.submission_id,
+            assessment_id=submission.assessment_id,
+            student_id=submission.student_id,
+            student_name=student_name,
+            student_category=submission.student_category,
+            auto_score=submission.auto_score,
+            manual_score=submission.manual_score,
+            final_score=submission.final_score,
+            feedback=submission.feedback,
+            is_late=submission.is_late,
+            status=submission.status,
+            started_at=submission.started_at,
+            submitted_at=submission.submitted_at,
+            time_spent_seconds=submission.time_spent_seconds,
+            answers_payload=submission.answers_payload,
+            attachments_payload=submission.attachments_payload,
+        )
+        return SuccessfulResponseSchema(
+            message="Submission details retrieved successfully.",
+            message_status="SUCCESS_FETCHED",
+            data=AdditionalData(resources=result.model_dump(mode="json")),
+        )
+
     async def get_student_submission_result(
         self,
         assessment_id: str,
@@ -625,10 +704,14 @@ class AssessmentService:
                 data=AdditionalData(resources=None),
             )
 
+        student = await self.uow.users.get_by_id(s.student_id)
+        student_name = f"{student.first_name} {student.last_name}" if student else None
+
         result = SubmissionDetailResponse(
             submission_id=s.submission_id,
             assessment_id=s.assessment_id,
             student_id=s.student_id,
+            student_name=student_name,
             student_category=s.student_category,
             auto_score=s.auto_score,
             manual_score=s.manual_score,

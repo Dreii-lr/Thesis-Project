@@ -16,22 +16,22 @@ def utc_now() -> datetime:
 
 
 class UserRole(str, Enum):
-    STUDENT = "student"
-    TEACHER = "teacher"
-    EMPLOYEE = "employee"
-    ADMIN = "admin"
+    STUDENT = "STUDENT"
+    TEACHER = "TEACHER"
+    EMPLOYEE = "EMPLOYEE"
+    ADMIN = "ADMIN"
 
 
 class UserCategory(str, Enum):
-    ELEMENTARY = "elementary"
-    SECONDARY = "junior"
-    BLP = "basic_literacy"
+    ELEMENTARY = "ELEMENTARY"
+    SECONDARY = "SECONDARY"
+    BLP = "BLP"
 
 
 class UserStatus(str, Enum):
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    COMPLETED = "completed" # if the student is finished the ALS program or graduated.
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    COMPLETED = "COMPLETED" # if the student is finished the ALS program or graduated.
 
 
 class User(SQLModel, table=True):

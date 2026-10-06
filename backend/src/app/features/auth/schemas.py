@@ -6,13 +6,14 @@ from __future__ import annotations
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Literal
 
+from app.features.users import UserCategory, UserRole
 from app.features.users.schemas import UserRead, UserReadLessData
 
 
 class LoginRequest(BaseModel):
     email: EmailStr | str
     password: str
-    role: Literal["student", "teacher"] | None = None
+    role: UserRole | None = UserRole.TEACHER
 
 
 class AccountRecoveryRequest(BaseModel):

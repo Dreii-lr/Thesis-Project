@@ -115,9 +115,11 @@ class AssessmentDetailResponse(BaseModel):
     is_ai_generated: bool
     categories_data: List[dict] = Field(default_factory=list)
     materials: List[AssessmentMaterialRead] = Field(default_factory=list)
+    questions: dict | None = None
     submissions_count: int = 0
     created_at: datetime
     updated_at: Optional[datetime] = None
+
 
 
 class AssessmentListItem(BaseModel):
@@ -133,6 +135,7 @@ class AssessmentListItem(BaseModel):
     needsGrading: int = 0
     status: TaskStatus
     maxScore: float = 100.0
+
 
 
 # ── Student Task Discovery & Delivery ─────────────────────────────────────────

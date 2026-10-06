@@ -642,3 +642,275 @@ async def test_three_categories_with_matching_distractors(client: AsyncClient):
         assert mt_distractor_item["points_awarded"] == 0.0
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_quiz_with_essay_lifecycle(client: AsyncClient):
+    """
+    Test full hybrid assessment lifecycle:
+    1. Teacher creates Quiz with 1 Multiple Choice item (5.0 pts) and 1 Essay item (10.0 pts).
+    2. Student starts attempt; verify Essay prompt and rubric are delivered.
+    3. Student submits answers; verify MC is auto-graded (5.0), Essay is flagged for review,
+       and submission status remains SUBMITTED (not immediately GRADED).
+    4. Teacher views submission in grading queue and manually grades the essay with 9.0 pts.
+    5. Verify final_score is combined: 5.0 (auto) + 9.0 (manual) = 14.0 pts, and status is GRADED.
+    """
+    # 1. Teacher creates hybrid Quiz
+    app.dependency_overrides[get_current_active_user] = teacher_user
+    try:
+        hybrid_payload = {
+            "title": "ALS LS6 Digital Security with Essay",
+            "subject_code": "LS6",
+            "target_category": "junior",
+            "assessment_type": "QUIZ",
+            "status": "ACTIVE",
+            "duration_minutes": 45,
+            "categories_data": [
+                {
+                    "category_id": "cat_mc_hybrid",
+                    "type": "Multiple Choice",
+                    "pool_size": 1,
+                    "required_count": 1,
+                    "points_per_item": 5.0,
+                    "questions": [
+                        {
+                            "id": "mc-hybrid-1",
+                            "text": "What does 2FA stand for?",
+                            "options": ["Two-Factor Authentication", "Two-File Access", "Terminal Format Array"],
+                            "correct_answer": "Two-Factor Authentication",
+                        }
+                    ],
+                },
+                {
+                    "category_id": "cat_essay_hybrid",
+                    "type": "Essay",
+                    "pool_size": 1,
+                    "required_count": 1,
+                    "points_per_item": 10.0,
+                    "questions": [
+                        {
+                            "id": "essay-hybrid-1",
+                            "text": "Explain why Two-Factor Authentication is critical for protecting online accounts.",
+                            "premise": "Rubric: Definition (4 pts), Practical Benefit (6 pts)",
+                        }
+                    ],
+                },
+            ],
+        }
+        create_res = await client.post("/api/v1/assessments/", json=hybrid_payload)
+        assert create_res.status_code == 201
+        res_data = create_res.json()["data"]["resources"]
+        assessment_id = res_data["assessment_id"]
+        assert res_data["max_score"] == 15.0  # 5.0 + 10.0
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+    # 2. Student starts attempt
+    app.dependency_overrides[get_current_active_user] = student_junior_user
+    try:
+        start_res = await client.post(f"/api/v1/assessments/{assessment_id}/start")
+        assert start_res.status_code == 200
+        delivery = start_res.json()["data"]["resources"]
+        assert len(delivery["questions"]) == 2
+
+        # Verify delivered Essay question
+        essay_q = next(q for q in delivery["questions"] if q["category_type"] == "Essay")
+        assert essay_q["text"] == "Explain why Two-Factor Authentication is critical for protecting online accounts."
+        assert essay_q["premise"] == "Rubric: Definition (4 pts), Practical Benefit (6 pts)"
+        assert essay_q.get("options") is None
+        assert essay_q.get("correct_answer") is None
+
+        # 3. Student submits attempt
+        submit_payload = {
+            "answers": [
+                {"question_id": "mc-hybrid-1", "student_answer": "Two-Factor Authentication"},
+                {
+                    "question_id": "essay-hybrid-1",
+                    "student_answer": "Two-Factor Authentication adds an extra security layer beyond just passwords by requiring a second verification method like an OTP code.",
+                },
+            ],
+            "time_spent_seconds": 900,
+        }
+        sub_res = await client.post(f"/api/v1/assessments/{assessment_id}/submit", json=submit_payload)
+        assert sub_res.status_code == 200
+        sub_data = sub_res.json()["data"]["resources"]
+        submission_id = sub_data["submission_id"]
+
+        # Crucial check: status MUST be SUBMITTED because essay requires teacher review!
+        assert sub_data["status"] == "SUBMITTED"
+        assert sub_data["auto_score"] == 5.0
+        assert sub_data["manual_score"] == 0.0
+        assert sub_data["final_score"] == 5.0  # Provisional objective score
+
+        # Check answers breakdown
+        answers_list = sub_data["answers_payload"]["answers"]
+        essay_answer_item = next(item for item in answers_list if item["question_id"] == "essay-hybrid-1")
+        assert essay_answer_item["type"] == "Essay"
+        assert essay_answer_item["needs_teacher_review"] is True
+        assert essay_answer_item["points_awarded"] == 0.0
+        assert essay_answer_item["question_text"] == "Explain why Two-Factor Authentication is critical for protecting online accounts."
+        assert essay_answer_item["guidelines"] == "Rubric: Definition (4 pts), Practical Benefit (6 pts)"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+    # 4. Teacher views submissions and grades essay
+    app.dependency_overrides[get_current_active_user] = teacher_user
+    try:
+        # View submissions
+        list_res = await client.get(f"/api/v1/assessments/{assessment_id}/submissions")
+        assert list_res.status_code == 200
+        subs = list_res.json()["data"]["resources"]
+        assert len(subs) == 1
+        assert subs[0]["submission_id"] == submission_id
+        assert subs[0]["status"] == "SUBMITTED"
+
+        # Grade the submission (award 9.0 out of 10 for the essay)
+        grade_payload = {
+            "manual_score": 9.0,
+            "feedback": "Excellent definition and clear explanation of OTP as a second factor.",
+        }
+        grade_res = await client.post(
+            f"/api/v1/assessments/{assessment_id}/submissions/{submission_id}/grade",
+            json=grade_payload,
+        )
+        assert grade_res.status_code == 200
+        graded_data = grade_res.json()["data"]["resources"]
+
+        # Verify combined score and GRADED status
+        assert graded_data["status"] == "GRADED"
+        assert graded_data["auto_score"] == 5.0
+        assert graded_data["manual_score"] == 9.0
+        assert graded_data["final_score"] == 14.0  # 5.0 auto + 9.0 manual!
+        assert graded_data["feedback"] == grade_payload["feedback"]
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_exam_with_essay_hybrid_and_route_aliases(client: AsyncClient):
+    """
+    Test universal route handling and EXAM with hybrid Essay:
+    1. Teacher creates an EXAM with True/False (5.0 pts) and Essay (15.0 pts).
+    2. Route alias GET /api/v1/assessments/teacher/my-tasks retrieves teacher exams.
+    3. Student starts exam, submits correct TF answer + Essay text.
+    4. Submission status is SUBMITTED, auto_score == 5.0.
+    5. Teacher calls single submission route GET /api/v1/assessments/{id}/submissions/{sub_id}.
+    6. Teacher grades the submission with 14.0 manual points -> final_score is 19.0 (5 + 14).
+    """
+    # 1. Teacher creates Exam
+    app.dependency_overrides[get_current_active_user] = teacher_user
+    try:
+        exam_payload = {
+            "title": "ALS Midterm Comprehensive Examination",
+            "subject_code": "LS1",
+            "target_category": "junior",
+            "assessment_type": "EXAM",
+            "status": "ACTIVE",
+            "duration_minutes": 120,
+            "categories_data": [
+                {
+                    "category_id": "cat_tf_exam",
+                    "type": "True/False",
+                    "pool_size": 1,
+                    "required_count": 1,
+                    "points_per_item": 5.0,
+                    "questions": [
+                        {
+                            "id": "tf-exam-1",
+                            "text": "An essay must have an introduction, body, and conclusion.",
+                            "options": ["True", "False"],
+                            "correct_answer": "True",
+                        }
+                    ],
+                },
+                {
+                    "category_id": "cat_essay_exam",
+                    "type": "Essay",
+                    "pool_size": 1,
+                    "required_count": 1,
+                    "points_per_item": 15.0,
+                    "questions": [
+                        {
+                            "id": "essay-exam-1",
+                            "text": "Write a critical reflection on how non-formal education benefits adult learners.",
+                            "premise": "Rubric: Structure (5 pts), Arguments (10 pts)",
+                        }
+                    ],
+                },
+            ],
+        }
+        create_res = await client.post("/api/v1/assessments/", json=exam_payload)
+        assert create_res.status_code == 201
+        res_data = create_res.json()["data"]["resources"]
+        assessment_id = res_data["assessment_id"]
+        assert res_data["max_score"] == 20.0  # 5.0 + 15.0
+        assert res_data["assessment_type"] == "EXAM"
+
+        # 2. Test /teacher/my-tasks route alias
+        tasks_res = await client.get("/api/v1/assessments/teacher/my-tasks")
+        assert tasks_res.status_code == 200
+        teacher_tasks = tasks_res.json()["data"]["resources"]
+        assert any(t["id"] == assessment_id for t in teacher_tasks)
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+    # 3. Student takes and submits Exam
+    app.dependency_overrides[get_current_active_user] = student_junior_user
+    try:
+        start_res = await client.post(f"/api/v1/assessments/{assessment_id}/start")
+        assert start_res.status_code == 200
+
+        submit_payload = {
+            "answers": [
+                {"question_id": "tf-exam-1", "student_answer": "True"},
+                {
+                    "question_id": "essay-exam-1",
+                    "student_answer": "Non-formal education in the ALS program allows working adults to balance family, livelihood, and self-improvement...",
+                },
+            ],
+            "time_spent_seconds": 3600,
+        }
+        sub_res = await client.post(f"/api/v1/assessments/{assessment_id}/submit", json=submit_payload)
+        assert sub_res.status_code == 200
+        sub_data = sub_res.json()["data"]["resources"]
+        submission_id = sub_data["submission_id"]
+        assert sub_data["status"] == "SUBMITTED"
+        assert sub_data["auto_score"] == 5.0
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+    # 4. Teacher inspects single submission via new route
+    app.dependency_overrides[get_current_active_user] = teacher_user
+    try:
+        single_res = await client.get(f"/api/v1/assessments/{assessment_id}/submissions/{submission_id}")
+        assert single_res.status_code == 200
+        single_sub = single_res.json()["data"]["resources"]
+        assert single_sub["submission_id"] == submission_id
+        assert single_sub["status"] == "SUBMITTED"
+        assert single_sub["auto_score"] == 5.0
+
+        # Verify embedded prompt and rubric in answers_payload
+        answers_list = single_sub["answers_payload"]["answers"]
+        essay_item = next(item for item in answers_list if item["question_id"] == "essay-exam-1")
+        assert essay_item["question_text"] == "Write a critical reflection on how non-formal education benefits adult learners."
+        assert essay_item["guidelines"] == "Rubric: Structure (5 pts), Arguments (10 pts)"
+
+        # 5. Teacher grades the submission
+        grade_payload = {
+            "manual_score": 14.0,
+            "feedback": "Outstanding reflection with thorough arguments.",
+        }
+        grade_res = await client.post(
+            f"/api/v1/assessments/{assessment_id}/submissions/{submission_id}/grade",
+            json=grade_payload,
+        )
+        assert grade_res.status_code == 200
+        graded_data = grade_res.json()["data"]["resources"]
+        assert graded_data["status"] == "GRADED"
+        assert graded_data["auto_score"] == 5.0
+        assert graded_data["manual_score"] == 14.0
+        assert graded_data["final_score"] == 19.0  # 5.0 + 14.0!
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+

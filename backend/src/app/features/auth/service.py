@@ -24,8 +24,7 @@ from app.shared.schema import SuccessfulResponseSchema, AdditionalData
 
 def _check_login_role(user: UserRead, expected_role: str | None) -> None:
     if expected_role and user.role != expected_role:
-        role = getattr(user.role, "value", user.role)
-        raise ForbiddenDomainException(f"This account is registered as a {role}, not a {expected_role}.")
+        raise ForbiddenDomainException(f"This account is registered as a {user.role.value}, not a {expected_role}.")
 
 
 class AuthService:
