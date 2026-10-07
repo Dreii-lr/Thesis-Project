@@ -23,7 +23,7 @@ export default function AssignStudentsModal({
   onClose,
   onConfirm,
   taskTitle = '',
-  initialCategory = 'junior_high_school',
+  initialCategory = 'junior',
 }: AssignStudentsModalProps) {
   const [targetCategory, setTargetCategory] = useState<TargetCategory>(initialCategory);
   const [assignType, setAssignType] = useState<'all' | 'specific'>('all');
@@ -81,7 +81,7 @@ export default function AssignStudentsModal({
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {(
-                ['elementary', 'junior_high_school', 'basic_literacy_program'] as TargetCategory[]
+                ['elementary', 'junior', 'basic_literacy'] as TargetCategory[]
               ).map((cat) => (
                 <button
                   key={cat}

@@ -1,155 +1,198 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Plus, Search, Edit, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
-import { AttendanceSession, mockSessions } from '@/src/data/mockTeacher'; // Adjust import based on where you placed the mock data
+import { useState } from 'react';
+import { Plus, Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  CATEGORY_LABELS,
+  type TargetCategory,
+} from '@/src/data/mockAssessment';
+import {
+  subjects,
+  subjectName,
+  type WorkspaceAttendance,
+} from '@/src/data/mockTeacher';
 
 interface AttendanceRecordsListProps {
+  program: TargetCategory;
+  sessions: WorkspaceAttendance[];
   onNewRecord: () => void;
-  onViewRecord: (date: string, level: string, subject: string) => void;
+  onViewRecord: (session: WorkspaceAttendance) => void;
 }
 
-export default function AttendanceRecordsList({ onNewRecord, onViewRecord }: AttendanceRecordsListProps) {
-  const [selectedLevel, setSelectedLevel] = useState('All Levels');
-  const [selectedSubject, setSelectedSubject] = useState('All Subjects');
+export default function AttendanceRecordsList({
+  program,
+  sessions,
+  onNewRecord,
+  onViewRecord,
+}: AttendanceRecordsListProps) {
+  const [selectedSubject, setSelectedSubject] = useState('all');
   const [searchDate, setSearchDate] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
-
-  const filteredSessions = useMemo(() => {
-    return mockSessions.filter(session => {
-      const matchLevel = selectedLevel === 'All Levels' || session.level === selectedLevel;
-      const matchSubject = selectedSubject === 'All Subjects' || session.subject === selectedSubject;
-      const matchDate = searchDate === '' || session.displayDate.toLowerCase().includes(searchDate.toLowerCase());
-      return matchLevel && matchSubject && matchDate;
-    });
-  }, [selectedLevel, selectedSubject, searchDate]);
-
-  const totalPages = Math.ceil(filteredSessions.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentSessions = filteredSessions.slice(startIndex, startIndex + itemsPerPage);
-
-  const handleFilterChange = (setter: any, value: string) => {
-    setter(value);
-    setCurrentPage(1);
-  };
+  const filteredSessions = sessions
+    .filter(
+      (session) =>
+        (selectedSubject === 'all' ||
+          session.strand_code === selectedSubject) &&
+        `${session.session_date} ${session.display_date}`
+          .toLowerCase()
+          .includes(searchDate.toLowerCase().trim()),
+    )
+    .sort(
+      (a, b) =>
+        b.session_date.localeCompare(a.session_date) ||
+        a.strand_code.localeCompare(b.strand_code),
+    );
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredSessions.length / itemsPerPage),
+  );
+  const page = Math.min(currentPage, totalPages);
+  const currentSessions = filteredSessions.slice(
+    (page - 1) * itemsPerPage,
+    page * itemsPerPage,
+  );
 
   return (
-    <div className="w-full h-full flex flex-col p-6 lg:p-8 bg-gray-50/30 animate-in fade-in duration-300">
-      
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
+    <>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-1">Attendance Records</h1>
-          <p className="text-sm text-gray-500">Manage and track daily class attendance history.</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-blue-600">
+            {CATEGORY_LABELS[program]}
+          </p>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+            Attendance history
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Review a session to see each learner’s attendance and make
+            corrections.
+          </p>
         </div>
-        <button 
+        <button
           onClick={onNewRecord}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#4f46e5] hover:bg-indigo-700 text-white rounded-md text-sm font-semibold transition-colors shadow-sm"
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
         >
-          <Plus size={18} /> New Record
+          <Plus size={17} /> New record
         </button>
       </div>
-
-      <div className="bg-white border border-gray-200 rounded-t-xl p-4 flex flex-col sm:flex-row gap-4 justify-between items-center">
-        <div className="flex gap-3 w-full sm:w-auto">
-          <select 
-            value={selectedLevel}
-            onChange={(e) => handleFilterChange(setSelectedLevel, e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#4f46e5]"
-          >
-            <option value="All Levels">All Levels</option>
-            <option value="Elementary">Elementary</option>
-            <option value="Junior High School">Junior High School</option>
-          </select>
-          <select 
-            value={selectedSubject}
-            onChange={(e) => handleFilterChange(setSelectedSubject, e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#4f46e5]"
-          >
-            <option value="All Subjects">All Subjects</option>
-            <option value="LS1: Communication Skills">LS1: Communication Skills</option>
-            <option value="LS2: Scientific Literacy">LS2: Scientific Literacy</option>
-            <option value="LS3: Mathematical & Problem Solving">LS3: Mathematical & Problem Solving</option>
-          </select>
+      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
+          <label className="w-full sm:w-auto">
+            <span className="sr-only">Filter by subject</span>
+            <select
+              value={selectedSubject}
+              onChange={(event) => {
+                setSelectedSubject(event.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All subjects</option>
+              {subjects.map((subject) => (
+                <option key={subject.code} value={subject.code}>
+                  {subject.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="relative w-full sm:w-72">
+            <span className="sr-only">Search attendance dates</span>
+            <Search
+              size={16}
+              className="absolute left-3 top-3 text-slate-400"
+            />
+            <input
+              value={searchDate}
+              onChange={(event) => {
+                setSearchDate(event.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search date, e.g. Oct 6 or 2026-10-06"
+              className="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </label>
         </div>
-
-        <div className="relative w-full sm:w-64">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input 
-            type="text" 
-            placeholder="Search date..." 
-            value={searchDate}
-            onChange={(e) => handleFilterChange(setSearchDate, e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#4f46e5]"
-          />
-        </div>
-      </div>
-
-      <div className="bg-white border-x border-b border-gray-200 rounded-b-xl shadow-sm flex flex-col flex-1 min-w-0 overflow-hidden">
-        
-        <div className="grid grid-cols-5 gap-4 p-4 border-b border-gray-200 bg-white shrink-0 items-center">
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider pl-2">Date & Time</div>
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Class Session</div>
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Attendance Rate</div>
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Status</div>
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Action</div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
-          {currentSessions.length > 0 ? (
-            currentSessions.map((session) => {
-              const ratePercent = session.totalCount > 0 ? (session.presentCount / session.totalCount) * 100 : 0;
-              const isDraft = session.status === 'DRAFT';
-
-              return (
-                <div key={session.id} className="grid grid-cols-5 gap-4 p-4 items-center hover:bg-gray-50 transition-colors">
-                  <div><span className="text-[13px] font-bold text-gray-900 pl-2">{session.displayDate}</span></div>
-                  <div>
-                    <h4 className="text-[13px] text-gray-900">{session.level}</h4>
-                    <p className="text-[12px] text-gray-500 mt-0.5">{session.subject}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${isDraft ? 'bg-gray-300' : 'bg-[#10b981]'}`} style={{ width: `${ratePercent}%` }}></div>
-                    </div>
-                    <span className="text-[12px] text-gray-600 font-medium">{session.presentCount}/{session.totalCount} Present</span>
-                  </div>
-                  <div className="flex justify-center">
-                    <span className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${isDraft ? 'bg-amber-100/80 text-amber-700' : 'bg-emerald-100/80 text-emerald-700'}`}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-5 py-4">Date</th>
+                <th className="px-5 py-4">Subject</th>
+                <th className="px-5 py-4">Attendance</th>
+                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {currentSessions.map((session) => (
+                <tr key={session.session_id} className="hover:bg-slate-50/70">
+                  <td className="px-5 py-5 font-semibold text-slate-900">
+                    <time dateTime={session.session_date}>
+                      {session.display_date}
+                    </time>
+                  </td>
+                  <td className="px-5 py-5 text-slate-600">
+                    {subjectName(session.strand_code)}
+                  </td>
+                  <td className="px-5 py-5 text-slate-600">
+                    {
+                      session.records.filter(
+                        (record) => record.status === 'Present',
+                      ).length
+                    }
+                    /{session.records.length} present
+                  </td>
+                  <td className="px-5 py-5">
+                    <span
+                      className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${session.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}
+                    >
                       {session.status}
                     </span>
-                  </div>
-                  <div className="flex justify-center">
-                    <button 
-                      onClick={() => onViewRecord(session.rawDate, session.level, session.subject)}
-                      className="text-gray-400 hover:text-[#4f46e5] p-2 rounded-md hover:bg-indigo-50 transition-colors"
+                  </td>
+                  <td className="px-5 py-5 text-right">
+                    <button
+                      aria-label={`Review attendance for ${session.display_date}, ${subjectName(session.strand_code)}`}
+                      onClick={() => onViewRecord(session)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-blue-100 px-3 py-2 font-semibold text-blue-600 hover:bg-blue-50"
                     >
-                      {isDraft ? <ArrowRight size={18} /> : <Edit size={16} />}
+                      <Eye size={15} /> Review
                     </button>
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="py-12 text-center text-sm text-gray-500">No attendance records found.</div>
-          )}
-        </div>
-
-        {filteredSessions.length > 0 && (
-          <div className="border-t border-gray-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white">
-            <p className="text-xs text-gray-500">
-              Showing <span className="font-bold text-gray-900">{startIndex + 1}</span> to <span className="font-bold text-gray-900">{Math.min(startIndex + itemsPerPage, filteredSessions.length)}</span> of <span className="font-bold text-gray-900">{filteredSessions.length}</span> results
-            </p>
-            <div className="flex items-center -space-x-px">
-              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="w-8 h-8 flex justify-center items-center text-gray-500 border border-gray-300 rounded-l-md hover:bg-gray-50 disabled:opacity-50"><ChevronLeft size={16} /></button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button key={page} onClick={() => setCurrentPage(page)} className={`w-8 h-8 text-sm font-medium border ${currentPage === page ? 'bg-indigo-50 border-[#4f46e5] text-[#4f46e5] z-10' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}>{page}</button>
+                  </td>
+                </tr>
               ))}
-              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="w-8 h-8 flex justify-center items-center text-gray-500 border border-gray-300 rounded-r-md hover:bg-gray-50 disabled:opacity-50"><ChevronRight size={16} /></button>
-            </div>
-          </div>
+            </tbody>
+          </table>
+        </div>
+        {!currentSessions.length && (
+          <p className="px-5 py-12 text-center text-sm text-slate-500">
+            No attendance records match. Try another date or subject, or create
+            a new record.
+          </p>
         )}
+        <div className="flex items-center justify-between border-t border-slate-200 px-5 py-4 text-xs text-slate-500">
+          <span>
+            {filteredSessions.length} records · Page {page} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              aria-label="Previous page"
+              disabled={page === 1}
+              onClick={() => setCurrentPage(page - 1)}
+              className="rounded-lg border p-2 disabled:opacity-30"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              aria-label="Next page"
+              disabled={page === totalPages}
+              onClick={() => setCurrentPage(page + 1)}
+              className="rounded-lg border p-2 disabled:opacity-30"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

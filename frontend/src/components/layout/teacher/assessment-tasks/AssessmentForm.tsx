@@ -40,7 +40,7 @@ export default function AssessmentForm({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [subjectCode, setSubjectCode] = useState('ALS-LS6-DIGITAL');
-  const [targetCategory, setTargetCategory] = useState<TargetCategory>('junior_high_school');
+  const [targetCategory, setTargetCategory] = useState<TargetCategory>('junior');
 
   const [startDate, setStartDate] = useState('');
   const [startTime, setStartTime] = useState('08:00');
@@ -95,7 +95,7 @@ export default function AssessmentForm({
       setTitle(initialData.title || '');
       setDescription(initialData.description || '');
       setSubjectCode(initialData.subject_code || 'ALS-LS6-DIGITAL');
-      setTargetCategory(initialData.target_category || 'junior_high_school');
+      setTargetCategory(initialData.target_category || 'junior');
       setGracePeriod(initialData.grace_period_minutes ?? 5);
 
       if (initialData.start_date) {
@@ -290,8 +290,8 @@ export default function AssessmentForm({
 
   const matchingCategoryTotal = matchingRequiredDelivery * matchingPointsEach;
 
-  const buildAndSave = (saveStatus: 'DRAFT' | 'PENDING') => {
-    if (saveStatus === 'PENDING') {
+  const buildAndSave = (saveStatus: 'DRAFT' | 'SCHEDULED') => {
+    if (saveStatus === 'SCHEDULED') {
       if (!title.trim()) return alert(`Please enter a ${type.toLowerCase()} title.`);
       if (!startDate || !startTime || !endDate || !endTime) {
         return alert('Please set the Start Date, Start Time, End Date, and End Time.');
@@ -388,8 +388,8 @@ export default function AssessmentForm({
     })}`;
 
     const finalStatus =
-      initialData?.status === 'PUBLISHED' && saveStatus === 'PENDING'
-        ? 'PUBLISHED'
+      initialData?.status === 'ACTIVE' && saveStatus === 'SCHEDULED'
+        ? 'ACTIVE'
         : saveStatus;
 
     const payload: AssessmentPayload = {
@@ -421,7 +421,7 @@ export default function AssessmentForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    buildAndSave('PENDING');
+    buildAndSave('SCHEDULED');
   };
 
   return (
@@ -484,8 +484,8 @@ export default function AssessmentForm({
               className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
             >
               <option value="elementary">Elementary</option>
-              <option value="junior_high_school">Junior High School</option>
-              <option value="basic_literacy_program">Basic Literacy Program</option>
+              <option value="junior">Junior High School</option>
+              <option value="basic_literacy">Basic Literacy Program</option>
             </select>
           </div>
         </div>

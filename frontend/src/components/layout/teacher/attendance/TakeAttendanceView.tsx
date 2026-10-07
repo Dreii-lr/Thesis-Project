@@ -1,134 +1,214 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { ChevronLeft, Check } from 'lucide-react';
-import { useStudents } from '@/src/context/StudentContext';
-import { AttendanceRecord, AttendanceStatus } from '@/src/data/mockTeacher';
+import { useState } from 'react';
+import { ArrowLeft, Check, Pencil } from 'lucide-react';
+import { CATEGORY_LABELS } from '@/src/data/mockAssessment';
+import { subjectName, type WorkspaceAttendance } from '@/src/data/mockTeacher';
+import { useTeacher } from '@/src/context/TeacherContext';
 import AttendanceTable from './AttendanceTable';
 import AttendanceFooter from './AttendanceFooter';
 
 interface TakeAttendanceViewProps {
-  date: string;
-  level: string;
-  subject: string;
+  session: WorkspaceAttendance;
+  onSave: (session: WorkspaceAttendance) => boolean;
   onBack: () => void;
 }
 
-export default function TakeAttendanceView({ date, level, subject, onBack }: TakeAttendanceViewProps) {
-  const { students } = useStudents();
-  
-  const [records, setRecords] = useState<Record<string, AttendanceRecord>>({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+export default function TakeAttendanceView({
+  session,
+  onSave,
+  onBack,
+}: TakeAttendanceViewProps) {
+  const { students } = useTeacher();
+  const [savedSession, setSavedSession] = useState(session);
+  const [records, setRecords] = useState(() =>
+    structuredClone(session.records),
+  );
+  const [isEditing, setIsEditing] = useState(session.status === 'DRAFT');
+  const [error, setError] = useState('');
+  const hasChanges =
+    JSON.stringify(records) !== JSON.stringify(savedSession.records);
 
-  // Format date for header (e.g. "Sep 24, 2026")
-  const displayDate = new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-  const displayStudents = useMemo(() => {
-    return students
-      .filter(s => s.level === level)
-      .sort((a, b) => {
-        const nameA = `${a.lastName} ${a.firstName} ${a.middleName}`.toLowerCase();
-        const nameB = `${b.lastName} ${b.firstName} ${b.middleName}`.toLowerCase();
-        return nameA.localeCompare(nameB);
-      });
-  }, [students, level]);
-
-  const totalLearners = displayStudents.length;
-  const presentCount = Object.values(records).filter(r => r.status === 'Present').length;
-  const absentCount = Object.values(records).filter(r => r.status === 'Absent').length;
-
-  const handleStatusChange = (studentId: string, status: AttendanceStatus) => {
-    setRecords(prev => ({ ...prev, [studentId]: { ...prev[studentId], status, remarks: prev[studentId]?.remarks || '' } }));
-    setSaveSuccess(false); 
-  };
-
-  const handleRemarksChange = (studentId: string, remarks: string) => {
-    setRecords(prev => ({ ...prev, [studentId]: { ...prev[studentId], status: prev[studentId]?.status || null, remarks } }));
-  };
-
-  const markAllPresent = () => {
-    const newRecords: Record<string, AttendanceRecord> = { ...records };
-    displayStudents.forEach(s => {
-      if (newRecords[s.id]?.status !== 'Absent' && newRecords[s.id]?.status !== 'Excused') {
-        newRecords[s.id] = { status: 'Present', remarks: newRecords[s.id]?.remarks || '' };
-      }
-    });
-    setRecords(newRecords);
-    setSaveSuccess(false);
+  const handleChange = (
+    studentId: string,
+    changes: Partial<WorkspaceAttendance['records'][number]>,
+  ) => {
+    setRecords((previous) =>
+      previous.map((record) =>
+        record.student_id === studentId
+          ? {
+              ...record,
+              ...changes,
+              reason_of_absence:
+                changes.status === 'Present'
+                  ? ''
+                  : (changes.reason_of_absence ?? record.reason_of_absence),
+            }
+          : record,
+      ),
+    );
+    setError('');
   };
 
   const handleSave = () => {
-    if (displayStudents.length === 0) return;
-    const missingStudents = displayStudents.filter(s => !records[s.id]?.status);
-    if (missingStudents.length > 0) {
-      alert(`Please mark the attendance status for all learners. You have ${missingStudents.length} remaining.`);
+    if (!records.length || records.some((record) => !record.status)) {
+      setError(
+        'Please mark Present, Absent, or Excused for every learner before saving.',
+      );
       return;
     }
-    setIsSaving(true);
-    setSaveSuccess(false);
-    setTimeout(() => {
-      setIsSaving(false);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    }, 1200);
+    const updated: WorkspaceAttendance = {
+      ...savedSession,
+      status: 'COMPLETED',
+      records,
+    };
+    if (!onSave(updated)) {
+      setError(
+        'Attendance was not saved. Your changes are still here; please try again.',
+      );
+      return;
+    }
+    setSavedSession(structuredClone(updated));
+    setIsEditing(false);
+    setError('');
+  };
+
+  const handleBack = () => {
+    if (hasChanges && !window.confirm('Discard unsaved attendance changes?'))
+      return;
+    onBack();
+  };
+
+  const cancelChanges = () => {
+    if (hasChanges && !window.confirm('Discard unsaved attendance changes?'))
+      return;
+    if (savedSession.status === 'DRAFT') {
+      onBack();
+      return;
+    }
+    setRecords(structuredClone(savedSession.records));
+    setIsEditing(false);
+    setError('');
   };
 
   return (
-    <div className="w-full h-full flex flex-col p-6 lg:p-8 bg-gray-50/30 animate-in fade-in duration-300">
-      
-      {/* Breadcrumb Header */}
-      <div className="mb-6 flex items-center text-[13px]">
-        <button onClick={onBack} className="text-gray-500 hover:text-[#4f46e5] font-medium flex items-center gap-1.5 transition-colors">
-          <ChevronLeft size={14} /> Back to Records
-        </button>
-        <span className="text-gray-300 mx-2">/</span>
-        <span className="font-bold text-gray-800">Take Attendance</span>
-      </div>
-
-      {/* Info Card */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6 shadow-sm flex flex-col lg:flex-row gap-6 justify-between items-start lg:items-center">
+    <>
+      <button
+        onClick={handleBack}
+        className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-blue-600"
+      >
+        <ArrowLeft size={16} /> Back to attendance history
+      </button>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex gap-2 mb-2">
-            <span className="text-[10px] font-bold text-[#4f46e5] bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded uppercase tracking-wider">{level}</span>
-            <span className="text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded uppercase tracking-wider">{subject}</span>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900">{displayDate}</h2>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-blue-600">
+            {CATEGORY_LABELS[session.level_code]}
+          </p>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+            {isEditing ? 'Update attendance' : 'Review attendance'}
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            {session.display_date} · {subjectName(session.strand_code)}
+          </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-6">
-          <div className="flex items-center gap-8 pr-6 border-r border-gray-200">
-            <div className="text-center">
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-0.5">Total</p>
-              <p className="text-2xl font-black text-gray-800 leading-none">{totalLearners}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-0.5">Present</p>
-              <p className="text-2xl font-black text-emerald-500 leading-none">{presentCount}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-0.5">Absent</p>
-              <p className="text-2xl font-black text-red-500 leading-none">{absentCount}</p>
-            </div>
-          </div>
-          <button onClick={markAllPresent} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 text-gray-700 rounded-md text-sm font-semibold transition-colors shadow-sm">
-            <Check size={16} className="text-emerald-500" /> Mark All Present
-          </button>
-        </div>
+        <span
+          className={`rounded-lg px-3 py-1.5 text-xs font-bold ${savedSession.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}
+        >
+          {savedSession.status}
+        </span>
       </div>
-
-      {/* Main Grid */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col flex-1 min-w-0 overflow-hidden">
-        <div className="grid grid-cols-[minmax(250px,1fr)_auto_minmax(200px,300px)] gap-4 p-4 border-b border-gray-200 bg-white shrink-0 items-center">
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider pl-4">Learner Profile</div>
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center w-[300px]">Attendance Status</div>
-          <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider pl-2">Remarks (Optional)</div>
-        </div>
-
-        <AttendanceTable students={displayStudents} records={records} onStatusChange={handleStatusChange} onRemarksChange={handleRemarksChange} />
-        
-        <AttendanceFooter onSave={handleSave} isSaving={isSaving} saveSuccess={saveSuccess} isDataEmpty={displayStudents.length === 0} />
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {[
+          { label: 'Learners', count: records.length, color: 'text-slate-900' },
+          {
+            label: 'Present',
+            count: records.filter((record) => record.status === 'Present')
+              .length,
+            color: 'text-emerald-600',
+          },
+          {
+            label: 'Absent',
+            count: records.filter((record) => record.status === 'Absent')
+              .length,
+            color: 'text-red-600',
+          },
+          {
+            label: 'Excused',
+            count: records.filter((record) => record.status === 'Excused')
+              .length,
+            color: 'text-amber-600',
+          },
+        ].map((item) => (
+          <div
+            key={item.label}
+            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+          >
+            <p className="text-xs font-semibold text-slate-500">{item.label}</p>
+            <p className={`mt-2 text-2xl font-extrabold ${item.color}`}>
+              {item.count}
+            </p>
+          </div>
+        ))}
       </div>
-    </div>
+      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Learner records
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {isEditing
+                ? 'Review each status and add absence reasons or remarks.'
+                : 'Saved attendance for this session. Select Edit attendance to make a correction.'}
+            </p>
+          </div>
+          {isEditing ? (
+            <button
+              onClick={() => {
+                setRecords((previous) =>
+                  previous.map((record) => ({
+                    ...record,
+                    status: record.status ?? 'Present',
+                  })),
+                );
+                setError('');
+              }}
+              className="inline-flex items-center gap-2 rounded-xl border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+            >
+              <Check size={16} /> Mark unmarked present
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsEditing(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              <Pencil size={15} /> Edit attendance
+            </button>
+          )}
+        </div>
+        {error && (
+          <p
+            role="alert"
+            className="m-5 rounded-xl bg-red-50 p-3 text-sm text-red-700"
+          >
+            {error}
+          </p>
+        )}
+        <AttendanceTable
+          students={students}
+          records={records}
+          isEditing={isEditing}
+          onChange={handleChange}
+        />
+        {isEditing && (
+          <AttendanceFooter
+            onSave={handleSave}
+            onCancel={cancelChanges}
+            isDataEmpty={!records.length}
+            isUpdate={savedSession.status === 'COMPLETED'}
+          />
+        )}
+      </div>
+    </>
   );
 }
