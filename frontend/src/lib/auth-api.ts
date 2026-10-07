@@ -29,6 +29,15 @@ export function normalizeUserRole(user: UserRead): DemoRole | null {
 async function extractErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     const body = await response.json();
+    if (Array.isArray(body?.detail)) {
+      const messages = body.detail
+        .filter((item: { msg?: unknown }) => typeof item?.msg === 'string')
+        .map((item: { loc?: unknown[]; msg: string }) => {
+          const field = item.loc?.slice(1).join('.');
+          return field ? `${field}: ${item.msg}` : item.msg;
+        });
+      if (messages.length) return messages.join('; ');
+    }
     const message = [body?.message, body?.detail, body?.error?.message]
       .find((value) => typeof value === 'string' && value.length > 0);
     return message || fallback;
@@ -51,12 +60,13 @@ export async function loginAndFetchUser(
       body: JSON.stringify({
         email: identity.trim(),
         password,
-        role: expectedRole,
+        role: expectedRole.toUpperCase(),
       }),
     });
 
     if (!loginRes.ok) {
-      const msg = await extractErrorMessage(loginRes, 'Invalid email/ID or password.');
+      const msg = await extractErrorMessage(loginRes,
+        loginRes.status === 401 ? 'Invalid email/ID or password.' : 'Unable to sign in. Please try again.');
       throw new Error(msg);
     }
 

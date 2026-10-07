@@ -1,23 +1,24 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useTeacher } from '@/src/context/TeacherContext';
+import { useEffect, useState } from 'react';
+import { AssessmentPayload, listAssessments } from '@/src/lib/assessments-api';
 import { useRouter } from 'next/navigation';
 import { ClipboardList, Plus } from 'lucide-react';
 import TaskDashboard from '@/src/components/layout/teacher/assessment-tasks/TaskDashboard';
 
 export default function AssessmentsDashboardPage() {
   const router = useRouter();
-  const { tasks: storedTasks, setTasks, submissions } = useTeacher();
-  const tasks = useMemo(
-    () =>
-      storedTasks.map((t) => ({
-        ...t,
-        submissions: submissions.filter((s) => s.assessment_id === t.id).length,
-      })),
-    [storedTasks, submissions],
-  );
-  const handleUpdateTasks = setTasks;
+  const [tasks, setTasks] = useState<AssessmentPayload[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    listAssessments().then(tasks => { if (active) setTasks(tasks); })
+      .catch(error => { if (active) setError(error instanceof Error ? error.message : 'Unable to load assessments.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [retry]);
 
   return (
     <div className="w-full p-4 sm:p-6 lg:p-8 font-sans">
@@ -43,7 +44,7 @@ export default function AssessmentsDashboardPage() {
           </button>
         </div>
 
-        <TaskDashboard tasks={tasks} onUpdateTasks={handleUpdateTasks} />
+        {loading ? <p role="status" className="text-sm text-slate-500">Loading assessments...</p> : error ? <div role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error}<button onClick={() => { setLoading(true); setError(''); setRetry(value => value + 1); }} className="ml-3 underline">Retry</button></div> : <TaskDashboard tasks={tasks} onUpdated={updated => setTasks(current => current.map(task => task.assessment_id === updated.assessment_id ? updated : task))} />}
       </div>
     </div>
   );

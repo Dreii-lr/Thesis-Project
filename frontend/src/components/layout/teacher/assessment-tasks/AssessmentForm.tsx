@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -17,7 +17,7 @@ import {
   AssessmentPayload,
   TargetCategory,
   CategoryDataPayload,
-} from '@/src/data/mockAssessment';
+} from '@/src/lib/assessments-api';
 
 interface AssessmentFormProps {
   type: 'Quiz' | 'Exam';
@@ -37,22 +37,29 @@ export default function AssessmentForm({
   onSave,
   onCancel,
 }: AssessmentFormProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [subjectCode, setSubjectCode] = useState('ALS-LS6-DIGITAL');
-  const [targetCategory, setTargetCategory] = useState<TargetCategory>('junior');
+  const [today] = useState(() => new Date());
+  const datePart = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  const timePart = (value: Date) => `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+  const minDate = datePart(today);
+  const [title, setTitle] = useState(initialData?.title ?? '');
+  const [description, setDescription] = useState(initialData?.description ?? '');
+  const [subjectCode, setSubjectCode] = useState(initialData?.subject_code ?? 'ALS-LS6-DIGITAL');
+  const [targetCategory, setTargetCategory] = useState<TargetCategory | null>(initialData ? initialData.target_category : 'SECONDARY');
 
-  const [startDate, setStartDate] = useState('');
-  const [startTime, setStartTime] = useState('08:00');
-  const [endDate, setEndDate] = useState('');
-  const [endTime, setEndTime] = useState('10:00');
-  const [gracePeriod, setGracePeriod] = useState<number>(5);
-  const [minDate, setMinDate] = useState('');
+  const [startDate, setStartDate] = useState(initialData?.start_date ? datePart(new Date(initialData.start_date)) : minDate);
+  const [startTime, setStartTime] = useState(initialData?.start_date ? timePart(new Date(initialData.start_date)) : '08:00');
+  const [endDate, setEndDate] = useState(initialData?.end_date ? datePart(new Date(initialData.end_date)) : minDate);
+  const [endTime, setEndTime] = useState(initialData?.end_date ? timePart(new Date(initialData.end_date)) : '10:00');
+  const [duration, setDuration] = useState<number | ''>(initialData?.duration_minutes ?? '');
+  const [gracePeriod, setGracePeriod] = useState<number>(initialData?.grace_period_minutes ?? 5);
 
-  const [activeCategories, setActiveCategories] = useState<CategoryType[]>(['Multiple Choice']);
+  const mc = initialData?.categories_data.find(category => category.type === 'Multiple Choice');
+  const tf = initialData?.categories_data.find(category => ['True/False', 'True or False'].includes(category.type));
+  const mt = initialData?.categories_data.find(category => category.type === 'Matching Type');
+  const [activeCategories, setActiveCategories] = useState<CategoryType[]>(initialData?.categories_data.length ? initialData.categories_data.map(category => (category.type === 'True/False' ? 'True or False' : category.type) as CategoryType) : ['Multiple Choice']);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
-  const [mcItems, setMcItems] = useState([
+  const [mcItems, setMcItems] = useState(mc?.questions.map(q => ({ id: q.id, question: q.text ?? '', choices: { A: q.options?.[0] ?? '', B: q.options?.[1] ?? '', C: q.options?.[2] ?? '', D: q.options?.[3] ?? '' }, correctAnswer: (['A', 'B', 'C', 'D'].includes(q.correct_answer) ? q.correct_answer : 'A') as 'A' | 'B' | 'C' | 'D' })) ?? [
     {
       id: 'q_mc_1',
       question: '',
@@ -60,140 +67,30 @@ export default function AssessmentForm({
       correctAnswer: 'A' as 'A' | 'B' | 'C' | 'D',
     },
   ]);
-  const [mcRequiredDelivery, setMcRequiredDelivery] = useState<number>(1);
-  const [mcPointsEach, setMcPointsEach] = useState<number>(1);
+  const [mcRequiredDelivery, setMcRequiredDelivery] = useState<number>(mc?.required_count ?? 1);
+  const [mcPointsEach, setMcPointsEach] = useState<number>(mc?.points_per_item ?? 1);
 
-  const [tfItems, setTfItems] = useState([
+  const [tfItems, setTfItems] = useState(tf?.questions.map(q => ({ id: q.id, statement: q.text ?? '', correctAnswer: (q.correct_answer === 'False' ? 'False' : 'True') as 'True' | 'False' })) ?? [
     {
       id: 'q_tf_1',
       statement: '',
       correctAnswer: 'True' as 'True' | 'False',
     },
   ]);
-  const [tfRequiredDelivery, setTfRequiredDelivery] = useState<number>(1);
-  const [tfPointsEach, setTfPointsEach] = useState<number>(1);
+  const [tfRequiredDelivery, setTfRequiredDelivery] = useState<number>(tf?.required_count ?? 1);
+  const [tfPointsEach, setTfPointsEach] = useState<number>(tf?.points_per_item ?? 1);
 
-  const [matchingPairs, setMatchingPairs] = useState([
-    { id: 'q_mt_1', premise: 'Primary Storage', match: 'RAM (Random Access Memory)' },
-    { id: 'q_mt_2', premise: 'Central Processing Unit', match: 'CPU (Central Processing Unit)' },
+  const [matchingPairs, setMatchingPairs] = useState(mt?.questions.map(q => ({ id: q.id, premise: q.premise ?? '', match: q.match ?? '' })) ?? [
+    { id: 'q_mt_1', premise: '', match: '' },
+    { id: 'q_mt_2', premise: '', match: '' },
     { id: 'q_mt_3', premise: '', match: '' },
   ]);
-  const [matchingRequiredDelivery, setMatchingRequiredDelivery] = useState<number>(3);
-  const [matchingPointsEach, setMatchingPointsEach] = useState<number>(2);
-  const [distractors, setDistractors] = useState<string[]>(['Motherboard', 'Power Supply Unit']);
+  const [matchingRequiredDelivery, setMatchingRequiredDelivery] = useState<number>(mt?.required_count ?? 3);
+  const [matchingPointsEach, setMatchingPointsEach] = useState<number>(mt?.points_per_item ?? 2);
+  const [distractors, setDistractors] = useState<string[]>(mt?.distractors ?? []);
   const [newDistractor, setNewDistractor] = useState('');
 
-  useEffect(() => {
-    const now = new Date();
-    const localYear = now.getFullYear();
-    const localMonth = String(now.getMonth() + 1).padStart(2, '0');
-    const localDay = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${localYear}-${localMonth}-${localDay}`;
-    setMinDate(todayStr);
 
-    if (initialData) {
-      setTitle(initialData.title || '');
-      setDescription(initialData.description || '');
-      setSubjectCode(initialData.subject_code || 'ALS-LS6-DIGITAL');
-      setTargetCategory(initialData.target_category || 'junior');
-      setGracePeriod(initialData.grace_period_minutes ?? 5);
-
-      if (initialData.start_date) {
-        const s = new Date(initialData.start_date);
-        if (!isNaN(s.getTime())) {
-          setStartDate(
-            `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, '0')}-${String(
-              s.getDate()
-            ).padStart(2, '0')}`
-          );
-          setStartTime(
-            `${String(s.getHours()).padStart(2, '0')}:${String(s.getMinutes()).padStart(2, '0')}`
-          );
-        }
-      } else {
-        setStartDate(todayStr);
-      }
-
-      if (initialData.end_date) {
-        const e = new Date(initialData.end_date);
-        if (!isNaN(e.getTime())) {
-          setEndDate(
-            `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, '0')}-${String(
-              e.getDate()
-            ).padStart(2, '0')}`
-          );
-          setEndTime(
-            `${String(e.getHours()).padStart(2, '0')}:${String(e.getMinutes()).padStart(2, '0')}`
-          );
-        }
-      } else {
-        setEndDate(todayStr);
-      }
-
-      if (initialData.categories_data && initialData.categories_data.length > 0) {
-        const loadedCats: CategoryType[] = [];
-
-        initialData.categories_data.forEach((cat) => {
-          if (cat.type === 'Multiple Choice') {
-            loadedCats.push('Multiple Choice');
-            setMcRequiredDelivery(cat.required_count || 1);
-            setMcPointsEach(cat.points_per_item || 1);
-            if (cat.questions && cat.questions.length > 0) {
-              setMcItems(
-                cat.questions.map((q) => ({
-                  id: q.id,
-                  question: q.text || '',
-                  choices: {
-                    A: q.options?.[0] || '',
-                    B: q.options?.[1] || '',
-                    C: q.options?.[2] || '',
-                    D: q.options?.[3] || '',
-                  },
-                  correctAnswer: (['A', 'B', 'C', 'D'].includes(q.correct_answer)
-                    ? q.correct_answer
-                    : 'A') as 'A' | 'B' | 'C' | 'D',
-                }))
-              );
-            }
-          } else if (cat.type === 'True or False' || cat.type === 'True/False') {
-            loadedCats.push('True or False');
-            setTfRequiredDelivery(cat.required_count || 1);
-            setTfPointsEach(cat.points_per_item || 1);
-            if (cat.questions && cat.questions.length > 0) {
-              setTfItems(
-                cat.questions.map((q) => ({
-                  id: q.id,
-                  statement: q.text || '',
-                  correctAnswer: q.correct_answer === 'False' ? 'False' : 'True',
-                }))
-              );
-            }
-          } else if (cat.type === 'Matching Type') {
-            loadedCats.push('Matching Type');
-            setMatchingRequiredDelivery(cat.required_count || 1);
-            setMatchingPointsEach(cat.points_per_item || 2);
-            setDistractors(cat.distractors || []);
-            if (cat.questions && cat.questions.length > 0) {
-              setMatchingPairs(
-                cat.questions.map((q) => ({
-                  id: q.id,
-                  premise: q.premise || '',
-                  match: q.match || '',
-                }))
-              );
-            }
-          }
-        });
-
-        if (loadedCats.length > 0) {
-          setActiveCategories(loadedCats);
-        }
-      }
-    } else {
-      setStartDate(todayStr);
-      setEndDate(todayStr);
-    }
-  }, [initialData]);
 
   const remainingCategories = ALL_CATEGORIES.filter((cat) => !activeCategories.includes(cat));
 
@@ -303,16 +200,15 @@ export default function AssessmentForm({
     const startIso = new Date(`${safeStartDate}T${startTime || '08:00'}`).toISOString();
     const endIso = new Date(`${safeEndDate}T${endTime || '10:00'}`).toISOString();
 
-    const durationMins = Math.max(
-      0,
-      Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000)
-    );
+    if (new Date(endIso) <= new Date(startIso)) return alert('End time must be after start time.');
+
+    if (duration !== '' && (!Number.isInteger(duration) || duration < 1)) return alert('Duration must be a positive number of minutes.');
 
     const categoriesData: CategoryDataPayload[] = [];
 
     if (activeCategories.includes('Multiple Choice')) {
       categoriesData.push({
-        category_id: 'cat_mc_1',
+        category_id: mc?.category_id ?? 'cat_mc_1',
         type: 'Multiple Choice',
         pool_size: mcItems.length,
         required_count: mcRequiredDelivery,
@@ -332,8 +228,8 @@ export default function AssessmentForm({
 
     if (activeCategories.includes('True or False')) {
       categoriesData.push({
-        category_id: 'cat_tf_1',
-        type: 'True or False',
+        category_id: tf?.category_id ?? 'cat_tf_1',
+        type: 'True/False',
         pool_size: tfItems.length,
         required_count: tfRequiredDelivery,
         points_per_item: tfPointsEach,
@@ -352,7 +248,7 @@ export default function AssessmentForm({
 
     if (activeCategories.includes('Matching Type')) {
       categoriesData.push({
-        category_id: 'cat_mt_1',
+        category_id: mt?.category_id ?? 'cat_mt_1',
         type: 'Matching Type',
         pool_size: matchingPairs.length,
         required_count: matchingRequiredDelivery,
@@ -370,30 +266,19 @@ export default function AssessmentForm({
       });
     }
 
+    for (const category of categoriesData) {
+      if (!Number.isInteger(category.required_count) || category.required_count < 1 || category.required_count > category.questions.length || !Number.isFinite(category.points_per_item) || category.points_per_item < 0) return alert('Check the number of questions and points for each category.');
+      if (saveStatus !== 'DRAFT' && category.questions.some(q => category.type === 'Matching Type' ? !q.premise.trim() || !q.match.trim() : !q.text.trim() || (category.type === 'Multiple Choice' && q.options.some(option => !option.trim())))) return alert('Complete all questions and answers before publishing.');
+    }
     const totalMaxScore = categoriesData.reduce(
       (sum, c) => sum + c.required_count * c.points_per_item,
       0
     );
 
-    const formattedDeadline = `${new Date(startIso).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })} to\n${new Date(endIso).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })}`;
-
-    const finalStatus =
-      initialData?.status === 'ACTIVE' && saveStatus === 'SCHEDULED'
-        ? 'ACTIVE'
-        : saveStatus;
+    const finalStatus = saveStatus === 'DRAFT' ? 'DRAFT' : initialData?.status === 'COMPLETED' || new Date(endIso) <= new Date() ? 'COMPLETED' : new Date(startIso) > new Date() ? 'SCHEDULED' : 'ACTIVE';
 
     const payload: AssessmentPayload = {
-      id: initialData?.id || `assess_${Date.now()}`,
+
       title: title.trim() || `Untitled ${type} (Draft)`,
       description: description.trim(),
       subject_code: subjectCode,
@@ -403,17 +288,12 @@ export default function AssessmentForm({
       start_date: startIso,
       end_date: endIso,
       grace_period_minutes: gracePeriod,
-      duration_minutes: durationMins,
+      duration_minutes: duration === '' ? null : duration,
       max_score: totalMaxScore,
       is_ai_generated: initialData?.is_ai_generated || false,
       categories_data: categoriesData,
       materials: initialData?.materials || [],
-      subject: subjectCode,
-      type: type,
-      deadline: formattedDeadline,
-      submissions: initialData?.submissions || 0,
-      assign_type: initialData?.assign_type,
-      assigned_student_ids: initialData?.assigned_student_ids,
+
     };
 
     onSave(payload);
@@ -479,13 +359,14 @@ export default function AssessmentForm({
               Target Class Category
             </label>
             <select
-              value={targetCategory}
-              onChange={(e) => setTargetCategory(e.target.value as TargetCategory)}
+              value={targetCategory ?? ""}
+              onChange={(e) => setTargetCategory((e.target.value || null) as TargetCategory | null)}
               className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
             >
-              <option value="elementary">Elementary</option>
-              <option value="junior">Junior High School</option>
-              <option value="basic_literacy">Basic Literacy Program</option>
+              <option value="">All Programs</option>
+              <option value="ELEMENTARY">Elementary</option>
+              <option value="SECONDARY">Junior High School</option>
+              <option value="BLP">Basic Literacy Program</option>
             </select>
           </div>
         </div>
@@ -558,6 +439,10 @@ export default function AssessmentForm({
             />
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Time Limit (minutes, optional)</label>
+            <input type="number" min={1} value={duration} onChange={event => setDuration(event.target.value === '' ? '' : Number(event.target.value))} placeholder="No time limit" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+          </div>
           <div>
             <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
               <Timer size={13} className="text-amber-600" /> Grace Period (To Start)

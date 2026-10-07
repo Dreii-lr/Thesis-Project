@@ -10,7 +10,7 @@ export default function ChoicePage() {
 
   const handleSelection = (view: string) => {
     if (view === 'create-activity') router.push('/teacher/assessment-tasks/activity');
-    else if (view === 'create-quiz-manual' || view === 'create-quiz-ai') router.push(`/teacher/assessment-tasks/quizzes?mode=${view.includes('ai') ? 'ai' : 'manual'}`);
+    else if (view === 'create-quiz-manual') router.push('/teacher/assessment-tasks/quizzes');
     else if (view === 'create-exam') router.push('/teacher/assessment-tasks/exam');
   };
 

@@ -1,21 +1,19 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
-  UploadCloud,
   Calendar,
   Clock,
   Award,
   CheckCircle2,
   FileText,
-  X,
   Save,
 } from 'lucide-react';
 import {
   AssessmentPayload,
   TargetCategory,
   MaterialPayload,
-} from '@/src/data/mockAssessment';
+} from '@/src/lib/assessments-api';
 
 export default function ActivityForm({
   initialData,
@@ -26,80 +24,24 @@ export default function ActivityForm({
   onSave: (task: AssessmentPayload) => void;
   onCancel: () => void;
 }) {
-  const [title, setTitle] = useState('');
-  const [subjectCode, setSubjectCode] = useState('ALS-LS1-COMM');
+  const [today] = useState(() => new Date());
+  const datePart = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  const timePart = (value: Date) => `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+  const minDate = datePart(today);
+  const [title, setTitle] = useState(initialData?.title ?? '');
+  const [subjectCode, setSubjectCode] = useState(initialData?.subject_code ?? 'ALS-LS1-COMM');
   const [targetCategory, setTargetCategory] =
-    useState<TargetCategory>('junior');
-  const [description, setDescription] = useState('');
+    useState<TargetCategory | null>(initialData ? initialData.target_category : 'SECONDARY');
+  const [description, setDescription] = useState(initialData?.description ?? '');
 
-  const [deadlineDate, setDeadlineDate] = useState('');
-  const [deadlineTime, setDeadlineTime] = useState('23:59');
-  const [maxScore, setMaxScore] = useState<number>(100);
+  const [deadlineDate, setDeadlineDate] = useState(initialData?.end_date ? datePart(new Date(initialData.end_date)) : minDate);
+  const [deadlineTime, setDeadlineTime] = useState(initialData?.end_date ? timePart(new Date(initialData.end_date)) : '23:59');
+  const [maxScore, setMaxScore] = useState<number>(initialData?.max_score ?? 100);
 
-  const [minDate, setMinDate] = useState('');
-  const [minTime, setMinTime] = useState('');
+  const minTime = timePart(today);
 
-  const [existingMaterials, setExistingMaterials] = useState<MaterialPayload[]>(
-    [],
-  );
-  const [files, setFiles] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const existingMaterials: MaterialPayload[] = initialData?.materials ?? [];
 
-  useEffect(() => {
-    const now = new Date();
-    const localYear = now.getFullYear();
-    const localMonth = String(now.getMonth() + 1).padStart(2, '0');
-    const localDay = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${localYear}-${localMonth}-${localDay}`;
-
-    const localHours = String(now.getHours()).padStart(2, '0');
-    const localMinutes = String(now.getMinutes()).padStart(2, '0');
-    const currentTimeStr = `${localHours}:${localMinutes}`;
-
-    setMinDate(todayStr);
-    setMinTime(currentTimeStr);
-
-    if (initialData) {
-      setTitle(initialData.title || '');
-      setSubjectCode(initialData.subject_code || 'ALS-LS1-COMM');
-      setTargetCategory(initialData.target_category || 'junior');
-      setDescription(initialData.description || '');
-      setMaxScore(initialData.max_score ?? 100);
-      setExistingMaterials(initialData.materials || []);
-
-      if (initialData.end_date) {
-        const d = new Date(initialData.end_date);
-        if (!isNaN(d.getTime())) {
-          setDeadlineDate(
-            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-              d.getDate(),
-            ).padStart(2, '0')}`,
-          );
-          setDeadlineTime(
-            `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-          );
-        }
-      } else {
-        setDeadlineDate(todayStr);
-      }
-    } else {
-      setDeadlineDate(todayStr);
-    }
-  }, [initialData]);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-    }
-  };
-
-  const handleRemoveNewFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleRemoveExistingMaterial = (index: number) => {
-    setExistingMaterials((prev) => prev.filter((_, i) => i !== index));
-  };
 
   const buildAndSave = async (saveStatus: 'DRAFT' | 'SCHEDULED') => {
     if (saveStatus === 'SCHEDULED') {
@@ -123,49 +65,11 @@ export default function ActivityForm({
       `${safeDeadlineDate}T${deadlineTime || '23:59'}`,
     );
 
-    let newMaterialsPayload: MaterialPayload[];
-    try {
-      newMaterialsPayload = await Promise.all(
-        files.map(
-          (file) =>
-            new Promise<MaterialPayload>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onerror = () =>
-                reject(new Error('Unable to read attachment.'));
-              reader.onload = () =>
-                resolve({
-                  file_name: file.name,
-                  file_url: String(reader.result),
-                  file_type: file.type || 'application/octet-stream',
-                  file_size_bytes: file.size,
-                });
-              reader.readAsDataURL(file);
-            }),
-        ),
-      );
-    } catch {
-      alert('Unable to read an attachment. Please select the file again.');
-      return;
-    }
-
-    const combinedMaterials = [...existingMaterials, ...newMaterialsPayload];
-
-    const formattedDeadline = `${selectedDeadline.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    })}\n${selectedDeadline.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-    })}`;
-
-    const finalStatus =
-      initialData?.status === 'ACTIVE' && saveStatus === 'SCHEDULED'
-        ? 'ACTIVE'
-        : saveStatus;
+    if (!Number.isFinite(maxScore) || maxScore <= 0) return alert('Enter a positive maximum score.');
+    const finalStatus = saveStatus === 'DRAFT' ? 'DRAFT' : initialData?.status === 'COMPLETED' || selectedDeadline <= new Date() ? 'COMPLETED' : new Date(initialData?.start_date || Date.now()) > new Date() ? 'SCHEDULED' : 'ACTIVE';
 
     const payload: AssessmentPayload = {
-      id: initialData?.id || `assess_${Date.now()}`,
+
       title: title.trim() || 'Untitled Activity (Draft)',
       description: description.trim(),
       subject_code: subjectCode,
@@ -179,13 +83,8 @@ export default function ActivityForm({
       max_score: maxScore,
       is_ai_generated: false,
       categories_data: [],
-      materials: combinedMaterials,
-      subject: subjectCode,
-      type: 'Activity',
-      deadline: formattedDeadline,
-      submissions: initialData?.submissions || 0,
-      assign_type: initialData?.assign_type,
-      assigned_student_ids: initialData?.assigned_student_ids,
+      materials: existingMaterials,
+
     };
 
     onSave(payload);
@@ -260,15 +159,16 @@ export default function ActivityForm({
               Target Class Category
             </label>
             <select
-              value={targetCategory}
+              value={targetCategory ?? ""}
               onChange={(e) =>
-                setTargetCategory(e.target.value as TargetCategory)
+                setTargetCategory((e.target.value || null) as TargetCategory | null)
               }
               className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer"
             >
-              <option value="elementary">Elementary</option>
-              <option value="junior">Junior High School</option>
-              <option value="basic_literacy">Basic Literacy Program</option>
+              <option value="">All Programs</option>
+              <option value="ELEMENTARY">Elementary</option>
+              <option value="SECONDARY">Junior High School</option>
+              <option value="BLP">Basic Literacy Program</option>
             </select>
           </div>
         </div>
@@ -346,97 +246,12 @@ export default function ActivityForm({
             Reference Materials
           </h3>
           <p className="text-xs text-slate-500">
-            Attach worksheets, rubrics, or reading materials for your students
-            (optional).
+            Existing worksheets and reference materials appear here.
           </p>
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          disabled={Boolean(initialData)}
-          multiple
-          accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg"
-          onChange={handleFileChange}
-          className="hidden"
-        />
-
-        <div
-          onClick={() => {
-            if (!initialData) fileInputRef.current?.click();
-          }}
-          className="border-2 border-dashed border-slate-200 bg-slate-50/70 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-blue-500 hover:bg-blue-50/40 transition-all cursor-pointer group"
-        >
-          <UploadCloud
-            size={32}
-            className="text-slate-400 mb-2.5 group-hover:text-blue-600 transition-colors"
-          />
-          <p className="text-xs font-bold text-slate-700 group-hover:text-blue-700">
-            {initialData
-              ? 'Existing reference files are retained when editing.'
-              : 'Click to upload reference files'}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {initialData
-              ? 'To use different reference files, create a new activity.'
-              : 'PDF, DOCX, PPTX, or Images up to 10MB'}
-          </p>
-        </div>
-
-        {(existingMaterials.length > 0 || files.length > 0) && (
-          <div className="space-y-2 pt-2">
-            {existingMaterials.map((mat, idx) => (
-              <div
-                key={`existing-${idx}`}
-                className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs"
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <FileText size={15} className="text-blue-600 shrink-0" />
-                  <span className="font-semibold text-slate-800 truncate">
-                    {mat.file_name}
-                  </span>
-                  <span className="text-slate-400 shrink-0">
-                    ({(mat.file_size_bytes / 1024).toFixed(1)} KB)
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  disabled={Boolean(initialData)}
-                  onClick={() => handleRemoveExistingMaterial(idx)}
-                  className="text-slate-400 hover:text-rose-600 p-1"
-                  title="Remove file"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-
-            {files.map((file, idx) => (
-              <div
-                key={`new-${idx}`}
-                className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs"
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <FileText size={15} className="text-blue-600 shrink-0" />
-                  <span className="font-semibold text-slate-800 truncate">
-                    {file.name}
-                  </span>
-                  <span className="text-slate-400 shrink-0">
-                    ({(file.size / 1024).toFixed(1)} KB)
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveNewFile(idx)}
-                  className="text-slate-400 hover:text-rose-600 p-1"
-                  title="Remove file"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <p className="text-xs text-slate-500">File uploads are not available yet. Include reference links in the instructions.</p>
+        {existingMaterials.map((material, index) => <div key={index} className="flex items-center gap-2 text-sm text-slate-600"><FileText size={15} />{material.file_name}</div>)}
       </div>
 
       {/* Form Actions */}
