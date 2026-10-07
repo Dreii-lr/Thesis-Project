@@ -28,7 +28,8 @@ export default function ActivityForm({
 }) {
   const [title, setTitle] = useState('');
   const [subjectCode, setSubjectCode] = useState('ALS-LS1-COMM');
-  const [targetCategory, setTargetCategory] = useState<TargetCategory>('junior_high_school');
+  const [targetCategory, setTargetCategory] =
+    useState<TargetCategory>('junior');
   const [description, setDescription] = useState('');
 
   const [deadlineDate, setDeadlineDate] = useState('');
@@ -38,7 +39,9 @@ export default function ActivityForm({
   const [minDate, setMinDate] = useState('');
   const [minTime, setMinTime] = useState('');
 
-  const [existingMaterials, setExistingMaterials] = useState<MaterialPayload[]>([]);
+  const [existingMaterials, setExistingMaterials] = useState<MaterialPayload[]>(
+    [],
+  );
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -59,9 +62,9 @@ export default function ActivityForm({
     if (initialData) {
       setTitle(initialData.title || '');
       setSubjectCode(initialData.subject_code || 'ALS-LS1-COMM');
-      setTargetCategory(initialData.target_category || 'junior_high_school');
+      setTargetCategory(initialData.target_category || 'junior');
       setDescription(initialData.description || '');
-      setMaxScore(initialData.max_score || 100);
+      setMaxScore(initialData.max_score ?? 100);
       setExistingMaterials(initialData.materials || []);
 
       if (initialData.end_date) {
@@ -69,11 +72,11 @@ export default function ActivityForm({
         if (!isNaN(d.getTime())) {
           setDeadlineDate(
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-              d.getDate()
-            ).padStart(2, '0')}`
+              d.getDate(),
+            ).padStart(2, '0')}`,
           );
           setDeadlineTime(
-            `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+            `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
           );
         }
       } else {
@@ -98,8 +101,8 @@ export default function ActivityForm({
     setExistingMaterials((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const buildAndSave = (saveStatus: 'DRAFT' | 'PENDING') => {
-    if (saveStatus === 'PENDING') {
+  const buildAndSave = async (saveStatus: 'DRAFT' | 'SCHEDULED') => {
+    if (saveStatus === 'SCHEDULED') {
       if (!title.trim()) return alert('Please enter an activity title.');
       if (!deadlineDate || !deadlineTime) {
         return alert('Please set both the Deadline Date and Deadline Time.');
@@ -108,19 +111,42 @@ export default function ActivityForm({
       const selectedDeadline = new Date(`${deadlineDate}T${deadlineTime}`);
       const now = new Date();
       if (!initialData && selectedDeadline < now) {
-        return alert('The deadline cannot be set in the past. Please choose a future time.');
+        return alert(
+          'The deadline cannot be set in the past. Please choose a future time.',
+        );
       }
     }
 
-    const safeDeadlineDate = deadlineDate || minDate || new Date().toISOString().slice(0, 10);
-    const selectedDeadline = new Date(`${safeDeadlineDate}T${deadlineTime || '23:59'}`);
+    const safeDeadlineDate =
+      deadlineDate || minDate || new Date().toISOString().slice(0, 10);
+    const selectedDeadline = new Date(
+      `${safeDeadlineDate}T${deadlineTime || '23:59'}`,
+    );
 
-    const newMaterialsPayload: MaterialPayload[] = files.map((file) => ({
-      file_name: file.name,
-      file_url: URL.createObjectURL(file),
-      file_type: file.type || 'application/octet-stream',
-      file_size_bytes: file.size,
-    }));
+    let newMaterialsPayload: MaterialPayload[];
+    try {
+      newMaterialsPayload = await Promise.all(
+        files.map(
+          (file) =>
+            new Promise<MaterialPayload>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onerror = () =>
+                reject(new Error('Unable to read attachment.'));
+              reader.onload = () =>
+                resolve({
+                  file_name: file.name,
+                  file_url: String(reader.result),
+                  file_type: file.type || 'application/octet-stream',
+                  file_size_bytes: file.size,
+                });
+              reader.readAsDataURL(file);
+            }),
+        ),
+      );
+    } catch {
+      alert('Unable to read an attachment. Please select the file again.');
+      return;
+    }
 
     const combinedMaterials = [...existingMaterials, ...newMaterialsPayload];
 
@@ -134,8 +160,8 @@ export default function ActivityForm({
     })}`;
 
     const finalStatus =
-      initialData?.status === 'PUBLISHED' && saveStatus === 'PENDING'
-        ? 'PUBLISHED'
+      initialData?.status === 'ACTIVE' && saveStatus === 'SCHEDULED'
+        ? 'ACTIVE'
         : saveStatus;
 
     const payload: AssessmentPayload = {
@@ -167,7 +193,7 @@ export default function ActivityForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    buildAndSave('PENDING');
+    buildAndSave('SCHEDULED');
   };
 
   return (
@@ -179,7 +205,8 @@ export default function ActivityForm({
               {initialData ? 'Edit Activity' : 'Activity Configuration'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Set up the activity title, class program, instructions, and submission deadline.
+              Set up the activity title, class program, instructions, and
+              submission deadline.
             </p>
           </div>
           {initialData && (
@@ -213,10 +240,18 @@ export default function ActivityForm({
               onChange={(e) => setSubjectCode(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer"
             >
-              <option value="ALS-LS1-COMM">ALS-LS1-COMM (Communication Skills)</option>
-              <option value="ALS-LS2-SCI">ALS-LS2-SCI (Scientific & Critical Thinking)</option>
-              <option value="ALS-LS3-MATH">ALS-LS3-MATH (Mathematical & Problem Solving)</option>
-              <option value="ALS-LS6-DIGITAL">ALS-LS6-DIGITAL (Digital Citizenship)</option>
+              <option value="ALS-LS1-COMM">
+                ALS-LS1-COMM (Communication Skills)
+              </option>
+              <option value="ALS-LS2-SCI">
+                ALS-LS2-SCI (Scientific & Critical Thinking)
+              </option>
+              <option value="ALS-LS3-MATH">
+                ALS-LS3-MATH (Mathematical & Problem Solving)
+              </option>
+              <option value="ALS-LS6-DIGITAL">
+                ALS-LS6-DIGITAL (Digital Citizenship)
+              </option>
             </select>
           </div>
 
@@ -226,12 +261,14 @@ export default function ActivityForm({
             </label>
             <select
               value={targetCategory}
-              onChange={(e) => setTargetCategory(e.target.value as TargetCategory)}
+              onChange={(e) =>
+                setTargetCategory(e.target.value as TargetCategory)
+              }
               className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer"
             >
               <option value="elementary">Elementary</option>
-              <option value="junior_high_school">Junior High School</option>
-              <option value="basic_literacy_program">Basic Literacy Program</option>
+              <option value="junior">Junior High School</option>
+              <option value="basic_literacy">Basic Literacy Program</option>
             </select>
           </div>
         </div>
@@ -289,7 +326,9 @@ export default function ActivityForm({
                 max={1000}
                 required
                 value={maxScore}
-                onChange={(e) => setMaxScore(Math.max(1, Number(e.target.value) || 1))}
+                onChange={(e) =>
+                  setMaxScore(Math.max(1, Number(e.target.value) || 1))
+                }
                 className="w-full rounded-xl border border-slate-200 bg-white pl-3.5 pr-12 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
               />
               <span className="absolute right-3.5 text-xs font-medium text-slate-400">
@@ -303,15 +342,19 @@ export default function ActivityForm({
       {/* Reference Materials Card */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
         <div>
-          <h3 className="text-base font-bold text-slate-900">Reference Materials</h3>
+          <h3 className="text-base font-bold text-slate-900">
+            Reference Materials
+          </h3>
           <p className="text-xs text-slate-500">
-            Attach worksheets, rubrics, or reading materials for your students (optional).
+            Attach worksheets, rubrics, or reading materials for your students
+            (optional).
           </p>
         </div>
 
         <input
           ref={fileInputRef}
           type="file"
+          disabled={Boolean(initialData)}
           multiple
           accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg"
           onChange={handleFileChange}
@@ -319,7 +362,9 @@ export default function ActivityForm({
         />
 
         <div
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            if (!initialData) fileInputRef.current?.click();
+          }}
           className="border-2 border-dashed border-slate-200 bg-slate-50/70 rounded-xl p-8 flex flex-col items-center justify-center text-center hover:border-blue-500 hover:bg-blue-50/40 transition-all cursor-pointer group"
         >
           <UploadCloud
@@ -327,10 +372,14 @@ export default function ActivityForm({
             className="text-slate-400 mb-2.5 group-hover:text-blue-600 transition-colors"
           />
           <p className="text-xs font-bold text-slate-700 group-hover:text-blue-700">
-            Click to upload reference files
+            {initialData
+              ? 'Existing reference files are retained when editing.'
+              : 'Click to upload reference files'}
           </p>
           <p className="text-[11px] text-slate-500 mt-1">
-            PDF, DOCX, PPTX, or Images up to 10MB
+            {initialData
+              ? 'To use different reference files, create a new activity.'
+              : 'PDF, DOCX, PPTX, or Images up to 10MB'}
           </p>
         </div>
 
@@ -343,13 +392,16 @@ export default function ActivityForm({
               >
                 <div className="flex items-center gap-2.5 truncate">
                   <FileText size={15} className="text-blue-600 shrink-0" />
-                  <span className="font-semibold text-slate-800 truncate">{mat.file_name}</span>
+                  <span className="font-semibold text-slate-800 truncate">
+                    {mat.file_name}
+                  </span>
                   <span className="text-slate-400 shrink-0">
                     ({(mat.file_size_bytes / 1024).toFixed(1)} KB)
                   </span>
                 </div>
                 <button
                   type="button"
+                  disabled={Boolean(initialData)}
                   onClick={() => handleRemoveExistingMaterial(idx)}
                   className="text-slate-400 hover:text-rose-600 p-1"
                   title="Remove file"
@@ -366,7 +418,9 @@ export default function ActivityForm({
               >
                 <div className="flex items-center gap-2.5 truncate">
                   <FileText size={15} className="text-blue-600 shrink-0" />
-                  <span className="font-semibold text-slate-800 truncate">{file.name}</span>
+                  <span className="font-semibold text-slate-800 truncate">
+                    {file.name}
+                  </span>
                   <span className="text-slate-400 shrink-0">
                     ({(file.size / 1024).toFixed(1)} KB)
                   </span>
@@ -405,7 +459,8 @@ export default function ActivityForm({
           type="submit"
           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
         >
-          <CheckCircle2 size={15} /> {initialData ? 'Update Activity' : 'Save Activity'}
+          <CheckCircle2 size={15} />{' '}
+          {initialData ? 'Update Activity' : 'Save Activity'}
         </button>
       </div>
     </form>

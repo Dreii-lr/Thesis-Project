@@ -2,13 +2,20 @@
 
 import React, { useState } from 'react';
 import { Sparkles, Calendar, Clock, AlertCircle } from 'lucide-react';
+import {
+  AssessmentPayload,
+  TargetCategory,
+  CategoryDataPayload,
+  QuestionPayload,
+} from '@/src/data/mockAssessment';
 
 interface AIGeneratorProps {
-  onSave: (task: any) => void;
+  onSave: (task: AssessmentPayload) => void;
 }
 
 interface CategoryConfig {
   id: string;
+  type: string;
   label: string;
   maxItems: number;
   count: number;
@@ -16,11 +23,23 @@ interface CategoryConfig {
   enabled: boolean;
 }
 
+const PROGRAM_TO_CATEGORY: Record<
+  'Elementary' | 'Junior High School' | 'Basic Literacy Program',
+  TargetCategory
+> = {
+  Elementary: 'elementary',
+  'Junior High School': 'junior',
+  'Basic Literacy Program': 'basic_literacy',
+};
+
 export default function AIGenerator({ onSave }: AIGeneratorProps) {
   const [title, setTitle] = useState('');
+  const [subjectCode, setSubjectCode] = useState('ALS-LS6-DIGITAL');
   const [topic, setTopic] = useState('');
   const [difficulty, setDifficulty] = useState<'Easy' | 'Moderate' | 'Challenging'>('Moderate');
-  const [program, setProgram] = useState<'Elementary' | 'Junior High School' | 'Basic Literacy Program'>('Junior High School');
+  const [program, setProgram] = useState<
+    'Elementary' | 'Junior High School' | 'Basic Literacy Program'
+  >('Junior High School');
 
   const [startDate, setStartDate] = useState('2026-10-10');
   const [startTime, setStartTime] = useState('08:00');
@@ -28,11 +47,51 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
   const [endTime, setEndTime] = useState('10:00');
 
   const [categories, setCategories] = useState<CategoryConfig[]>([
-    { id: 'mc', label: 'Multiple Choice (A, B, C, D)', maxItems: 30, count: 10, pointsEach: 1, enabled: true },
-    { id: 'tf', label: 'True or False', maxItems: 15, count: 5, pointsEach: 1, enabled: false },
-    { id: 'mt', label: 'Matching Type (Column A & B)', maxItems: 15, count: 5, pointsEach: 2, enabled: true },
-    { id: 'id', label: 'Identification', maxItems: 15, count: 5, pointsEach: 1, enabled: false },
-    { id: 'es', label: 'Essay / Reflective Question', maxItems: 5, count: 1, pointsEach: 5, enabled: false },
+    {
+      id: 'mc',
+      type: 'Multiple Choice',
+      label: 'Multiple Choice (A, B, C, D)',
+      maxItems: 30,
+      count: 10,
+      pointsEach: 1,
+      enabled: true,
+    },
+    {
+      id: 'tf',
+      type: 'True or False',
+      label: 'True or False',
+      maxItems: 15,
+      count: 5,
+      pointsEach: 1,
+      enabled: false,
+    },
+    {
+      id: 'mt',
+      type: 'Matching Type',
+      label: 'Matching Type (Column A & B)',
+      maxItems: 15,
+      count: 5,
+      pointsEach: 2,
+      enabled: true,
+    },
+    {
+      id: 'id',
+      type: 'Identification',
+      label: 'Identification',
+      maxItems: 15,
+      count: 5,
+      pointsEach: 1,
+      enabled: false,
+    },
+    {
+      id: 'es',
+      type: 'Essay',
+      label: 'Essay / Reflective Question',
+      maxItems: 5,
+      count: 1,
+      pointsEach: 5,
+      enabled: false,
+    },
   ]);
 
   const updateCategory = (id: string, field: keyof CategoryConfig, value: any) => {
@@ -52,20 +111,110 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
   const totalItems = activeCategories.reduce((sum, c) => sum + c.count, 0);
   const totalPoints = activeCategories.reduce((sum, c) => sum + c.count * c.pointsEach, 0);
 
+  const buildGeneratedCategories = (): CategoryDataPayload[] => {
+    const snippet = topic.trim().slice(0, 50) || 'the lesson topic';
+
+    return activeCategories.map((cat, idx) => {
+      const questions: QuestionPayload[] = Array.from({ length: cat.count }, (_, qIdx) => {
+        const qNum = qIdx + 1;
+        if (cat.type === 'Multiple Choice') {
+          return {
+            id: `q_ai_${cat.id}_${Date.now()}_${qNum}`,
+            text: `[${difficulty}] Question #${qNum} regarding ${snippet}?`,
+            options: ['Option A', 'Option B', 'Option C', 'Option D'],
+            correct_answer: 'A',
+            premise: '',
+            match: '',
+          };
+        }
+        if (cat.type === 'True or False') {
+          return {
+            id: `q_ai_${cat.id}_${Date.now()}_${qNum}`,
+            text: `[${difficulty}] Statement #${qNum} based on ${snippet} is accurate.`,
+            options: ['True', 'False'],
+            correct_answer: 'True',
+            premise: '',
+            match: '',
+          };
+        }
+        if (cat.type === 'Matching Type') {
+          return {
+            id: `q_ai_${cat.id}_${Date.now()}_${qNum}`,
+            text: '',
+            options: [],
+            correct_answer: '',
+            premise: `Concept #${qNum} (${snippet})`,
+            match: `Definition / Match #${qNum}`,
+          };
+        }
+        return {
+          id: `q_ai_${cat.id}_${Date.now()}_${qNum}`,
+          text: `[${difficulty}] ${cat.type} prompt #${qNum} about ${snippet}:`,
+          options: [],
+          correct_answer: 'Sample Answer',
+          premise: '',
+          match: '',
+        };
+      });
+
+      return {
+        category_id: `cat_${cat.id}_${idx + 1}`,
+        type: cat.type,
+        pool_size: cat.count,
+        required_count: cat.count,
+        points_per_item: cat.pointsEach,
+        is_expanded: true,
+        distractors: cat.type === 'Matching Type' ? ['Distractor A', 'Distractor B'] : [],
+        questions,
+      };
+    });
+  };
+
   const handleGenerateAndSave = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
-      title: title || `${topic} AI Assessment`,
-      type: 'Quiz',
-      program,
-      startDate,
-      startTime,
-      endDate,
-      endTime,
-      totalItems,
-      totalPoints,
-      aiConfig: { topic, difficulty, categories: activeCategories },
+    if (activeCategories.length === 0) return;
+
+    const startIso = new Date(`${startDate}T${startTime}:00`).toISOString();
+    const endIso = new Date(`${endDate}T${endTime}:00`).toISOString();
+
+    const formattedStart = new Date(`${startDate}T${startTime}:00`).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
     });
+    const formattedEnd = new Date(`${endDate}T${endTime}:00`).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+
+    const newTask: AssessmentPayload = {
+      id: `assess_${Date.now()}`,
+      title: title.trim() || `${topic.slice(0, 25)} AI Assessment`,
+      description: `AI-Generated (${difficulty}) assessment covering: ${topic}`,
+      subject_code: subjectCode,
+      target_category: PROGRAM_TO_CATEGORY[program],
+      assessment_type: 'QUIZ',
+      status: 'SCHEDULED',
+      start_date: startIso,
+      end_date: endIso,
+      grace_period_minutes: 15,
+      duration_minutes: 60,
+      max_score: totalPoints,
+      is_ai_generated: true,
+      categories_data: buildGeneratedCategories(),
+      materials: [],
+      subject: subjectCode,
+      type: 'Quiz',
+      deadline: `${formattedStart} to\n${formattedEnd}`,
+      submissions: 0,
+      assign_type: 'all',
+      assigned_student_ids: [],
+    };
+
+    onSave(newTask);
   };
 
   return (
@@ -88,8 +237,8 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
           </div>
         </div>
 
-        {/* Title, Class Level, Difficulty */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {/* Title, Subject Code, Class Level, Difficulty */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Assessment Title</label>
             <input
@@ -98,6 +247,17 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
               placeholder="e.g., ALS Digital Literacy Quiz"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">Subject Code</label>
+            <input
+              type="text"
+              required
+              value={subjectCode}
+              onChange={(e) => setSubjectCode(e.target.value)}
               className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
             />
           </div>
@@ -116,7 +276,9 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">Cognitive Difficulty</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Cognitive Difficulty
+            </label>
             <select
               value={difficulty}
               onChange={(e) => setDifficulty(e.target.value as any)}
@@ -208,7 +370,9 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
               <div
                 key={cat.id}
                 className={`flex items-center justify-between rounded-xl border p-3.5 transition-all ${
-                  cat.enabled ? 'border-purple-600 bg-purple-50/30' : 'border-slate-200 bg-slate-50/50 opacity-70'
+                  cat.enabled
+                    ? 'border-purple-600 bg-purple-50/30'
+                    : 'border-slate-200 bg-slate-50/50 opacity-70'
                 }`}
               >
                 <label className="flex items-center gap-2.5 cursor-pointer">
@@ -220,14 +384,18 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
                   />
                   <div>
                     <div className="text-xs font-bold text-slate-900">{cat.label}</div>
-                    <div className="text-[11px] text-slate-500">Max allowed: {cat.maxItems} items</div>
+                    <div className="text-[11px] text-slate-500">
+                      Max allowed: {cat.maxItems} items
+                    </div>
                   </div>
                 </label>
 
                 {cat.enabled && (
                   <div className="flex items-center gap-2">
                     <div>
-                      <span className="block text-[10px] font-semibold text-slate-500">Items (Max {cat.maxItems})</span>
+                      <span className="block text-[10px] font-semibold text-slate-500">
+                        Items (Max {cat.maxItems})
+                      </span>
                       <input
                         type="number"
                         min={1}
@@ -238,13 +406,17 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
                       />
                     </div>
                     <div>
-                      <span className="block text-[10px] font-semibold text-slate-500">Pts Each</span>
+                      <span className="block text-[10px] font-semibold text-slate-500">
+                        Pts Each
+                      </span>
                       <input
                         type="number"
                         min={1}
                         max={20}
                         value={cat.pointsEach}
-                        onChange={(e) => updateCategory(cat.id, 'pointsEach', Number(e.target.value) || 1)}
+                        onChange={(e) =>
+                          updateCategory(cat.id, 'pointsEach', Number(e.target.value) || 1)
+                        }
                         className="w-14 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-900"
                       />
                     </div>
@@ -258,7 +430,8 @@ export default function AIGenerator({ onSave }: AIGeneratorProps) {
         <div className="flex justify-end pt-3">
           <button
             type="submit"
-            className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-6 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-purple-700"
+            disabled={activeCategories.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-6 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-purple-700 disabled:opacity-50"
           >
             <Sparkles size={14} /> Generate & Save as Pending
           </button>

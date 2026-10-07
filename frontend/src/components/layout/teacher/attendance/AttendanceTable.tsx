@@ -1,52 +1,143 @@
 'use client';
 
-import { Student } from '@/src/data/mockStudents';
-import { AttendanceRecord, AttendanceStatus } from '@/src/data/mockTeacher';
+import { type Student } from '@/src/data/mockStudents';
+import { type WorkspaceAttendance } from '@/src/data/mockTeacher';
 
 interface AttendanceTableProps {
   students: Student[];
-  records: Record<string, AttendanceRecord>;
-  onStatusChange: (studentId: string, status: AttendanceStatus) => void;
-  onRemarksChange: (studentId: string, remarks: string) => void;
+  records: WorkspaceAttendance['records'];
+  isEditing: boolean;
+  onChange: (
+    studentId: string,
+    changes: Partial<WorkspaceAttendance['records'][number]>,
+  ) => void;
 }
 
-export default function AttendanceTable({ students, records, onStatusChange, onRemarksChange }: AttendanceTableProps) {
+export default function AttendanceTable({
+  students,
+  records,
+  isEditing,
+  onChange,
+}: AttendanceTableProps) {
   return (
-    <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
-      {students.length > 0 ? (
-        students.map((student) => {
-          const currentStatus = records[student.id]?.status || null;
-          const initials = `${student.firstName.charAt(0)}${student.lastName.charAt(0)}`.toUpperCase();
-          const formattedName = `${student.lastName}, ${student.firstName} ${student.middleName ? student.middleName.charAt(0) + '.' : ''}`.trim();
-
-          return (
-            <div key={student.id} className="grid grid-cols-[minmax(250px,1fr)_auto_minmax(200px,300px)] gap-4 p-4 items-center hover:bg-gray-50/50 transition-colors">
-              <div className="flex items-center gap-4 pl-4">
-                <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-[#4f46e5] flex items-center justify-center font-bold text-sm shrink-0">
-                  {initials}
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-bold text-gray-900 truncate">{formattedName}</h4>
-                  <p className="text-xs font-medium text-gray-500 mt-0.5">LRN: {student.lrn}</p>
-                </div>
-              </div>
-
-              <div className="w-[300px] shrink-0 flex justify-center">
-                <div className="flex w-full bg-gray-100/80 p-1 rounded-md border border-gray-200/60">
-                  <button onClick={() => onStatusChange(student.id, 'Present')} className={`flex-1 text-xs font-bold py-2 rounded transition-all ${currentStatus === 'Present' ? 'bg-white text-emerald-700 shadow-sm border border-gray-200/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50 border border-transparent'}`}>Present</button>
-                  <button onClick={() => onStatusChange(student.id, 'Absent')} className={`flex-1 text-xs font-bold py-2 rounded transition-all ${currentStatus === 'Absent' ? 'bg-white text-red-700 shadow-sm border border-gray-200/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50 border border-transparent'}`}>Absent</button>
-                  <button onClick={() => onStatusChange(student.id, 'Excused')} className={`flex-1 text-xs font-bold py-2 rounded transition-all ${currentStatus === 'Excused' ? 'bg-white text-amber-700 shadow-sm border border-gray-200/50' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50 border border-transparent'}`}>Excused</button>
-                </div>
-              </div>
-
-              <div className="pr-4">
-                <input type="text" placeholder="Add note..." value={records[student.id]?.remarks || ''} onChange={(e) => onRemarksChange(student.id, e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#4f46e5] focus:bg-white transition-all"/>
-              </div>
+    <div className="divide-y divide-slate-100">
+      {records.map((record) => {
+        const student = students.find(
+          (student) => student.id === record.student_id,
+        );
+        const name = student
+          ? `${student.last_name}, ${student.first_name}`
+          : record.student_id;
+        return (
+          <div
+            key={record.student_id}
+            className="grid items-start gap-4 p-5 lg:grid-cols-[1fr_1.1fr_1fr_1fr]"
+          >
+            <div>
+              <p className="text-sm font-bold text-slate-900">{name}</p>
+              <p className="mt-1 text-xs text-slate-500">{record.student_id}</p>
+              {student && (
+                <p className="mt-1 text-xs text-slate-400">
+                  LRN: {student.personal_details.lrn_number}
+                </p>
+              )}
             </div>
-          );
-        })
-      ) : (
-        <div className="py-16 text-center text-gray-500 text-sm">No learners found matching the selected criteria.</div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-slate-500">
+                Attendance status
+              </p>
+              {isEditing ? (
+                <div
+                  role="group"
+                  aria-label={`Attendance for ${name}`}
+                  className="flex gap-1"
+                >
+                  {(['Present', 'Absent', 'Excused'] as const).map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      aria-pressed={record.status === status}
+                      onClick={() => onChange(record.student_id, { status })}
+                      className={`flex-1 rounded-lg border px-2 py-2 text-xs font-semibold ${record.status === status ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span
+                  className={`inline-block rounded-lg px-3 py-1.5 text-xs font-bold ${record.status === 'Present' ? 'bg-emerald-50 text-emerald-700' : record.status === 'Absent' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}
+                >
+                  {record.status || 'Not marked'}
+                </span>
+              )}
+            </div>
+            <div>
+              {isEditing ? (
+                <label className="block text-xs font-semibold text-slate-500">
+                  Reason of absence
+                  <input
+                    aria-label={`Reason of absence for ${name}`}
+                    disabled={record.status === 'Present'}
+                    value={record.reason_of_absence}
+                    onChange={(event) =>
+                      onChange(record.student_id, {
+                        reason_of_absence: event.target.value,
+                      })
+                    }
+                    placeholder={
+                      record.status === 'Present'
+                        ? 'Not applicable'
+                        : 'Reason (optional)'
+                    }
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                  />
+                </label>
+              ) : (
+                <>
+                  <p className="mb-2 text-xs font-semibold text-slate-500">
+                    Reason of absence
+                  </p>
+                  <p className="break-words text-sm text-slate-700">
+                    {record.reason_of_absence || '—'}
+                  </p>
+                </>
+              )}
+            </div>
+            <div>
+              {isEditing ? (
+                <label className="block text-xs font-semibold text-slate-500">
+                  Remarks
+                  <input
+                    aria-label={`Remarks for ${name}`}
+                    value={record.remarks}
+                    onChange={(event) =>
+                      onChange(record.student_id, {
+                        remarks: event.target.value,
+                      })
+                    }
+                    placeholder="Remarks (optional)"
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </label>
+              ) : (
+                <>
+                  <p className="mb-2 text-xs font-semibold text-slate-500">
+                    Remarks
+                  </p>
+                  <p className="break-words text-sm text-slate-700">
+                    {record.remarks || '—'}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {!records.length && (
+        <p className="p-10 text-center text-sm text-slate-500">
+          No learners are assigned to this session.
+        </p>
       )}
     </div>
   );

@@ -1,36 +1,39 @@
 'use client';
 
-import { Info, CheckCircle2, Loader2 } from 'lucide-react';
+import { Info, Save } from 'lucide-react';
 
 interface AttendanceFooterProps {
   onSave: () => void;
-  isSaving: boolean;
-  saveSuccess: boolean;
+  onCancel: () => void;
   isDataEmpty: boolean;
+  isUpdate: boolean;
 }
 
-export default function AttendanceFooter({ onSave, isSaving, saveSuccess, isDataEmpty }: AttendanceFooterProps) {
+export default function AttendanceFooter({
+  onSave,
+  onCancel,
+  isDataEmpty,
+  isUpdate,
+}: AttendanceFooterProps) {
   return (
-    <div className="border-t border-gray-200 bg-white p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
-      <div className="flex items-center gap-2 text-gray-500 text-xs font-medium">
-        <Info size={16} className="text-gray-400" /> Ensure all statuses are marked before saving.
-      </div>
-      
-      <div className="w-full sm:w-auto flex items-center gap-3">
-        {saveSuccess && (
-          <span className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5 animate-in fade-in slide-in-from-right-4 duration-300">
-            <CheckCircle2 size={16} /> Saved successfully
-          </span>
-        )}
-        
-        <button 
-          onClick={onSave}
-          disabled={isSaving || isDataEmpty}
-          className={`w-full sm:w-auto px-6 py-2.5 rounded-md text-sm font-semibold transition-all shadow-sm flex items-center justify-center min-w-[200px] ${
-            isSaving || isDataEmpty ? 'bg-indigo-300 text-white cursor-not-allowed' : 'bg-[#818cf8] hover:bg-[#6366f1] text-white'
-          }`}
+    <div className="flex flex-col justify-between gap-4 border-t border-slate-200 p-5 sm:flex-row sm:items-center">
+      <p className="flex items-center gap-2 text-xs text-slate-500">
+        <Info size={16} /> Mark every learner before saving this completed
+        session.
+      </p>
+      <div className="flex gap-3">
+        <button
+          onClick={onCancel}
+          className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
         >
-          {isSaving ? <><Loader2 size={16} className="animate-spin mr-2" /> Saving...</> : 'Save Attendance Record'}
+          Cancel
+        </button>
+        <button
+          onClick={onSave}
+          disabled={isDataEmpty}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+        >
+          <Save size={16} /> {isUpdate ? 'Save changes' : 'Complete attendance'}
         </button>
       </div>
     </div>

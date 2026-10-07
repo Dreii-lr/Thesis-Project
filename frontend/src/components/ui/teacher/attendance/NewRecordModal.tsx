@@ -1,76 +1,109 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
+import {
+  CATEGORY_LABELS,
+  type TargetCategory,
+} from '@/src/data/mockAssessment';
+import { dateKey, subjects } from '@/src/data/mockTeacher';
 
 interface NewRecordModalProps {
-  isOpen: boolean;
+  program: TargetCategory;
   onClose: () => void;
-  onStartRecording: (date: string, level: string, subject: string) => void;
+  onStartRecording: (date: string, subject: string) => void;
 }
 
-export default function NewRecordModal({ isOpen, onClose, onStartRecording }: NewRecordModalProps) {
-  const [date, setDate] = useState('2026-09-24');
-  const [level, setLevel] = useState('Junior High School');
-  const [subject, setSubject] = useState('LS1: Communication Skills');
+export default function NewRecordModal({
+  program,
+  onClose,
+  onStartRecording,
+}: NewRecordModalProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [date, setDate] = useState(() => dateKey(new Date()));
+  const [subject, setSubject] = useState(
+    program === 'basic_literacy' ? 'ALS-BLP-101' : subjects[0].code,
+  );
+  const [error, setError] = useState('');
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    dialogRef.current?.showModal();
+  }, []);
+
+  const handleStart = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!date || date > dateKey(new Date())) {
+      setError('Choose today or an earlier date.');
+      return;
+    }
+    onStartRecording(date, subject);
+  };
 
   return (
-    <div className="fixed inset-0 z-[60] bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-200">
-        
-        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-          <h2 className="text-base font-bold text-gray-900">New Attendance Record</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-900 transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-5">
-          <div>
-            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Date</label>
-            <input 
-              type="date" 
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#4f46e5] focus:border-[#4f46e5]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Class Level</label>
-            <select 
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#4f46e5] focus:border-[#4f46e5]"
-            >
-              <option value="Junior High School">Junior High School</option>
-              <option value="Elementary">Elementary</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Subject Strand</label>
-            <select 
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-[#4f46e5] focus:border-[#4f46e5]"
-            >
-              <option value="LS1: Communication Skills">LS1: Communication Skills</option>
-              <option value="LS2: Scientific Literacy">LS2: Scientific Literacy</option>
-              <option value="LS3: Mathematical & Problem Solving">LS3: Mathematical & Problem Solving</option>
-            </select>
-          </div>
-
-          <button 
-            onClick={() => onStartRecording(date, level, subject)}
-            className="w-full mt-2 py-3 bg-[#4f46e5] hover:bg-indigo-700 text-white rounded-md text-sm font-semibold transition-all shadow-sm"
-          >
-            Start Recording
-          </button>
-        </div>
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="new-attendance-title"
+      onCancel={onClose}
+      className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-900/40 backdrop:backdrop-blur-sm"
+    >
+      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <h2 id="new-attendance-title" className="text-lg font-bold">
+          New attendance record
+        </h2>
+        <button
+          aria-label="Close new attendance record"
+          onClick={onClose}
+          className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-900"
+        >
+          <X size={20} />
+        </button>
       </div>
-    </div>
+      <form onSubmit={handleStart} className="space-y-5 p-6">
+        <p className="rounded-xl bg-blue-50 p-3 text-sm font-semibold text-blue-700">
+          {CATEGORY_LABELS[program]}
+        </p>
+        <label className="block text-sm font-semibold">
+          Session date
+          <input
+            autoFocus
+            required
+            type="date"
+            max={dateKey(new Date())}
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+        <label className="block text-sm font-semibold">
+          Subject
+          <select
+            value={subject}
+            onChange={(event) => setSubject(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {subjects.map((subject) => (
+              <option key={subject.code} value={subject.code}>
+                {subject.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="text-xs leading-5 text-slate-500">
+          If a record already exists for this date and subject, it will open for
+          review.
+        </p>
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Open attendance
+        </button>
+      </form>
+    </dialog>
   );
 }

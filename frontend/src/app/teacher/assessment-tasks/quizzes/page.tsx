@@ -1,10 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, Suspense } from 'react';
+import { useTeacher } from '@/src/context/TeacherContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AssessmentForm from '@/src/components/layout/teacher/assessment-tasks/AssessmentForm';
 import AIGenerator from '@/src/components/layout/teacher/assessment-tasks/AIGenerator';
-import { initialTasks, AssessmentPayload } from '@/src/data/mockAssessment';
+import {
+  AssessmentPayload,
+  toAssessmentCreatePayload,
+  toAssessmentUpdatePayload,
+} from '@/src/data/mockAssessment';
 import { ArrowLeft, Sparkles, PenTool } from 'lucide-react';
 
 function QuizzesContent() {
@@ -14,26 +19,14 @@ function QuizzesContent() {
   const editId = searchParams.get('edit');
 
   const [mode, setMode] = useState<'manual' | 'ai'>(initialMode);
-  const [editingTask, setEditingTask] = useState<AssessmentPayload | null>(null);
-
-  useEffect(() => {
-    if (editId) {
-      const existingRaw = localStorage.getItem('als_assessments');
-      const existing: AssessmentPayload[] = existingRaw ? JSON.parse(existingRaw) : initialTasks;
-      const found = existing.find((t) => t.id === editId);
-      if (found) setEditingTask(found);
-    }
-  }, [editId]);
+  const { tasks, createAssessment, updateAssessment } = useTeacher();
+  const editingTask = tasks.find((task) => task.id === editId) ?? null;
 
   const handleSave = (task: AssessmentPayload) => {
-    const existingRaw = localStorage.getItem('als_assessments');
-    const existing: AssessmentPayload[] = existingRaw ? JSON.parse(existingRaw) : initialTasks;
-
-    const updated = editId
-      ? existing.map((t) => (t.id === editId ? task : t))
-      : [task, ...existing];
-
-    localStorage.setItem('als_assessments', JSON.stringify(updated));
+    const saved = editId
+      ? updateAssessment(editId, toAssessmentUpdatePayload(task))
+      : createAssessment(toAssessmentCreatePayload(task));
+    if (!saved) return;
     router.push('/teacher/assessment-tasks');
   };
 
@@ -94,7 +87,11 @@ function QuizzesContent() {
 
 export default function QuizzesPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-sm text-slate-500">Loading quiz editor...</div>}>
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-slate-500">Loading quiz editor...</div>
+      }
+    >
       <QuizzesContent />
     </Suspense>
   );

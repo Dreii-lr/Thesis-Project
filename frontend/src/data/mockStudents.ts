@@ -55,7 +55,7 @@ export type Student = {
   user_category: 'junior' | 'senior' | 'elementary' | string;
 
   personal_details: {
-    user_id: string;
+    user_id?: string | null;
     gender: string;
     birth_date: string;
     nationality: string;
@@ -90,8 +90,12 @@ export type Student = {
 
 export const formatCategoryLevel = (category: string) => {
   switch (category?.toLowerCase()) {
+    case 'junior_high_school':
     case 'junior':
       return 'Junior High School';
+    case 'basic_literacy':
+    case 'basic_literacy_program':
+      return 'Basic Literacy Program';
     case 'senior':
       return 'Senior High School';
     case 'elementary':
@@ -146,14 +150,59 @@ export const mockStudents: Student[] = [
         date: 'Sept. 3, 2026',
         mistakes: 8,
         mistakeDetails: [
-          { questionNumber: 4, question: 'What is the primary mechanism that causes tectonic plates to move?', studentAnswer: 'Ocean currents', correctAnswer: 'Mantle convection' },
-          { questionNumber: 7, question: 'Which layer of the Earth is entirely liquid?', studentAnswer: 'Inner core', correctAnswer: 'Outer core' },
-          { questionNumber: 9, question: 'What type of plate boundary creates mountains like the Himalayas?', studentAnswer: 'Transform boundary', correctAnswer: 'Convergent boundary' },
-          { questionNumber: 12, question: "What is the most abundant gas in the Earth's atmosphere?", studentAnswer: 'Oxygen', correctAnswer: 'Nitrogen' },
-          { questionNumber: 14, question: 'Which rock type is formed from the cooling of magma?', studentAnswer: 'Sedimentary', correctAnswer: 'Igneous' },
-          { questionNumber: 17, question: 'The process of water vapor turning into liquid water is called:', studentAnswer: 'Evaporation', correctAnswer: 'Condensation' },
-          { questionNumber: 18, question: "What is the main driver of the Earth's water cycle?", studentAnswer: "The Moon's gravity", correctAnswer: "The Sun's energy" },
-          { questionNumber: 20, question: 'Which human activity contributes most significantly to the enhanced greenhouse effect?', studentAnswer: 'Using aerosol sprays', correctAnswer: 'Burning fossil fuels' },
+          {
+            questionNumber: 4,
+            question:
+              'What is the primary mechanism that causes tectonic plates to move?',
+            studentAnswer: 'Ocean currents',
+            correctAnswer: 'Mantle convection',
+          },
+          {
+            questionNumber: 7,
+            question: 'Which layer of the Earth is entirely liquid?',
+            studentAnswer: 'Inner core',
+            correctAnswer: 'Outer core',
+          },
+          {
+            questionNumber: 9,
+            question:
+              'What type of plate boundary creates mountains like the Himalayas?',
+            studentAnswer: 'Transform boundary',
+            correctAnswer: 'Convergent boundary',
+          },
+          {
+            questionNumber: 12,
+            question:
+              "What is the most abundant gas in the Earth's atmosphere?",
+            studentAnswer: 'Oxygen',
+            correctAnswer: 'Nitrogen',
+          },
+          {
+            questionNumber: 14,
+            question: 'Which rock type is formed from the cooling of magma?',
+            studentAnswer: 'Sedimentary',
+            correctAnswer: 'Igneous',
+          },
+          {
+            questionNumber: 17,
+            question:
+              'The process of water vapor turning into liquid water is called:',
+            studentAnswer: 'Evaporation',
+            correctAnswer: 'Condensation',
+          },
+          {
+            questionNumber: 18,
+            question: "What is the main driver of the Earth's water cycle?",
+            studentAnswer: "The Moon's gravity",
+            correctAnswer: "The Sun's energy",
+          },
+          {
+            questionNumber: 20,
+            question:
+              'Which human activity contributes most significantly to the enhanced greenhouse effect?',
+            studentAnswer: 'Using aerosol sprays',
+            correctAnswer: 'Burning fossil fuels',
+          },
         ],
       },
       {
@@ -167,14 +216,45 @@ export const mockStudents: Student[] = [
         date: 'Sept. 1, 2026',
         mistakes: 1,
         mistakeDetails: [
-          { questionNumber: 3, question: 'The group of students _____ going on a field trip tomorrow.', studentAnswer: 'are', correctAnswer: 'is' },
+          {
+            questionNumber: 3,
+            question:
+              'The group of students _____ going on a field trip tomorrow.',
+            studentAnswer: 'are',
+            correctAnswer: 'is',
+          },
         ],
       },
     ],
     writtenActivities: [
-      { id: 'wa1', title: 'Essay: "Ang Pangarap Ko Sa Buhay"', subject: 'LS1', date: 'Sept 15, 2026', status: 'SUBMITTED', type: 'Essay', content: 'Bata pa lang ako, pangarap ko na maging isang guro. Gusto kong makatulong sa mga batang hindi nakakapag-aral dahil sa hirap ng buhay. Sa tulong ng ALS, unti-unti kong natutupad ang mga pangarap na ito. Kahit mahirap mag-trabaho sa umaga at mag-aral sa gabi, kinakaya ko para sa pamilya ko. Ang edukasyon ang tanging susi para makaahon kami sa kahirapan.' },
-      { id: 'wa2', title: 'Journal: Scientific Method', subject: 'LS2', date: 'Sept 10, 2026', status: 'SUBMITTED', type: 'Journal', content: 'This is the content for the scientific method journal entry.' },
-      { id: 'wa3', title: 'Reflection: Math in Daily Life', subject: 'LS3', date: 'Sept 05, 2026', status: 'REVIEWED', type: 'Reflection', content: 'This is the content for the math in daily life reflection.' },
+      {
+        id: 'wa1',
+        title: 'Essay: "Ang Pangarap Ko Sa Buhay"',
+        subject: 'LS1',
+        date: 'Sept 15, 2026',
+        status: 'SUBMITTED',
+        type: 'Essay',
+        content:
+          'Bata pa lang ako, pangarap ko na maging isang guro. Gusto kong makatulong sa mga batang hindi nakakapag-aral dahil sa hirap ng buhay. Sa tulong ng ALS, unti-unti kong natutupad ang mga pangarap na ito. Kahit mahirap mag-trabaho sa umaga at mag-aral sa gabi, kinakaya ko para sa pamilya ko. Ang edukasyon ang tanging susi para makaahon kami sa kahirapan.',
+      },
+      {
+        id: 'wa2',
+        title: 'Journal: Scientific Method',
+        subject: 'LS2',
+        date: 'Sept 10, 2026',
+        status: 'SUBMITTED',
+        type: 'Journal',
+        content: 'This is the content for the scientific method journal entry.',
+      },
+      {
+        id: 'wa3',
+        title: 'Reflection: Math in Daily Life',
+        subject: 'LS3',
+        date: 'Sept 05, 2026',
+        status: 'REVIEWED',
+        type: 'Reflection',
+        content: 'This is the content for the math in daily life reflection.',
+      },
     ],
     documents: [
       {
@@ -191,7 +271,8 @@ export const mockStudents: Student[] = [
         id: 'doc2',
         type: 'identity',
         title: 'Proof of identity',
-        description: 'PSA Birth Certificate, baptismal certificate, barangay ID, or any government-issued ID',
+        description:
+          'PSA Birth Certificate, baptismal certificate, barangay ID, or any government-issued ID',
         status: 'Verified',
         uploadDate: 'Aug 15, 2026',
         size: '1.2 MB',
@@ -201,7 +282,8 @@ export const mockStudents: Student[] = [
         id: 'doc3',
         type: 'id_photos',
         title: '2x2 ID photos',
-        description: '2 pieces, white background (some centers may not require immediately)',
+        description:
+          '2 pieces, white background (some centers may not require immediately)',
         status: 'Pending',
         uploadDate: 'Sept 22, 2026',
         size: '0.5 MB',
@@ -211,17 +293,50 @@ export const mockStudents: Student[] = [
         id: 'doc4',
         type: 'form137',
         title: 'Form 137 / 138',
-        description: 'Only if you previously attended formal school (helps determine your starting level)',
+        description:
+          'Only if you previously attended formal school (helps determine your starting level)',
         status: 'Missing',
       },
     ],
     attendance: [
-      { id: 'att1', date: 'Sept 24, 2026', subject: 'LS1: Communication Skills', status: 'Present' },
-      { id: 'att2', date: 'Sept 23, 2026', subject: 'LS1: Communication Skills', status: 'Present' },
-      { id: 'att3', date: 'Sept 21, 2026', subject: 'LS3: Mathematical & Problem Solving', status: 'Present' },
-      { id: 'att4', date: 'Sept 18, 2026', subject: 'LS1: Communication Skills', status: 'Absent', remarks: 'Sick leave (Medical cert provided)' },
-      { id: 'att5', date: 'Sept 17, 2026', subject: 'LS2: Scientific Literacy', status: 'Present' },
-      { id: 'att6', date: 'Sept 15, 2026', subject: 'LS1: Communication Skills', status: 'Excused', remarks: 'Family emergency' },
+      {
+        id: 'att1',
+        date: 'Sept 24, 2026',
+        subject: 'LS1: Communication Skills',
+        status: 'Present',
+      },
+      {
+        id: 'att2',
+        date: 'Sept 23, 2026',
+        subject: 'LS1: Communication Skills',
+        status: 'Present',
+      },
+      {
+        id: 'att3',
+        date: 'Sept 21, 2026',
+        subject: 'LS3: Mathematical & Problem Solving',
+        status: 'Present',
+      },
+      {
+        id: 'att4',
+        date: 'Sept 18, 2026',
+        subject: 'LS1: Communication Skills',
+        status: 'Absent',
+        remarks: 'Sick leave (Medical cert provided)',
+      },
+      {
+        id: 'att5',
+        date: 'Sept 17, 2026',
+        subject: 'LS2: Scientific Literacy',
+        status: 'Present',
+      },
+      {
+        id: 'att6',
+        date: 'Sept 15, 2026',
+        subject: 'LS1: Communication Skills',
+        status: 'Excused',
+        remarks: 'Family emergency',
+      },
     ],
   },
   {
@@ -295,3 +410,32 @@ export const mockStudents: Student[] = [
     writtenActivities: [],
   },
 ];
+// Shared identifiers connect assignments, attendance, and submissions.
+for (const [index, first, last, category] of [
+  [4, 'Ana', 'Santos', 'elementary'],
+  [5, 'Carlo', 'Reyes', 'elementary'],
+  [6, 'Lina', 'Garcia', 'basic_literacy'],
+  [7, 'Marco', 'Ramos', 'basic_literacy'],
+] as const) {
+  const id = 'ALS-000' + index;
+  mockStudents.push({
+    ...mockStudents[0],
+    id,
+    first_name: first,
+    last_name: last,
+    middle_name: '',
+    user_category: category,
+    email: first.toLowerCase() + '.' + last.toLowerCase() + '@example.test',
+    personal_details: {
+      ...mockStudents[0].personal_details,
+      user_id: id,
+      lrn_number: '12345678900' + index,
+    },
+    contact_details: { ...mockStudents[0].contact_details },
+    family_details: { ...mockStudents[0].family_details },
+    quizzes: [],
+    writtenActivities: [],
+    attendance: [],
+    documents: [],
+  });
+}

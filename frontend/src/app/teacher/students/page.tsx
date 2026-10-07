@@ -1,17 +1,16 @@
 'use client';
-
 import { useState } from 'react';
 import Link from 'next/link';
 import { Search, Plus, ExternalLink } from 'lucide-react';
-import { useStudents } from '@/src/context/StudentContext';
+import { useTeacher } from '@/src/context/TeacherContext';
 
 export default function StudentsListPage() {
-  const { students } = useStudents();
+  const { students } = useTeacher();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredStudents = students.filter(student => {
-    const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
-    return fullName.includes(searchQuery.toLowerCase()) || student.lrn.includes(searchQuery);
+    const fullName = `${student.first_name} ${student.last_name}`.toLowerCase();
+    return fullName.includes(searchQuery.toLowerCase()) || student.personal_details.lrn_number.includes(searchQuery);
   });
 
   const getStatus = (id: string) => {
@@ -81,8 +80,8 @@ export default function StudentsListPage() {
                   return (
                     <tr key={student.id} className="hover:bg-gray-50 transition-colors bg-white">
                       <td className="px-6 py-4 text-sm font-medium text-gray-900">{student.id}</td>
-                      <td className="px-6 py-4 text-sm text-gray-700">{student.firstName} {student.lastName}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{student.lrn}</td>
+                      <td className="px-6 py-4 text-sm text-gray-700">{student.first_name} {student.last_name}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{student.personal_details.lrn_number}</td>
                       <td className="px-6 py-4 text-sm">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${status.bg}`}>
                           {status.label}

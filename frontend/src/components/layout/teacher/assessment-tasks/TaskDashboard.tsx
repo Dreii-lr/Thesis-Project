@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Calendar,
@@ -20,35 +20,37 @@ import {
 } from 'lucide-react';
 import {
   TargetCategory,
+  AssessmentPayload,
   CATEGORY_LABELS,
   mockStudents,
 } from '@/src/data/mockAssessment';
 
 interface TaskDashboardProps {
-  tasks: any[];
-  onUpdateTasks?: (tasks: any[]) => void;
+  tasks: AssessmentPayload[];
+  onUpdateTasks?: (tasks: AssessmentPayload[]) => void;
 }
 
-export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboardProps) {
+export default function TaskDashboard({
+  tasks = [],
+  onUpdateTasks,
+}: TaskDashboardProps) {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-  const [localTasks, setLocalTasks] = useState<any[]>(tasks);
-  const [selectedCategory, setSelectedCategory] = useState<'all' | TargetCategory>('all');
-  const [selectedStatus, setSelectedStatus] = useState<'ALL' | 'DRAFT' | 'PENDING' | 'PUBLISHED'>('ALL');
+  const localTasks = tasks;
+  const [selectedCategory, setSelectedCategory] = useState<
+    'all' | TargetCategory
+  >('all');
+  const [selectedStatus, setSelectedStatus] = useState<
+    'ALL' | 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'COMPLETED'
+  >('ALL');
 
   // Built-in Publish Modal State
-  const [publishingTask, setPublishingTask] = useState<any | null>(null);
-  const [modalCategory, setModalCategory] = useState<TargetCategory>('junior_high_school');
+  const [publishingTask, setPublishingTask] =
+    useState<AssessmentPayload | null>(null);
+  const [modalCategory, setModalCategory] = useState<TargetCategory>('junior');
   const [assignType, setAssignType] = useState<'all' | 'specific'>('all');
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    setMounted(true);
-    setLocalTasks(tasks);
-  }, [tasks]);
-
   const formatDateTime = (isoOrDateStr?: string, fallback?: string) => {
-    if (!mounted) return '...';
     if (!isoOrDateStr) return fallback || 'Not set';
     const d = new Date(isoOrDateStr);
     if (isNaN(d.getTime())) return isoOrDateStr;
@@ -62,21 +64,18 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
     })}`;
   };
 
-  const normalizeStatus = (t: any): 'DRAFT' | 'PENDING' | 'PUBLISHED' => {
-    const raw = String(t.status || 'PENDING').toUpperCase();
-    if (raw === 'DRAFT') return 'DRAFT';
-    if (raw === 'PUBLISHED' || raw === 'ACTIVE') return 'PUBLISHED';
-    return 'PENDING';
-  };
+  const normalizeStatus = (task: AssessmentPayload) => task.status;
 
-  const normalizeCategory = (t: any): TargetCategory => {
-    const raw = String(t.target_category || t.program || t.subject || '').toLowerCase();
+  const normalizeCategory = (t: AssessmentPayload): TargetCategory => {
+    const raw = String(t.target_category || t.subject || '').toLowerCase();
     if (raw.includes('elem')) return 'elementary';
-    if (raw.includes('basic') || raw.includes('blp')) return 'basic_literacy_program';
-    return 'junior_high_school';
+    if (raw.includes('basic') || raw.includes('blp')) return 'basic_literacy';
+    return 'junior';
   };
 
-  const normalizeType = (t: any): 'QUIZ' | 'EXAM' | 'ACTIVITY' => {
+  const normalizeType = (
+    t: AssessmentPayload,
+  ): 'QUIZ' | 'EXAM' | 'ACTIVITY' => {
     const raw = String(t.assessment_type || t.type || 'QUIZ').toUpperCase();
     if (raw === 'EXAM') return 'EXAM';
     if (raw === 'ACTIVITY') return 'ACTIVITY';
@@ -86,12 +85,13 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
   const filteredTasks = localTasks.filter((t) => {
     const cat = normalizeCategory(t);
     const st = normalizeStatus(t);
-    const matchesCategory = selectedCategory === 'all' || cat === selectedCategory;
+    const matchesCategory =
+      selectedCategory === 'all' || cat === selectedCategory;
     const matchesStatus = selectedStatus === 'ALL' || st === selectedStatus;
     return matchesCategory && matchesStatus;
   });
 
-  const openPublishModal = (task: any) => {
+  const openPublishModal = (task: AssessmentPayload) => {
     const cat = normalizeCategory(task);
     setPublishingTask(task);
     setModalCategory(cat);
@@ -99,7 +99,7 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
     setSelectedStudentIds(task.assigned_student_ids || []);
   };
 
-  const handleEditTask = (task: any) => {
+  const handleEditTask = (task: AssessmentPayload) => {
     if (!task.id) return;
     const aType = normalizeType(task);
     if (aType === 'QUIZ') {
@@ -113,50 +113,58 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
 
   const handleDeleteTask = (id?: string) => {
     if (!id) return;
-    if (!window.confirm('Are you sure you want to delete this assessment?')) return;
+    if (!window.confirm('Are you sure you want to delete this assessment?'))
+      return;
     const updated = localTasks.filter((t) => t.id !== id);
-    setLocalTasks(updated);
-    localStorage.setItem('als_assessments', JSON.stringify(updated));
     if (onUpdateTasks) onUpdateTasks(updated);
   };
 
   const toggleStudentSelection = (id: string) => {
     setSelectedStudentIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
     );
   };
 
   const handleConfirmPublish = () => {
     if (!publishingTask) return;
 
-    const classStudents = mockStudents.filter((s) => s.target_category === modalCategory);
+    const classStudents = mockStudents.filter(
+      (s) => s.target_category === modalCategory,
+    );
     if (assignType === 'specific' && selectedStudentIds.length === 0) {
       alert('Please select at least one student for manual assignment.');
       return;
     }
 
     const finalStudentIds =
-      assignType === 'all' ? classStudents.map((s) => s.id) : selectedStudentIds;
+      assignType === 'all'
+        ? classStudents.map((s) => s.id)
+        : selectedStudentIds;
 
-    const updated = localTasks.map((t) =>
+    const updated: AssessmentPayload[] = localTasks.map((t) =>
       t.id === publishingTask.id
         ? {
             ...t,
-            status: 'PUBLISHED',
+            status:
+              new Date(t.start_date) > new Date()
+                ? 'SCHEDULED'
+                : new Date(t.end_date) < new Date()
+                  ? 'COMPLETED'
+                  : 'ACTIVE',
             target_category: modalCategory,
             assign_type: assignType,
             assigned_student_ids: finalStudentIds,
           }
-        : t
+        : t,
     );
 
-    setLocalTasks(updated);
-    localStorage.setItem('als_assessments', JSON.stringify(updated));
     if (onUpdateTasks) onUpdateTasks(updated);
     setPublishingTask(null);
   };
 
-  const modalClassStudents = mockStudents.filter((s) => s.target_category === modalCategory);
+  const modalClassStudents = mockStudents.filter(
+    (s) => s.target_category === modalCategory,
+  );
 
   return (
     <div className="space-y-6">
@@ -167,8 +175,11 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
             [
               { key: 'all', label: 'All Classes' },
               { key: 'elementary', label: 'Elementary' },
-              { key: 'junior_high_school', label: 'Junior High School' },
-              { key: 'basic_literacy_program', label: 'Basic Literacy Program' },
+              { key: 'junior', label: 'Junior High School' },
+              {
+                key: 'basic_literacy',
+                label: 'Basic Literacy Program',
+              },
             ] as const
           ).map((tab) => (
             <button
@@ -191,8 +202,9 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
             [
               { key: 'ALL', label: 'All Status' },
               { key: 'DRAFT', label: 'Drafts' },
-              { key: 'PENDING', label: 'Pending' },
-              { key: 'PUBLISHED', label: 'Published' },
+              { key: 'SCHEDULED', label: 'Scheduled' },
+              { key: 'ACTIVE', label: 'Active' },
+              { key: 'COMPLETED', label: 'Completed' },
             ] as const
           ).map((st) => (
             <button
@@ -214,7 +226,9 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
       {/* Empty State */}
       {filteredTasks.length === 0 && (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
-          <p className="text-sm font-semibold text-slate-700">No assessments found</p>
+          <p className="text-sm font-semibold text-slate-700">
+            No assessments found
+          </p>
           <p className="text-xs text-slate-400 mt-1">
             Try switching filters or create a new activity, quiz, or exam.
           </p>
@@ -228,7 +242,7 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
           const category = normalizeCategory(task);
           const aType = normalizeType(task);
           const isDraft = status === 'DRAFT';
-          const isPending = status === 'PENDING';
+          const isPending = status === 'SCHEDULED';
 
           return (
             <div
@@ -249,11 +263,12 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
                       </span>
                     ) : isPending ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
-                        <AlertCircle size={12} /> Pending
+                        <AlertCircle size={12} /> Scheduled
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
-                        <CheckCircle2 size={12} /> Published
+                        <CheckCircle2 size={12} />{' '}
+                        {status === 'COMPLETED' ? 'Completed' : 'Active'}
                       </span>
                     )}
 
@@ -279,11 +294,15 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
 
                 <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-blue-600">
                   {aType} • {task.subject_code || task.subject || 'ALS'} •{' '}
-                  {task.max_score ?? task.totalPoints ?? 0} pts
+                  {task.max_score ?? 0} pts
                 </div>
-                <h3 className="text-base font-bold text-slate-900 line-clamp-1">{task.title}</h3>
+                <h3 className="text-base font-bold text-slate-900 line-clamp-1">
+                  {task.title}
+                </h3>
                 {task.description && (
-                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">{task.description}</p>
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                    {task.description}
+                  </p>
                 )}
 
                 <div className="mt-4 space-y-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 border border-slate-100">
@@ -299,7 +318,8 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
                   )}
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-slate-500 flex items-center gap-1.5">
-                      <Clock size={13} /> {aType === 'ACTIVITY' ? 'Deadline:' : 'End:'}
+                      <Clock size={13} />{' '}
+                      {aType === 'ACTIVITY' ? 'Deadline:' : 'End:'}
                     </span>
                     <span className="font-semibold text-slate-800">
                       {formatDateTime(task.end_date, task.deadline)}
@@ -363,8 +383,12 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Publish & Assign Assessment</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{publishingTask.title}</p>
+                <h3 className="text-lg font-bold text-slate-900">
+                  Publish & Assign Assessment
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {publishingTask.title}
+                </p>
               </div>
               <button
                 type="button"
@@ -384,8 +408,8 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
                   {(
                     [
                       'elementary',
-                      'junior_high_school',
-                      'basic_literacy_program',
+                      'junior',
+                      'basic_literacy',
                     ] as TargetCategory[]
                   ).map((cat) => (
                     <button
@@ -453,8 +477,12 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
               {assignType === 'specific' && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
                   <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-700">
-                    <span>Select Students ({CATEGORY_LABELS[modalCategory]})</span>
-                    <span className="text-blue-600">{selectedStudentIds.length} selected</span>
+                    <span>
+                      Select Students ({CATEGORY_LABELS[modalCategory]})
+                    </span>
+                    <span className="text-blue-600">
+                      {selectedStudentIds.length} selected
+                    </span>
                   </div>
                   <div className="max-h-44 overflow-y-auto space-y-1.5">
                     {modalClassStudents.map((student) => {
@@ -470,7 +498,11 @@ export default function TaskDashboard({ tasks = [], onUpdateTasks }: TaskDashboa
                           }`}
                         >
                           <span>{student.name}</span>
-                          {checked ? <CheckSquare size={15} /> : <Square size={15} />}
+                          {checked ? (
+                            <CheckSquare size={15} />
+                          ) : (
+                            <Square size={15} />
+                          )}
                         </div>
                       );
                     })}
