@@ -22,7 +22,7 @@ from app.core.firebase import (
     check_email_in_firebase,
     update_firebase_user_password,
     revoke_firebase_user_tokens,
-    sign_in_with_password,
+    sign_in_with_password, delete_firebase_user,
 )
 from app.core.security import hash_password
 from app.core.unit_of_work import AbstractUnitOfWork
@@ -53,115 +53,128 @@ logger = logging.getLogger(__name__)
 class UserService:
     @staticmethod
     async def create_user(uow: AbstractUnitOfWork, data: UserCreate) -> SuccessfulResponseSchema:
-        existing = check_email_in_firebase(data.email)
-        if existing:
-            raise EntityAlreadyExistsException("A user with this email already exists.")
+        is_inserted_on_firebase = False
+        firebase_uid = None
 
-        # Determine raw password
-        raw_password = data.password
-        if not raw_password:
-            # ERD & Flowchart default password logic: Birthday as YYYYMMDD
-            if data.personal_details and data.personal_details.birth_date:
-                bdate = data.personal_details.birth_date
-                if isinstance(bdate, date):
-                    raw_password = bdate.strftime("%Y%m%d")
+        try:
+            existing = check_email_in_firebase(data.email)
+            if existing:
+                raise EntityAlreadyExistsException("A user with this email already exists.")
+
+            # Determine raw password
+            raw_password = data.password
+            if not raw_password:
+                # ERD & Flowchart default password logic: Birthday as YYYYMMDD
+                if data.personal_details and data.personal_details.birth_date:
+                    bdate = data.personal_details.birth_date
+                    if isinstance(bdate, date):
+                        raw_password = bdate.strftime("%Y%m%d")
+                    else:
+                        raw_password = str(bdate).replace("-", "")
                 else:
-                    raw_password = str(bdate).replace("-", "")
+                    raw_password = "Password123!"
+
+            hashed_pwd = hash_password(raw_password)
+
+            # Generate student ID if not provided and role is STUDENT
+
+            next_value = await uow.sequence_id_generator.get_next_value()
+            if not next_value:
+                await uow.sequence_id_generator.add()
+                next_value = 1
             else:
-                raw_password = "Password123!"
+                await uow.sequence_id_generator.update()
+                next_value += 1
+            student_id = UsersUtils.generate_student_id(next_value)
 
-        hashed_pwd = hash_password(raw_password)
-
-        # Generate student ID if not provided and role is STUDENT
-
-        next_value = await uow.sequence_id_generator.get_next_value()
-        if not next_value:
-            await uow.sequence_id_generator.add()
-            next_value = 1
-        else:
-            await uow.sequence_id_generator.update()
-            next_value += 1
-        student_id = UsersUtils.generate_student_id(next_value)
-
-        firebase_new_user = create_firebase_new_user(data.email, raw_password)
-        user = User(
-            email=data.email.lower(),
-            password=hashed_pwd,
-            first_name=data.first_name,
-            last_name=data.last_name,
-            middle_name=data.middle_name,
-            suffix=data.suffix,
-            student_id=student_id,
-            firebase_uid=firebase_new_user.uid,
-            user_category=data.user_category,
-        )
-
-        # Attach normalized personal_details
-        if data.personal_details:
-            pd_bdate = data.personal_details.birth_date
-            if isinstance(pd_bdate, str) and pd_bdate:
-                try:
-                    pd_bdate = date.fromisoformat(pd_bdate[:10])
-                except Exception:
-                    pd_bdate = None
-
-            user.personal_details = PersonalDetails(
-                personal_details_id=str(uuid.uuid4()),
-                user_id=user.user_id,
+            #insert user into firebase
+            firebase_new_user = create_firebase_new_user(data.email, raw_password)
+            is_inserted_on_firebase = True
+            firebase_uid = firebase_new_user.uid
+            user = User(
+                email=data.email.lower(),
+                password=hashed_pwd,
+                first_name=data.first_name,
+                last_name=data.last_name,
+                middle_name=data.middle_name,
+                suffix=data.suffix,
                 student_id=student_id,
-                lrn_number=data.personal_details.lrn_number,
-                gender=data.personal_details.gender,
-                birth_date=pd_bdate,
-                nationality=data.personal_details.nationality or "Filipino",
-                civil_status=data.personal_details.civil_status,
-                religion=data.personal_details.religion,
-                place_of_birth=data.personal_details.place_of_birth,
+                firebase_uid=firebase_new_user.uid,
+                user_category=data.user_category,
             )
-        else:
-            user.personal_details = None
 
-        # Attach normalized contact_details
-        if data.contact_details:
-            user.contact_details = ContactDetails(
-                contact_details_id=str(uuid.uuid4()),
-                user_id=user.user_id,
-                street_building_no=data.contact_details.street_building_no,
-                municipality=data.contact_details.municipality,
-                province=data.contact_details.province,
-                contact_no=data.contact_details.contact_no,
+            # Attach normalized personal_details
+            if data.personal_details:
+                pd_bdate = data.personal_details.birth_date
+                if isinstance(pd_bdate, str) and pd_bdate:
+                    try:
+                        pd_bdate = date.fromisoformat(pd_bdate[:10])
+                    except Exception:
+                        pd_bdate = None
+
+                user.personal_details = PersonalDetails(
+                    personal_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    student_id=student_id,
+                    lrn_number=data.personal_details.lrn_number,
+                    gender=data.personal_details.gender,
+                    birth_date=pd_bdate,
+                    nationality=data.personal_details.nationality or "Filipino",
+                    civil_status=data.personal_details.civil_status,
+                    religion=data.personal_details.religion,
+                    learning_modalities=data.personal_details.learning_modalities,
+                )
+            else:
+                user.personal_details = None
+
+            # Attach normalized contact_details
+            if data.contact_details:
+                user.contact_details = ContactDetails(
+                    contact_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    street_building_no=data.contact_details.street_building_no,
+                    municipality=data.contact_details.municipality,
+                    province=data.contact_details.province,
+                    contact_no=data.contact_details.contact_no,
+                )
+            else:
+                user.contact_details = None
+
+            # Attach normalized family_details
+            if data.family_details:
+                user.family_details = FamilyDetails(
+                    family_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    mother_name=data.family_details.mother_name,
+                    father_name=data.family_details.father_name,
+                    guardian_name=data.family_details.guardian_name,
+                    guardian_relation=data.family_details.guardian_relation,
+                    contact_no=data.family_details.contact_no,
+                )
+            else:
+                user.family_details = None
+
+            await uow.users.create(user)
+
+            # Re-fetch user with all normalized relations loaded
+            read_user = await uow.users.get_by_id_with_details(user.user_id)
+            if not read_user:
+                read_user = UserRead.model_validate(user)
+                del read_user.password
+            response_data = jsonable_encoder(read_user)
+
+            return SuccessfulResponseSchema(
+                message="Successfully created account.",
+                message_status="CREATED",
+                status_code=201,
+                data=AdditionalData(resources=response_data),
             )
-        else:
-            user.contact_details = None
 
-        # Attach normalized family_details
-        if data.family_details:
-            user.family_details = FamilyDetails(
-                family_details_id=str(uuid.uuid4()),
-                user_id=user.user_id,
-                mother_name=data.family_details.mother_name,
-                father_name=data.family_details.father_name,
-                guardian_name=data.family_details.guardian_name,
-                guardian_relation=data.family_details.guardian_relation,
-                contact_no=data.family_details.contact_no,
-            )
-        else:
-            user.family_details = None
-
-        await uow.users.create(user)
-
-        # Re-fetch user with all normalized relations loaded
-        read_user = await uow.users.get_by_id_with_details(user.user_id)
-        if not read_user:
-            read_user = UserRead.model_validate(user)
-            del read_user.password
-        response_data = jsonable_encoder(read_user)
-
-        return SuccessfulResponseSchema(
-            message="Successfully created account.",
-            message_status="CREATED",
-            status_code=201,
-            data=AdditionalData(resources=response_data),
-        )
+        except Exception as e:
+            #delete data if encountered an error.
+            if is_inserted_on_firebase and firebase_uid is not None:
+                delete_firebase_user(firebase_uid)
+            raise e
 
     @staticmethod
     async def create_teacher(uow: AbstractUnitOfWork, data: TeacherCreate) -> SuccessfulResponseSchema:
@@ -169,9 +182,6 @@ class UserService:
         existing = check_email_in_firebase(data.email)
         if existing:
             raise EntityAlreadyExistsException("A user with this email already exists.")
-
-
-
         # Determine teacher_id
         teacher_id = data.teacher_id
         if teacher_id:

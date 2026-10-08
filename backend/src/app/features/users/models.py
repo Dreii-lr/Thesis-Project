@@ -28,10 +28,15 @@ class UserCategory(str, Enum):
     BLP = "BLP"
 
 
+class LearningModality(str, Enum):
+    BLENDED = "BLENDED"
+    FTF = "FTF"
+
+
 class UserStatus(str, Enum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
-    COMPLETED = "COMPLETED" # if the student is finished the ALS program or graduated.
+    COMPLETED = "COMPLETED"  # if the student is finished the ALS program or graduated.
 
 
 class User(SQLModel, table=True):
@@ -47,7 +52,7 @@ class User(SQLModel, table=True):
     email: str = Field(unique=True, index=True, nullable=False)
     password: str = Field(nullable=False)
     student_id: Optional[str] = Field(default=None, index=True, nullable=True)
-    teacher_id: Optional[str] = Field(default=None,unique=True, nullable=True)
+    teacher_id: Optional[str] = Field(default=None, unique=True, nullable=True)
     first_name: str = Field(nullable=False)
     last_name: str = Field(nullable=False)
     middle_name: Optional[str] = Field(default=None, nullable=True)
@@ -68,10 +73,6 @@ class User(SQLModel, table=True):
     def employee_id(self) -> Optional[str]:
         """Backward-compatible alias for teacher_id."""
         return self.teacher_id
-
-    @employee_id.setter
-    def employee_id(self, value: Optional[str]) -> None:
-        self.teacher_id = value
 
     # Normalized relationships from USERS.drawio
     personal_details: Optional[PersonalDetails] = Relationship(
@@ -113,8 +114,8 @@ class PersonalDetails(SQLModel, table=True):
     nationality: Optional[str] = Field(default="Filipino", nullable=True)
     civil_status: Optional[str] = Field(default=None, nullable=True)
     religion: Optional[str] = Field(default=None, nullable=True)
-    place_of_birth: Optional[str] = Field(default=None, nullable=True)
-    lrn_number: Optional[str] = Field(default=None, index=True, nullable=True)
+    learning_modalities: LearningModality = Field(default=LearningModality.FTF, nullable=True)
+    lrn_number: str = Field(default=None, index=True, nullable=False)
 
     created_at: datetime = Field(
         default_factory=utc_now,

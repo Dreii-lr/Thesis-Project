@@ -32,7 +32,7 @@ async def get_current_user(
     uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> UserRead:
     # Prefer the cookie (browser clients); fall back to Bearer header (API/mobile clients)
-    token = access_token or (credentials.credentials if credentials else None)
+    token = (credentials.credentials if credentials else None) or access_token
 
     if not token:
         raise UnauthorizedDomainException("Authentication token missing.", "TOKEN_MISSING")

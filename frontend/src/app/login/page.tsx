@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import Image from 'next/image';
-import { FormEvent, useState, useSyncExternalStore } from 'react';
-import { useRouter } from 'next/navigation';
+import Image from "next/image";
+import { FormEvent, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   Eye,
@@ -14,60 +14,68 @@ import {
   Mail,
   UserRoundCheck,
   X,
-} from 'lucide-react';
+} from "lucide-react";
 
 import {
   saveDemoSession,
   type DemoRole,
-} from '@/src/components/auth/DemoAuthGuard';
+} from "@/src/components/auth/DemoAuthGuard";
 import {
   loginAndFetchUser,
   normalizeUserRole,
   requestAccountRecovery,
-} from '@/src/lib/auth-api';
+} from "@/src/lib/auth-api";
 
-type RecoveryState = 'idle' | 'success';
+type RecoveryState = "idle" | "success";
 
 function subscribeRememberedIdentity(callback: () => void) {
-  window.addEventListener('storage', callback);
-  return () => window.removeEventListener('storage', callback);
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
 }
 
 function readRememberedIdentity() {
-  try { return localStorage.getItem('als-lms-demo-remember') || ''; } catch { return ''; }
+  try {
+    return localStorage.getItem("als-lms-demo-remember") || "";
+  } catch {
+    return "";
+  }
 }
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [role, setRole] = useState<DemoRole>('student');
-  const rememberedIdentity = useSyncExternalStore(subscribeRememberedIdentity, readRememberedIdentity, () => '');
+  const [role, setRole] = useState<DemoRole>("student");
+  const rememberedIdentity = useSyncExternalStore(
+    subscribeRememberedIdentity,
+    readRememberedIdentity,
+    () => "",
+  );
   const [identityInput, setIdentity] = useState<string | null>(null);
   const identity = identityInput ?? rememberedIdentity;
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberInput, setRememberMe] = useState<boolean | null>(null);
-  const rememberMe = rememberInput ?? Boolean(rememberedIdentity);
-  const [error, setError] = useState('');
+  // const rememberMe = rememberInput ?? Boolean(rememberedIdentity);
+  const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [recoveryOpen, setRecoveryOpen] = useState(false);
-  const [recoveryIdentity, setRecoveryIdentity] = useState('');
-  const [recoveryState, setRecoveryState] = useState<RecoveryState>('idle');
-  const [recoveryError, setRecoveryError] = useState('');
+  const [recoveryIdentity, setRecoveryIdentity] = useState("");
+  const [recoveryState, setRecoveryState] = useState<RecoveryState>("idle");
+  const [recoveryError, setRecoveryError] = useState("");
   const [isRecovering, setIsRecovering] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError('');
+    setError("");
 
     if (!identity.trim()) {
-      setError('Please enter your email or ID.');
+      setError("Please enter your email or ID.");
       return;
     }
 
     if (password.trim().length < 4) {
-      setError('Please enter a valid password.');
+      setError("Please enter a valid password.");
       return;
     }
 
@@ -76,24 +84,26 @@ export default function LoginPage() {
     try {
       const user = await loginAndFetchUser(identity.trim(), password, role);
       const resolvedRole = normalizeUserRole(user);
-      if (!resolvedRole) throw new Error('This account has no supported role.');
+      if (!resolvedRole) throw new Error("This account has no supported role.");
 
       saveDemoSession(resolvedRole, user.email || identity.trim());
 
-      try {
-      if (rememberMe) {
-        localStorage.setItem('als-lms-demo-remember', identity.trim());
-      } else {
-        localStorage.removeItem('als-lms-demo-remember');
-      }
-      } catch { /* Remembering the identity is optional; authentication uses cookies. */ }
+      // try {
+      // if (rememberMe) {
+      //   localStorage.setItem('als-lms-demo-remember', identity.trim());
+      // } else {
+      //   localStorage.removeItem('als-lms-demo-remember');
+      // }
+      // } catch { /* Remembering the identity is optional; authentication uses cookies. */ }
 
       router.replace(
-        resolvedRole === 'teacher' ? '/teacher/dashboard' : '/student/dashboard'
+        resolvedRole === "teacher"
+          ? "/teacher/dashboard"
+          : "/student/dashboard",
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Login failed. Please try again.'
+        err instanceof Error ? err.message : "Login failed. Please try again.",
       );
     } finally {
       setIsSubmitting(false);
@@ -102,26 +112,30 @@ export default function LoginPage() {
 
   const openRecovery = () => {
     setRecoveryIdentity(identity);
-    setRecoveryState('idle');
-    setRecoveryError('');
+    setRecoveryState("idle");
+    setRecoveryError("");
     setRecoveryOpen(true);
   };
 
   const submitRecovery = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (isRecovering) return;
-    setRecoveryError('');
+    setRecoveryError("");
     if (!recoveryIdentity.trim()) {
-      setRecoveryError('Please enter your email or ID.');
+      setRecoveryError("Please enter your email or ID.");
       return;
     }
 
     setIsRecovering(true);
     try {
       await requestAccountRecovery(recoveryIdentity.trim());
-      setRecoveryState('success');
+      setRecoveryState("success");
     } catch (error) {
-      setRecoveryError(error instanceof Error ? error.message : 'Unable to send the recovery email. Please try again.');
+      setRecoveryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to send the recovery email. Please try again.",
+      );
     } finally {
       setIsRecovering(false);
     }
@@ -156,9 +170,9 @@ export default function LoginPage() {
               </p>
 
               <p className="mt-5 max-w-[570px] text-[15px] leading-7 text-slate-500 xl:text-base">
-                A modern learning management system for ALS educators and learners.
-                Access modules, track progress, and support lifelong learning anytime,
-                anywhere.
+                A modern learning management system for ALS educators and
+                learners. Access modules, track progress, and support lifelong
+                learning anytime, anywhere.
               </p>
             </div>
 
@@ -182,7 +196,10 @@ export default function LoginPage() {
           <div className="pointer-events-none absolute -bottom-12 right-6 h-44 w-44 rounded-full bg-[#d7efe5]/75" />
           <div className="pointer-events-none absolute bottom-8 right-20 grid grid-cols-4 gap-3 opacity-45">
             {Array.from({ length: 12 }).map((_, index) => (
-              <span key={index} className="h-2 w-2 rounded-full bg-indigo-200" />
+              <span
+                key={index}
+                className="h-2 w-2 rounded-full bg-indigo-200"
+              />
             ))}
           </div>
 
@@ -213,13 +230,13 @@ export default function LoginPage() {
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => {
-                    setRole('student');
-                    setError('');
+                    setRole("student");
+                    setError("");
                   }}
                   className={`flex h-12 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-all ${
-                    role === 'student'
-                      ? 'bg-[#2f6df6] text-white shadow-[0_8px_24px_rgba(47,109,246,0.28)]'
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                    role === "student"
+                      ? "bg-[#2f6df6] text-white shadow-[0_8px_24px_rgba(47,109,246,0.28)]"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                   }`}
                 >
                   <GraduationCap size={18} />
@@ -230,13 +247,13 @@ export default function LoginPage() {
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => {
-                    setRole('teacher');
-                    setError('');
+                    setRole("teacher");
+                    setError("");
                   }}
                   className={`flex h-12 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-all ${
-                    role === 'teacher'
-                      ? 'bg-[#2f6df6] text-white shadow-[0_8px_24px_rgba(47,109,246,0.28)]'
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                    role === "teacher"
+                      ? "bg-[#2f6df6] text-white shadow-[0_8px_24px_rgba(47,109,246,0.28)]"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                   }`}
                 >
                   <UserRoundCheck size={18} />
@@ -246,7 +263,10 @@ export default function LoginPage() {
 
               <form onSubmit={handleSubmit} className="mt-8 space-y-5">
                 <div>
-                  <label htmlFor="identity" className="mb-2 block text-sm font-semibold text-slate-800">
+                  <label
+                    htmlFor="identity"
+                    className="mb-2 block text-sm font-semibold text-slate-800"
+                  >
                     Email or ID
                   </label>
 
@@ -266,15 +286,21 @@ export default function LoginPage() {
                 </div>
 
                 <div>
-                  <label htmlFor="password" className="mb-2 block text-sm font-semibold text-slate-800">
+                  <label
+                    htmlFor="password"
+                    className="mb-2 block text-sm font-semibold text-slate-800"
+                  >
                     Password
                   </label>
 
                   <div className="flex h-[54px] items-center rounded-xl border border-slate-200 bg-white px-4 transition focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-50">
-                    <LockKeyhole size={18} className="shrink-0 text-slate-400" />
+                    <LockKeyhole
+                      size={18}
+                      className="shrink-0 text-slate-400"
+                    />
                     <input
                       id="password"
-                      type={showPassword ? 'text' : 'password'}
+                      type={showPassword ? "text" : "password"}
                       disabled={isSubmitting}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
@@ -287,7 +313,9 @@ export default function LoginPage() {
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
                       className="ml-2 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -295,7 +323,7 @@ export default function LoginPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
+                  {/* <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
                     <input
                       type="checkbox"
                       disabled={isSubmitting}
@@ -304,7 +332,7 @@ export default function LoginPage() {
                       className="h-4 w-4 rounded border-slate-300 accent-[#2f6df6]"
                     />
                     Remember me
-                  </label>
+                  </label> */}
 
                   <button
                     type="button"
@@ -347,10 +375,15 @@ export default function LoginPage() {
       {/* ACCOUNT RECOVERY MODAL */}
       {recoveryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm">
-          <div role="dialog" aria-modal="true" aria-labelledby="recovery-title" className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_30px_100px_rgba(15,23,42,0.3)]">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="recovery-title"
+            className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_30px_100px_rgba(15,23,42,0.3)]"
+          >
             <div className="flex items-start justify-between">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                {recoveryState === 'success' ? (
+                {recoveryState === "success" ? (
                   <CheckCircle2 size={22} />
                 ) : (
                   <KeyRound size={21} />
@@ -368,15 +401,25 @@ export default function LoginPage() {
               </button>
             </div>
 
-            {recoveryState === 'success' ? (
+            {recoveryState === "success" ? (
               <div className="mt-5">
-                <h3 id="recovery-title" className="text-xl font-extrabold text-slate-900">
+                <h3
+                  id="recovery-title"
+                  className="text-xl font-extrabold text-slate-900"
+                >
                   Check your email
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  If an active account matches those details, a password reset link will be sent to its registered email address. Open the link to choose a new password, then return here to sign in with your email or ID.
+                  If an active account matches those details, a password reset
+                  link will be sent to its registered email address. Open the
+                  link to choose a new password, then return here to sign in
+                  with your email or ID.
                 </p>
-                <p className="mt-2 text-sm leading-6 text-slate-500">Check your spam or junk folder too. If you no longer have access to that email address, contact your ALS teacher or administrator.</p>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Check your spam or junk folder too. If you no longer have
+                  access to that email address, contact your ALS teacher or
+                  administrator.
+                </p>
                 <button
                   type="button"
                   onClick={() => setRecoveryOpen(false)}
@@ -387,14 +430,21 @@ export default function LoginPage() {
               </div>
             ) : (
               <form onSubmit={submitRecovery} className="mt-5">
-                <h3 id="recovery-title" className="text-xl font-extrabold text-slate-900">
+                <h3
+                  id="recovery-title"
+                  className="text-xl font-extrabold text-slate-900"
+                >
                   Recover your account
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Enter your account email address or student/teacher ID. We’ll email a link to reset your password.
+                  Enter your account email address or student/teacher ID. We’ll
+                  email a link to reset your password.
                 </p>
 
-                <label htmlFor="recoveryIdentity" className="mt-5 block text-sm font-bold text-slate-800">
+                <label
+                  htmlFor="recoveryIdentity"
+                  className="mt-5 block text-sm font-bold text-slate-800"
+                >
                   Email or ID
                 </label>
 
@@ -403,7 +453,9 @@ export default function LoginPage() {
                   <input
                     id="recoveryIdentity"
                     value={recoveryIdentity}
-                    onChange={(event) => setRecoveryIdentity(event.target.value)}
+                    onChange={(event) =>
+                      setRecoveryIdentity(event.target.value)
+                    }
                     required
                     maxLength={254}
                     disabled={isRecovering}
@@ -414,7 +466,11 @@ export default function LoginPage() {
                   />
                 </div>
 
-                {recoveryError && <p role="alert" className="mt-3 text-sm text-red-600">{recoveryError}</p>}
+                {recoveryError && (
+                  <p role="alert" className="mt-3 text-sm text-red-600">
+                    {recoveryError}
+                  </p>
+                )}
 
                 <div className="mt-6 grid grid-cols-2 gap-3">
                   <button
@@ -431,8 +487,10 @@ export default function LoginPage() {
                     disabled={isRecovering}
                     className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#2f6df6] text-sm font-bold text-white hover:bg-[#245de0] disabled:opacity-70"
                   >
-                    {isRecovering && <Loader2 size={16} className="animate-spin" />}
-                    {isRecovering ? 'Sending...' : 'Send reset link'}
+                    {isRecovering && (
+                      <Loader2 size={16} className="animate-spin" />
+                    )}
+                    {isRecovering ? "Sending..." : "Send reset link"}
                   </button>
                 </div>
               </form>

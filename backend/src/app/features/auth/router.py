@@ -45,27 +45,31 @@ async def login(
         data: LoginRequest,
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> SuccessfulResponseSchema:
-    user_agent = request.headers.get("user-agent")
-    ip_address = request.client.host if request.client else None
+    try:
+        user_agent = request.headers.get("user-agent")
+        ip_address = request.client.host if request.client else None
 
-    result = await AuthService.login_with_password(
-        uow=uow,
-        data=data,
-        user_agent=user_agent,
-        ip_address=ip_address,
-    )
-    id_token = result.data.token.idToken
-    refresh_token = result.data.token.refreshToken
-    # Set httponly cookie for refresh token security
-    del result.data
-    response = SharedUtils.SuccessfulResponse(result)
-    set_auth_cookies(
-        response=response,
-        refresh_token=refresh_token,
-        access_token=id_token
-    )
-    result.status_code = status.HTTP_200_OK
-    return response
+        result = await AuthService.login_with_password(
+            uow=uow,
+            data=data,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        id_token = result.data.token.idToken
+        refresh_token = result.data.token.refreshToken
+        # Set httponly cookie for refresh token security
+        del result.data
+        response = SharedUtils.SuccessfulResponse(result)
+        set_auth_cookies(
+            response=response,
+            refresh_token=refresh_token,
+            access_token=id_token
+        )
+        result.status_code = status.HTTP_200_OK
+        return response
+    except Exception as e:
+        raise e
+
 
 
 @router.post("/refresh", response_model=SuccessfulResponseSchema)

@@ -56,7 +56,7 @@ class Assessment(SQLModel, table=True):
     assessment_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True
     )
-    teacher_id: str = Field(foreign_key="users.user_id", index=True, nullable=False)
+    teacher_id: str = Field(foreign_key="users.user_id",ondelete="CASCADE", index=True, nullable=False)
     title: str = Field(nullable=False)
     description: Optional[str] = Field(default=None, nullable=True)
     subject_code: str = Field(nullable=False, index=True)
@@ -104,6 +104,7 @@ class AssessmentQuestions(SQLModel, table=True):
     )
     assessment_id: str = Field(
         foreign_key="assessments.assessment_id",
+        ondelete="CASCADE",
         unique=True,
         index=True,
         nullable=False,
@@ -130,7 +131,7 @@ class AssessmentMaterial(SQLModel, table=True):
     material_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True
     )
-    assessment_id: str = Field(foreign_key="assessments.assessment_id", index=True, nullable=False)
+    assessment_id: str = Field(foreign_key="assessments.assessment_id",ondelete="CASCADE", index=True, nullable=False)
     file_name: str = Field(nullable=False)
     file_url: str = Field(nullable=False)
     file_type: str = Field(nullable=False)
@@ -149,8 +150,8 @@ class AssessmentSubmission(SQLModel, table=True):
     submission_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True
     )
-    assessment_id: str = Field(foreign_key="assessments.assessment_id", index=True, nullable=False)
-    student_id: str = Field(foreign_key="users.user_id", index=True, nullable=False)
+    assessment_id: str = Field(foreign_key="assessments.assessment_id",ondelete="CASCADE", index=True, nullable=False)
+    student_id: str = Field(foreign_key="users.user_id",ondelete="CASCADE", index=True, nullable=False)
     # Directly reuse UserCategory for student profile snapshot
     student_category: Optional[UserCategory] = Field(
         default=None,

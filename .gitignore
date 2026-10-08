@@ -79,3 +79,5 @@ AGENTS.md
 *.pem
 *.key
 *.cert
+*/alembic
+alembic/

@@ -9,7 +9,7 @@ from typing import Any, List, Optional
 from fastapi import Form, Body
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.features.users.models import UserRole, UserStatus, UserCategory
+from app.features.users.models import UserRole, UserStatus, UserCategory, LearningModality
 from app.shared.utils import SharedUtils
 
 
@@ -20,7 +20,7 @@ class PersonalDetailsInput(BaseModel):
     nationality: str | None = "Filipino"
     civil_status: str | None = None
     religion: str | None = None
-    place_of_birth: str | None = None
+    learning_modalities: LearningModality | None = LearningModality.FTF
     lrn_number: str | None = None
 
     @field_validator("birth_date", mode="before")
@@ -45,7 +45,7 @@ class PersonalDetailsRead(BaseModel):
     nationality: str | None = None
     civil_status: str | None = None
     religion: str | None = None
-    place_of_birth: str | None = None
+    learning_modalities: LearningModality | None = None
     lrn_number: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

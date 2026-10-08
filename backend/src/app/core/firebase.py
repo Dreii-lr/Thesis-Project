@@ -61,11 +61,6 @@ def _require_firebase() -> firebase_admin.App:
     return firebase_app
 
 
-@retry(
-    retry=retry_if_exception_type((auth.CertificateFetchError, firebase_exceptions.UnavailableError,
-                                 firebase_exceptions.DeadlineExceededError)),
-    stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.2, max=1), reraise=True,
-)
 def _verify_id_token(id_token: str, check_revoked: bool) -> dict:
     return auth.verify_id_token(
         id_token, app=_require_firebase(), check_revoked=check_revoked,
@@ -101,7 +96,14 @@ def create_firebase_new_user(email: str, password: str):
     except Exception as e:
         logger.error("Firebase account creation failed (%s).", type(e).__name__)
         raise AuthenticationUnavailableException("Unable to create the sign-in account. Please try again.") from e
+
+def delete_firebase_user(uid: str):
+    try:
+        auth.delete_user(uid)
+    except Exception as e:
+        raise e
 def create_custom_token(firebase_uid : str | None, developer_claims : dict | None = None):
+
     _require_firebase()
     try:
         token = auth.create_custom_token(uid=firebase_uid,developer_claims=developer_claims)
@@ -116,10 +118,6 @@ class _TransientFirebaseError(Exception):
     pass
 
 
-@retry(
-    retry=retry_if_exception_type((httpx.TransportError, _TransientFirebaseError)),
-    stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.2, max=1), reraise=True,
-)
 async def _post_token_request(url: str, **kwargs) -> httpx.Response:
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(url, **kwargs)
