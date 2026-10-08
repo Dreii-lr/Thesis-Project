@@ -3,7 +3,7 @@
 import { Suspense, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { BookOpen, FolderOpen, UploadCloud } from 'lucide-react';
+import { BookOpen, FolderOpen, Loader2, UploadCloud } from 'lucide-react';
 import { CATEGORY_LABELS } from '@/src/data/mockAssessment';
 import {
   formatTime,
@@ -13,6 +13,11 @@ import {
   type WorkspaceModule,
 } from '@/src/data/mockTeacher';
 import { useTeacher } from '@/src/context/TeacherContext';
+import {
+  useModuleUploader,
+  toWorkspaceModule,
+  type EnrichedWorkspaceModule,
+} from '@/src/lib/document-processor-api';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500';
@@ -30,60 +35,51 @@ function ModuleDirectory() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<WorkspaceModule | null>(null);
+  const [preview, setPreview] = useState<EnrichedWorkspaceModule | null>(null);
+
+  const { upload: uploadDoc, deleteDoc, isUploading } = useModuleUploader();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const chooseFile = (candidate?: File) => {
     setMessage('');
     setFile(null);
     if (!candidate) return;
-    if (!/\.(pdf|docx|txt)$/i.test(candidate.name)) {
-      setMessage('Choose a PDF, DOCX, or TXT file.');
+    if (!/\.(pdf|docx|txt|png|jpg|jpeg)$/i.test(candidate.name)) {
+      setMessage('Choose a PDF, DOCX, TXT, or image file (PNG, JPG).');
       return;
     }
-    if (!candidate.size || candidate.size > 2 * 1024 * 1024) {
-      setMessage('Choose a non-empty file up to 2 MB for this browser demo.');
+    if (!candidate.size || candidate.size > 50 * 1024 * 1024) {
+      setMessage('Choose a file up to 50 MB.');
       return;
     }
     setFile(candidate);
   };
-  const upload = () => {
+
+  const upload = async () => {
     if (!file || !program || !subject) {
       setMessage('Choose a subject and a file first.');
       return;
     }
     setBusy(true);
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setBusy(false);
-      setMessage('The file could not be read. Please try again.');
-    };
-    reader.onload = () => {
-      const data = String(reader.result);
-      const item: WorkspaceModule = {
-        id: crypto.randomUUID(),
-        filename: file.name,
-        target_category: program,
-        subject_code: subject,
-        uploaded_at: new Date().toISOString(),
-        status: 'Pending',
-        file_data: data,
-      };
-      // Check quota before claiming success; file contents must survive navigation.
-      try {
-        if (!setModules([item, ...modules])) {
-          setBusy(false);
-          return;
-        }
-        setMessage('Module uploaded. Review it below and publish when ready.');
-        setFile(null);
-        if (input.current) input.current.value = '';
-      } catch {
-        setMessage(
-          'Browser storage is full or unavailable. Remove an unused module or try a smaller file.',
-        );
+    setMessage('Uploading and analyzing module with AI parser…');
+    try {
+      const parsedData = await uploadDoc(file);
+      const item = toWorkspaceModule(parsedData, program, subject);
+
+      if (!setModules([item, ...modules])) {
+        setMessage('Unable to save module locally.');
+        setBusy(false);
+        return;
       }
+      setMessage('Module uploaded and parsed successfully! Review the extracted curriculum below and publish when ready.');
+      setFile(null);
+      if (input.current) input.current.value = '';
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Upload failed.';
+      setMessage(`Upload error: ${errMsg}`);
+    } finally {
       setBusy(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
   const changeStatus = (id: string) => {
     setModules(
@@ -91,11 +87,39 @@ function ModuleDirectory() {
     );
     setMessage('Module published to this program and subject.');
   };
-  const remove = (id: string) => {
-    if (window.confirm('Remove this module from the demo library?')) {
-      setModules(modules.filter((m) => m.id !== id));
-      setPreview(null);
-      setMessage('Module removed.');
+  const remove = async (target: WorkspaceModule | EnrichedWorkspaceModule | string) => {
+    const targetModule = typeof target === 'string'
+      ? modules.find((m) => m.id === target)
+      : target;
+
+    const filename = targetModule?.filename || 'this module';
+    const isConfirmed = window.confirm(
+      `Are you sure you want to remove "${filename}"? This will permanently delete the curriculum and file from the system.`
+    );
+    if (!isConfirmed) return;
+
+    const targetId = typeof target === 'string' ? target : target.id;
+    const docId = (targetModule as EnrichedWorkspaceModule)?.document_id;
+    const isBackendDoc = docId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(docId);
+
+    setDeletingId(targetId);
+    setMessage('Deleting module from server and storage…');
+    try {
+      if (isBackendDoc) {
+        await deleteDoc(docId);
+        setMessage(`Module "${filename}" and its digitized curriculum were permanently deleted.`);
+      } else {
+        setMessage(`Module "${filename}" removed.`);
+      }
+      setModules(modules.filter((m) => m.id !== targetId));
+      if (preview?.id === targetId) {
+        setPreview(null);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Deletion failed.';
+      setMessage(`Delete error: ${errMsg}`);
+    } finally {
+      setDeletingId(null);
     }
   };
   const directory = modules.filter(
@@ -187,7 +211,7 @@ function ModuleDirectory() {
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   Your chosen subject determines where the module belongs. PDF,
-                  DOCX, or TXT · up to 2 MB per file.
+                  DOCX, TXT, or scanned image · up to 50 MB per file.
                 </p>
                 <label className="mt-5 block text-sm font-semibold">
                   Destination subject
@@ -209,7 +233,7 @@ function ModuleDirectory() {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
-                  if (!busy) chooseFile(e.dataTransfer.files[0]);
+                  if (!busy && !isUploading) chooseFile(e.dataTransfer.files[0]);
                 }}
                 className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 p-6 text-center"
               >
@@ -221,17 +245,24 @@ function ModuleDirectory() {
                   ref={input}
                   aria-label="Select module file"
                   type="file"
-                  accept=".pdf,.docx,.txt"
-                  disabled={busy}
+                  accept=".pdf,.docx,.txt,.png,.jpg,.jpeg"
+                  disabled={busy || isUploading}
                   onChange={(e) => chooseFile(e.target.files?.[0])}
                   className="mt-4 block w-full max-w-xs text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-blue-600"
                 />
                 <button
                   className={`mt-5 ${buttonClass}`}
-                  disabled={busy || !file || !subject}
+                  disabled={busy || isUploading || !file || !subject}
                   onClick={upload}
                 >
-                  {busy ? 'Saving file…' : 'Upload for review'}
+                  {busy || isUploading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Analyzing &amp; uploading…</span>
+                    </>
+                  ) : (
+                    'Upload for review'
+                  )}
                 </button>
               </div>
             </div>
@@ -306,10 +337,13 @@ function ModuleDirectory() {
                       </button>
                     )}
                     <button
-                      onClick={() => remove(m.id)}
-                      className="text-red-600"
+                      type="button"
+                      onClick={() => remove(m)}
+                      disabled={deletingId === m.id}
+                      className="inline-flex cursor-pointer items-center gap-1 text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Remove
+                      {deletingId === m.id && <Loader2 size={13} className="animate-spin" />}
+                      <span>{deletingId === m.id ? 'Deleting…' : 'Remove'}</span>
                     </button>
                   </div>
                 </article>
@@ -330,34 +364,125 @@ function ModuleDirectory() {
                 'mt-6'
               }
             >
-              <div className="flex justify-between gap-3">
-                <h2 className="break-all font-bold">{preview.filename}</h2>
+              <div className="flex justify-between items-start gap-3">
+                <div>
+                  <span className="inline-block rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
+                    {preview.status}
+                  </span>
+                  <h2 className="mt-2 break-all text-xl font-bold text-slate-900">{preview.filename}</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {subjectName(preview.subject_code)} · Uploaded {formatTime(preview.uploaded_at)}
+                  </p>
+                </div>
                 <button
                   onClick={() => setPreview(null)}
-                  className="text-sm font-semibold text-blue-600"
+                  className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 transition-colors"
                 >
                   Close preview
                 </button>
               </div>
-              {/\.(txt|pdf)$/i.test(preview.filename) ? (
-                <iframe
-                  title={`Preview ${preview.filename}`}
-                  sandbox=""
-                  src={preview.file_data}
-                  className="mt-4 h-96 w-full rounded-xl border"
-                />
-              ) : (
-                <p className="mt-4 text-sm text-slate-500">
-                  Download this DOCX file to review it in your document editor.
-                </p>
+
+              {preview.main_learning_goal && (
+                <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-blue-700">
+                    Curriculum Competency &amp; Learning Goal
+                  </p>
+                  <p className="mt-1 text-sm font-medium leading-relaxed text-blue-950">
+                    {preview.main_learning_goal}
+                  </p>
+                </div>
               )}
-              <a
-                href={preview.file_data}
-                download={preview.filename}
-                className="mt-4 inline-block text-sm font-semibold text-blue-600"
-              >
-                Download original file →
-              </a>
+
+              {preview.records && preview.records.length > 0 && (
+                <div className="mt-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                      Digitized Lessons &amp; Topics ({preview.records.length})
+                    </h3>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {preview.records.map((rec, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 transition hover:bg-white hover:shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-bold text-slate-900">
+                            {rec.main_topic || `Lesson ${idx + 1}`}
+                          </h4>
+                          {rec.delivery_mode && (
+                            <span className="shrink-0 rounded-md bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                              {rec.delivery_mode}
+                            </span>
+                          )}
+                        </div>
+                        {rec.sub_topics && rec.sub_topics.length > 0 && (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {rec.sub_topics.map((sub, sIdx) => (
+                              <span
+                                key={sIdx}
+                                className="inline-block rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-100"
+                              >
+                                {sub}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-200/60 pt-2">
+                          <span>{rec.duration || 'Flexible duration'}</span>
+                          {rec.expected_output && (
+                            <span className="truncate max-w-[150px]" title={rec.expected_output}>
+                              Output: {rec.expected_output}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-6 border-t border-slate-100 pt-5">
+                <h3 className="text-sm font-bold text-slate-800 mb-2">Original Document</h3>
+                {/\.(txt|pdf)$/i.test(preview.filename) ? (
+                  <iframe
+                    title={`Preview ${preview.filename}`}
+                    sandbox="allow-scripts allow-same-origin"
+                    src={preview.storage_url || preview.file_data}
+                    className="h-96 w-full rounded-xl border border-slate-200"
+                  />
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Download this document to review it in your desktop viewer.
+                  </p>
+                )}
+                <div className="mt-4 flex flex-wrap items-center gap-4">
+                  <a
+                    href={preview.storage_url || preview.file_data}
+                    download={preview.filename}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    Download original file →
+                  </a>
+                  {preview.status === 'Pending' && (
+                    <button
+                      onClick={() => changeStatus(preview.id)}
+                      className={buttonClass}
+                    >
+                      Publish this module
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => preview && remove(preview)}
+                    disabled={deletingId === preview.id}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {deletingId === preview.id && <Loader2 size={15} className="animate-spin" />}
+                    <span>{deletingId === preview.id ? 'Deleting…' : 'Delete module'}</span>
+                  </button>
+                </div>
+              </div>
             </section>
           )}
         </>

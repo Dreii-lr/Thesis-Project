@@ -20,6 +20,8 @@ from app.features.users.schemas import UserRead
 
 if TYPE_CHECKING:
     from app.features.assessments.service import AssessmentService
+    from app.features.subjects.service import SubjectService
+    from app.features.user_categories.service import UserCategoryService
 
 security_bearer = HTTPBearer(auto_error=False)
 
@@ -85,3 +87,17 @@ def get_assessment_service(
 ) -> AssessmentService:
     from app.features.assessments.service import AssessmentService
     return AssessmentService(uow)
+
+
+def get_user_category_service(
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> UserCategoryService:
+    from app.features.user_categories.service import UserCategoryService
+    return UserCategoryService(uow)
+
+
+def get_subject_service(
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> SubjectService:
+    from app.features.subjects.service import SubjectService
+    return SubjectService(uow)

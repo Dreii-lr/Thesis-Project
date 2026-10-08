@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from app.features.assessments.repository import AssessmentRepository
     from app.features.attendance.repository import AttendanceRepository
     from app.features.auth.repository import SessionRepository
+    from app.features.subjects.repository import SubjectRepository
+    from app.features.user_categories.repository import UserCategoryRepository
     from app.features.users.repository import UserRepository
 
 
@@ -53,6 +55,8 @@ class AbstractUnitOfWork(ABC):
     sequence_id_generator : "SequenceIDGeneratorRepository"
     attendance: "AttendanceRepository"
     assessments: "AssessmentRepository"
+    user_categories: "UserCategoryRepository"
+    subjects: "SubjectRepository"
 
     async def __aenter__(self) -> "AbstractUnitOfWork":
         return self
@@ -94,6 +98,8 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
         from app.features.assessments.repository import AssessmentRepository
         from app.features.attendance.repository import AttendanceRepository
         from app.features.auth.repository import SessionRepository
+        from app.features.subjects.repository import SubjectRepository
+        from app.features.user_categories.repository import UserCategoryRepository
         from app.features.users.repository import UserRepository
 
         self._session : AsyncSession = async_session_factory()
@@ -102,6 +108,8 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
         self.sequence_id_generator = SequenceIDGeneratorRepository(self._session)
         self.attendance = AttendanceRepository(self._session)
         self.assessments = AssessmentRepository(self._session)
+        self.user_categories = UserCategoryRepository(self._session)
+        self.subjects = SubjectRepository(self._session)
         return self
 
     async def __aexit__(

@@ -13,7 +13,6 @@ from app.features.users.schemas import UserRead, UserReadLessData
 class LoginRequest(BaseModel):
     email: EmailStr | str
     password: str
-    role: UserRole | None = UserRole.TEACHER
 
 
 class AccountRecoveryRequest(BaseModel):

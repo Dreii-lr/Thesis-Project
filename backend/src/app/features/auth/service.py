@@ -62,7 +62,6 @@ class AuthService:
             raise UnauthorizedDomainException("Your account is not registered in this application. Please contact your administrator.")
         if user.status != UserStatus.ACTIVE:
             raise UnauthorizedDomainException("User account is inactive.")
-        _check_login_role(user, data.role)
 
         tokens = TokenResponse(idToken=firebase_data["idToken"], refreshToken=firebase_data["refreshToken"])
         return SuccessfulResponseSchema(message="Successfully logged in.", data=AdditionalData(token=tokens))
