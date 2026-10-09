@@ -29,13 +29,14 @@ def _check_login_role(user: UserRead, expected_role: str | None) -> None:
 
 class AuthService:
     @staticmethod
-    @retry_on_transient
     async def login_with_password(
         uow: AbstractUnitOfWork,
         data: LoginRequest,
         user_agent: str | None = None,
         ip_address: str | None = None,
     ) -> SuccessfulResponseSchema:
+        # The request owns this transaction. Let failures reach its rollback
+        # instead of retrying queries on an already-aborted transaction.
         identity = data.email.strip()
         user = None
         if "@" in identity:

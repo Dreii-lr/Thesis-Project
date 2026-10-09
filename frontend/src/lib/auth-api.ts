@@ -48,8 +48,7 @@ async function extractErrorMessage(response: Response, fallback: string): Promis
 
 export async function loginAndFetchUser(
   identity: string,
-  password: string,
-  expectedRole: DemoRole
+  password: string
 ): Promise<UserRead> {
   return mutateSession(async () => {
     const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -60,7 +59,6 @@ export async function loginAndFetchUser(
       body: JSON.stringify({
         email: identity.trim(),
         password,
-        role: expectedRole.toUpperCase(),
       }),
     });
 
@@ -83,12 +81,8 @@ export async function loginAndFetchUser(
     const user: UserRead = await meRes.json();
 
     const actualRole = normalizeUserRole(user);
-    if (!actualRole || actualRole !== expectedRole) {
-      // The backend checks the selected role before issuing session cookies.
-      // Never revoke every session as a side effect of selecting the wrong portal.
-      throw new Error(actualRole
-        ? `This account is registered as a ${actualRole}, not a ${expectedRole}.`
-        : 'This account does not have access to the teacher or student portal.');
+    if (!actualRole) {
+      throw new Error('This account does not have access to the teacher or student portal.');
     }
 
     return user;
