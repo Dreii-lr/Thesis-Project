@@ -61,6 +61,12 @@ def _require_firebase() -> firebase_admin.App:
     return firebase_app
 
 
+@retry(
+    retry=retry_if_exception_type((firebase_exceptions.UnavailableError, firebase_exceptions.DeadlineExceededError)),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=0.5, max=1),
+    reraise=True,
+)
 def _verify_id_token(id_token: str, check_revoked: bool) -> dict:
     return auth.verify_id_token(
         id_token, app=_require_firebase(), check_revoked=check_revoked,
@@ -118,6 +124,12 @@ class _TransientFirebaseError(Exception):
     pass
 
 
+@retry(
+    retry=retry_if_exception_type((httpx.TransportError, _TransientFirebaseError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.5, max=2),
+    reraise=True,
+)
 async def _post_token_request(url: str, **kwargs) -> httpx.Response:
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(url, **kwargs)

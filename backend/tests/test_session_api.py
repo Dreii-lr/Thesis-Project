@@ -22,7 +22,7 @@ def setup_test_db():
 
 @pytest_asyncio.fixture
 async def session_client(monkeypatch):
-    user = UserRead(user_id="user-1", firebase_uid="firebase-1", email="user@example.com", role="student", status="active")
+    user = UserRead(user_id="user-1", firebase_uid="firebase-1", email="user@example.com", role="STUDENT", status="ACTIVE")
     uow = SimpleNamespace(users=SimpleNamespace(get_by_firebase_uid=AsyncMock(return_value=user)))
     async def provide_uow():
         yield uow
@@ -43,7 +43,7 @@ async def session_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_login_refresh_logout_cookie_lifecycle(session_client):
     client = session_client
-    login = await client.post("/api/v1/auth/login", json={"email": "user@example.com", "password": "password", "role": "student"})
+    login = await client.post("/api/v1/auth/login", json={"email": "user@example.com", "password": "password"})
     assert login.status_code == 200
     assert login.headers["cache-control"] == "no-store"
     assert "access" not in login.text
@@ -51,7 +51,7 @@ async def test_login_refresh_logout_cookie_lifecycle(session_client):
     assert client.cookies["refresh_token"] == "refresh"
     me = await client.get("/api/v1/auth/me")
     assert me.status_code == 200
-    assert me.json()["role"] == "student"
+    assert me.json()["role"] == "STUDENT"
     dependencies.verify_firebase_id_token.assert_called_with("access", check_revoked=True)
     refreshed = await client.post("/api/v1/auth/refresh")
     assert refreshed.status_code == 200
@@ -90,8 +90,10 @@ async def test_refresh_outage_keeps_existing_cookies(session_client):
 
 
 @pytest.mark.asyncio
-async def test_wrong_portal_does_not_issue_cookies_or_revoke_tokens(session_client):
+async def test_client_role_cannot_override_the_account_role(session_client):
     response = await session_client.post("/api/v1/auth/login", json={"email": "user@example.com", "password": "password", "role": "teacher"})
-    assert response.status_code == 403
-    assert "set-cookie" not in response.headers
+    assert response.status_code == 200
+    profile = await session_client.get("/api/v1/auth/me")
+    assert profile.status_code == 200
+    assert profile.json()["role"] == "STUDENT"
     service.logout.assert_not_called()

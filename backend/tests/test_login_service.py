@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.core.exceptions import AuthenticationUnavailableException, ForbiddenDomainException, InvalidCredentialsException, UnauthorizedDomainException
+from app.core.exceptions import AuthenticationUnavailableException, InvalidCredentialsException, UnauthorizedDomainException
+from sqlalchemy.exc import ProgrammingError
 from app.features.auth import service
 from app.features.auth.schemas import LoginRequest
 from app.core.security import hash_password
@@ -97,10 +98,22 @@ async def test_provider_outage_is_not_an_invalid_password(login_dependencies):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("identity", ["ID-123", "person@example.com"])
-async def test_wrong_portal_is_rejected_before_session_issuance(identity, login_dependencies):
+async def test_login_does_not_require_a_selected_portal(identity, login_dependencies):
     uow, _ = login_dependencies
-    with pytest.raises(ForbiddenDomainException, match="teacher, not a student"):
-        await service.AuthService.login_with_password(uow, LoginRequest(email=identity, password="password", role="student"))
+    result = await service.AuthService.login_with_password(uow, LoginRequest(email=identity, password="password"))
+    assert result.data.token.idToken == "access"
+
+
+@pytest.mark.asyncio
+async def test_database_failure_is_not_retried_in_aborted_transaction(login_dependencies):
+    uow, _ = login_dependencies
+    failure = ProgrammingError("SELECT users", {}, Exception("missing profile column"))
+    uow.users.get_by_firebase_uid.side_effect = failure
+    with pytest.raises(ProgrammingError) as caught:
+        await service.AuthService.login_with_password(uow, LoginRequest(email="person@example.com", password="password"))
+    assert caught.value is failure
+    uow.users.get_by_firebase_uid.assert_awaited_once()
+    service.sign_in_with_password.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -1,24 +1,22 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { FormEvent, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   Eye,
   EyeOff,
-  GraduationCap,
   KeyRound,
   Loader2,
   LockKeyhole,
   Mail,
-  UserRoundCheck,
   X,
 } from "lucide-react";
 
 import {
   saveDemoSession,
-  type DemoRole,
 } from "@/src/components/auth/DemoAuthGuard";
 import {
   loginAndFetchUser,
@@ -44,7 +42,6 @@ function readRememberedIdentity() {
 export default function LoginPage() {
   const router = useRouter();
 
-  const [role, setRole] = useState<DemoRole>("student");
   const rememberedIdentity = useSyncExternalStore(
     subscribeRememberedIdentity,
     readRememberedIdentity,
@@ -54,8 +51,6 @@ export default function LoginPage() {
   const identity = identityInput ?? rememberedIdentity;
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberInput, setRememberMe] = useState<boolean | null>(null);
-  // const rememberMe = rememberInput ?? Boolean(rememberedIdentity);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -67,6 +62,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSubmitting) return;
     setError("");
 
     if (!identity.trim()) {
@@ -82,19 +78,11 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      const user = await loginAndFetchUser(identity.trim(), password, role);
+      const user = await loginAndFetchUser(identity.trim(), password);
       const resolvedRole = normalizeUserRole(user);
       if (!resolvedRole) throw new Error("This account has no supported role.");
 
       saveDemoSession(resolvedRole, user.email || identity.trim());
-
-      // try {
-      // if (rememberMe) {
-      //   localStorage.setItem('als-lms-demo-remember', identity.trim());
-      // } else {
-      //   localStorage.removeItem('als-lms-demo-remember');
-      // }
-      // } catch { /* Remembering the identity is optional; authentication uses cookies. */ }
 
       router.replace(
         resolvedRole === "teacher"
@@ -224,43 +212,6 @@ export default function LoginPage() {
                 </p>
               </div>
 
-              {/* STUDENT / TEACHER SWITCH */}
-              <div className="mt-8 grid grid-cols-2 rounded-full border border-slate-200 bg-white p-1.5">
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    setRole("student");
-                    setError("");
-                  }}
-                  className={`flex h-12 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-all ${
-                    role === "student"
-                      ? "bg-[#2f6df6] text-white shadow-[0_8px_24px_rgba(47,109,246,0.28)]"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                  }`}
-                >
-                  <GraduationCap size={18} />
-                  Student
-                </button>
-
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    setRole("teacher");
-                    setError("");
-                  }}
-                  className={`flex h-12 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-all ${
-                    role === "teacher"
-                      ? "bg-[#2f6df6] text-white shadow-[0_8px_24px_rgba(47,109,246,0.28)]"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                  }`}
-                >
-                  <UserRoundCheck size={18} />
-                  Teacher
-                </button>
-              </div>
-
               <form onSubmit={handleSubmit} className="mt-8 space-y-5">
                 <div>
                   <label
@@ -323,17 +274,6 @@ export default function LoginPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  {/* <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-600">
-                    <input
-                      type="checkbox"
-                      disabled={isSubmitting}
-                      checked={rememberMe}
-                      onChange={(event) => setRememberMe(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 accent-[#2f6df6]"
-                    />
-                    Remember me
-                  </label> */}
-
                   <button
                     type="button"
                     onClick={openRecovery}
@@ -344,7 +284,7 @@ export default function LoginPage() {
                 </div>
 
                 {error && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                  <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
                     {error}
                   </div>
                 )}
@@ -367,6 +307,9 @@ export default function LoginPage() {
                   )}
                 </button>
               </form>
+              <Link href="/landing-page" className="mt-6 block text-center text-sm font-medium text-slate-500 hover:text-blue-600">
+                Back to home
+              </Link>
             </div>
           </div>
         </section>
