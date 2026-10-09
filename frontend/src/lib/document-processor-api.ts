@@ -63,6 +63,57 @@ export interface DeleteDocumentOptions {
   signal?: AbortSignal;
 }
 
+export interface DocumentItem {
+  id: string;
+  user_id?: string | null;
+  filename: string;
+  file_size_bytes?: number;
+  storage_provider?: string;
+  storage_key?: string | null;
+  storage_url?: string | null;
+  storage_bucket?: string | null;
+  file_hash?: string | null;
+  status: string;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+  materials_count?: number;
+  lessons_count?: number;
+  als_program?: string | null;
+  learning_strand?: string | null;
+}
+
+export interface DocumentListResponse {
+  items: DocumentItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface GetDocumentsOptions {
+  userId?: string | null;
+  status?: string;
+  program?: string;
+  page?: number;
+  pageSize?: number;
+  baseUrl?: string;
+  signal?: AbortSignal;
+}
+
+export interface DocumentDetailResponse extends DocumentItem {
+  materials: {
+    id: string;
+    learner_name?: string | null;
+    cls_name?: string | null;
+    als_program?: string | null;
+    learning_strand?: string | null;
+    main_learning_goal?: string | null;
+    topics_count: number;
+    created_at?: string | null;
+  }[];
+}
+
 export interface EnrichedWorkspaceModule extends WorkspaceModule {
   materials_id?: string | null;
   document_id?: string | null;
@@ -112,6 +163,25 @@ export function matchStrandToSubjectCode(strand?: string | null, fallback = 'ALS
   if (norm.includes('LS6') || norm.includes('DIGITAL')) return 'ALS-LS6-DIGITAL';
   if (norm.includes('BLP') || norm.includes('FOUNDATIONAL')) return 'ALS-BLP-101';
   return fallback;
+}
+
+/**
+ * Determines whether a backend DocumentItem belongs to the specified ALS TargetCategory.
+ * Uses als_program metadata, R2 folder keys (ELEMENTARY/, BLP/, SECONDARY/), and filename patterns.
+ */
+export function matchDocumentToProgram(doc: DocumentItem, targetProgram: TargetCategory): boolean {
+  if (doc.als_program) {
+    if (normalizeProgramToCategory(doc.als_program) === targetProgram) return true;
+  }
+  if (doc.storage_key) {
+    const folder = doc.storage_key.split('/')[0];
+    if (normalizeProgramToCategory(folder) === targetProgram) return true;
+  }
+  const normFile = doc.filename.toLowerCase();
+  if (targetProgram === 'elementary' && normFile.includes('elem')) return true;
+  if (targetProgram === 'basic_literacy' && (normFile.includes('blp') || normFile.includes('basic'))) return true;
+  if (targetProgram === 'junior' && (normFile.includes('junior') || normFile.includes('secondary') || normFile.includes('jhs'))) return true;
+  return false;
 }
 
 /**
@@ -239,6 +309,65 @@ export async function deleteModuleDocument(
   }
 
   return body as DocumentDeleteResponse;
+}
+
+/**
+ * Retrieves all ingested documents from the document-processing backend, optionally filtered by ALS program.
+ * Route: GET /document-processor/documents/
+ */
+export async function getModuleDocuments(
+  options: GetDocumentsOptions = {}
+): Promise<DocumentListResponse> {
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const params = new URLSearchParams();
+  if (options.userId) params.set('user_id', options.userId);
+  if (options.status) params.set('status', options.status);
+  if (options.program) params.set('program', options.program);
+  if (options.page) params.set('page', String(options.page));
+  if (options.pageSize) params.set('page_size', String(options.pageSize));
+
+  const queryString = params.toString();
+  const targetUrl = `${baseUrl}/document-processor/documents/${queryString ? `?${queryString}` : ''}`;
+
+  const response = await fetch(targetUrl, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body as DocumentListResponse;
+}
+
+/**
+ * Retrieves a single document along with its child material summaries.
+ * Route: GET /document-processor/documents/{document_id}
+ */
+export async function getModuleDocumentById(
+  documentId: string,
+  options: { baseUrl?: string; signal?: AbortSignal } = {}
+): Promise<DocumentDetailResponse> {
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/documents/${encodeURIComponent(documentId)}`;
+
+  const response = await fetch(targetUrl, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body as DocumentDetailResponse;
 }
 
 /**

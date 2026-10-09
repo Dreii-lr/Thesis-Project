@@ -1,21 +1,23 @@
 'use client';
 
-import { Suspense, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { BookOpen, FolderOpen, Loader2, UploadCloud } from 'lucide-react';
+import { BookOpen, FolderOpen, Loader2, UploadCloud, RefreshCw } from 'lucide-react';
 import { CATEGORY_LABELS } from '@/src/data/mockAssessment';
 import {
   formatTime,
   programs,
-  subjects,
-  subjectName,
   type WorkspaceModule,
 } from '@/src/data/mockTeacher';
 import { useTeacher } from '@/src/context/TeacherContext';
 import {
   useModuleUploader,
   toWorkspaceModule,
+  getModuleDocuments,
+  getModuleDocumentById,
+  matchDocumentToProgram,
+  type DocumentItem,
   type EnrichedWorkspaceModule,
 } from '@/src/lib/document-processor-api';
 
@@ -29,7 +31,6 @@ function ModuleDirectory() {
   const params = useSearchParams();
   const requested = params.get('program');
   const program = programs.find((p) => p === requested);
-  const [subject, setSubject] = useState('');
   const [search, setSearch] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState('');
@@ -37,8 +38,32 @@ function ModuleDirectory() {
   const input = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<EnrichedWorkspaceModule | null>(null);
 
+  // Backend documents state
+  const [backendDocs, setBackendDocs] = useState<DocumentItem[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+  const [docsError, setDocsError] = useState<string | null>(null);
+
   const { upload: uploadDoc, deleteDoc, isUploading } = useModuleUploader();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Load all documents from the document-processing backend
+  const loadBackendDocs = useCallback(async () => {
+    setLoadingDocs(true);
+    setDocsError(null);
+    try {
+      const res = await getModuleDocuments({ pageSize: 100 });
+      setBackendDocs(res.items || []);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to retrieve documents from backend.';
+      setDocsError(errMsg);
+    } finally {
+      setLoadingDocs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBackendDocs();
+  }, [loadBackendDocs]);
 
   const chooseFile = (candidate?: File) => {
     setMessage('');
@@ -56,24 +81,24 @@ function ModuleDirectory() {
   };
 
   const upload = async () => {
-    if (!file || !program || !subject) {
-      setMessage('Choose a subject and a file first.');
+    if (!file || !program) {
+      setMessage('Choose a file first.');
       return;
     }
     setBusy(true);
     setMessage('Uploading and analyzing module with AI parser…');
     try {
       const parsedData = await uploadDoc(file);
-      const item = toWorkspaceModule(parsedData, program, subject);
+      const item = toWorkspaceModule(parsedData, program);
 
-      if (!setModules([item, ...modules])) {
-        setMessage('Unable to save module locally.');
-        setBusy(false);
-        return;
-      }
-      setMessage('Module uploaded and parsed successfully! Review the extracted curriculum below and publish when ready.');
+      setModules([item, ...modules]);
+      setMessage('Module uploaded and parsed successfully! Review the extracted curriculum below.');
       setFile(null);
       if (input.current) input.current.value = '';
+
+      // Immediately re-sync document library from backend
+      await loadBackendDocs();
+      setPreview(item);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Upload failed.';
       setMessage(`Upload error: ${errMsg}`);
@@ -81,38 +106,28 @@ function ModuleDirectory() {
       setBusy(false);
     }
   };
+
   const changeStatus = (id: string) => {
     setModules(
       modules.map((m) => (m.id === id ? { ...m, status: 'Published' } : m)),
     );
-    setMessage('Module published to this program and subject.');
+    setMessage('Module status updated to Published.');
   };
-  const remove = async (target: WorkspaceModule | EnrichedWorkspaceModule | string) => {
-    const targetModule = typeof target === 'string'
-      ? modules.find((m) => m.id === target)
-      : target;
 
-    const filename = targetModule?.filename || 'this module';
+  const removeDoc = async (targetId: string, filename: string) => {
     const isConfirmed = window.confirm(
       `Are you sure you want to remove "${filename}"? This will permanently delete the curriculum and file from the system.`
     );
     if (!isConfirmed) return;
 
-    const targetId = typeof target === 'string' ? target : target.id;
-    const docId = (targetModule as EnrichedWorkspaceModule)?.document_id;
-    const isBackendDoc = docId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(docId);
-
     setDeletingId(targetId);
     setMessage('Deleting module from server and storage…');
     try {
-      if (isBackendDoc) {
-        await deleteDoc(docId);
-        setMessage(`Module "${filename}" and its digitized curriculum were permanently deleted.`);
-      } else {
-        setMessage(`Module "${filename}" removed.`);
-      }
+      await deleteDoc(targetId);
+      setMessage(`Module "${filename}" and its digitized curriculum were permanently deleted.`);
+      setBackendDocs((prev) => prev.filter((d) => d.id !== targetId));
       setModules(modules.filter((m) => m.id !== targetId));
-      if (preview?.id === targetId) {
+      if (preview?.id === targetId || preview?.document_id === targetId) {
         setPreview(null);
       }
     } catch (err) {
@@ -122,37 +137,86 @@ function ModuleDirectory() {
       setDeletingId(null);
     }
   };
-  const directory = modules.filter(
-    (m) =>
-      m.target_category === program &&
-      (!subject || m.subject_code === subject) &&
-      m.filename.toLowerCase().includes(search.toLowerCase()),
-  );
+
+  const handleReviewDoc = async (doc: DocumentItem) => {
+    // If we have an enriched local module matching this id or doc id, load its detailed records
+    const localMatch = modules.find(
+      (m) => m.id === doc.id || (m as EnrichedWorkspaceModule).document_id === doc.id,
+    ) as EnrichedWorkspaceModule | undefined;
+
+    if (localMatch) {
+      setPreview(localMatch);
+      return;
+    }
+
+    // Otherwise construct preview from the backend document and fetch details
+    const initialPreview: EnrichedWorkspaceModule = {
+      id: doc.id,
+      filename: doc.filename,
+      target_category: program || 'junior',
+      subject_code: doc.learning_strand || 'ALS-LS1-COMM',
+      uploaded_at: doc.created_at,
+      status: doc.status === 'COMPLETED' ? 'Published' : 'Pending',
+      file_data: doc.storage_url || '',
+      document_id: doc.id,
+      storage_url: doc.storage_url,
+    };
+    setPreview(initialPreview);
+
+    try {
+      const detail = await getModuleDocumentById(doc.id);
+      if (detail && detail.materials && detail.materials.length > 0) {
+        const mat = detail.materials[0];
+        setPreview((prev) =>
+          prev
+            ? {
+                ...prev,
+                main_learning_goal: mat.main_learning_goal || prev.main_learning_goal,
+                subject_code: mat.learning_strand || prev.subject_code,
+              }
+            : null,
+        );
+      }
+    } catch {
+      // Keep initial preview
+    }
+  };
+
+  // Program-specific documents filtered from backend GET
+  const programDocuments = program
+    ? backendDocs.filter(
+        (d) =>
+          matchDocumentToProgram(d, program) &&
+          d.filename.toLowerCase().includes(search.toLowerCase()),
+      )
+    : [];
+
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-blue-600">
-            Teacher workspace · Demo data
+            Teacher workspace · Document processing
           </p>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
             {program ? CATEGORY_LABELS[program] : 'Curriculum & modules'}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
             {program
-              ? 'Choose a subject, upload a module, and review it before publishing. Demo files are stored in this browser.'
-              : 'Choose a program directory to manage its subjects and learning materials.'}
+              ? `Manage digitized curriculum and learning materials for ${CATEGORY_LABELS[program]}.`
+              : 'Choose a program directory to manage its learning materials and view ingested documents.'}
           </p>
         </div>
         {program && (
           <Link
             href="/teacher/module-uploads"
-            className="text-sm font-semibold text-blue-600"
+            className="text-sm font-semibold text-blue-600 hover:text-blue-700"
           >
             ← All programs
           </Link>
         )}
       </div>
+
       {message && (
         <p
           role="status"
@@ -161,48 +225,59 @@ function ModuleDirectory() {
           {message}
         </p>
       )}
+
+      {docsError && (
+        <div className="mb-5 flex items-center justify-between rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+          <span>{docsError}</span>
+          <button
+            onClick={loadBackendDocs}
+            className="inline-flex items-center gap-1 font-semibold text-amber-900 hover:underline"
+          >
+            <RefreshCw size={14} /> Retry
+          </button>
+        </div>
+      )}
+
       {!program ? (
         <div className="grid gap-5 md:grid-cols-3">
-          {programs.map((p, i) => (
-            <Link
-              href={`/teacher/module-uploads?program=${p}`}
-              key={p}
-              className="group rounded-[24px] border border-slate-200 bg-white p-7 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-md"
-            >
-              <span
-                className={`mb-7 flex h-14 w-14 items-center justify-center rounded-2xl ${['bg-blue-50 text-blue-600', 'bg-violet-50 text-violet-600', 'bg-emerald-50 text-emerald-600'][i]}`}
+          {programs.map((p, i) => {
+            const programDocCount = backendDocs.filter((d) => matchDocumentToProgram(d, p)).length;
+            const awaitingReviewCount = backendDocs.filter(
+              (d) => matchDocumentToProgram(d, p) && d.status !== 'COMPLETED',
+            ).length;
+
+            return (
+              <Link
+                href={`/teacher/module-uploads?program=${p}`}
+                key={p}
+                className="group rounded-[24px] border border-slate-200 bg-white p-7 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-md"
               >
-                <FolderOpen size={28} />
-              </span>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                Program directory
-              </p>
-              <h2 className="mt-2 text-xl font-bold">{CATEGORY_LABELS[p]}</h2>
-              <p className="mt-4 text-sm text-slate-500">
-                {modules.filter((m) => m.target_category === p).length} modules
-                ·{' '}
-                {
-                  modules.filter(
-                    (m) => m.target_category === p && m.status === 'Pending',
-                  ).length
-                }{' '}
-                awaiting review
-              </p>
-              <span className="mt-8 flex items-center justify-between text-sm font-bold text-blue-600">
-                Open directory <span>→</span>
-              </span>
-            </Link>
-          ))}
+                <span
+                  className={`mb-7 flex h-14 w-14 items-center justify-center rounded-2xl ${
+                    ['bg-blue-50 text-blue-600', 'bg-violet-50 text-violet-600', 'bg-emerald-50 text-emerald-600'][i]
+                  }`}
+                >
+                  <FolderOpen size={28} />
+                </span>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Program directory
+                </p>
+                <h2 className="mt-2 text-xl font-bold">{CATEGORY_LABELS[p]}</h2>
+                <p className="mt-4 text-sm text-slate-500">
+                  {programDocCount} {programDocCount === 1 ? 'document' : 'documents'}
+                  {awaitingReviewCount > 0 && ` · ${awaitingReviewCount} pending`}
+                </p>
+                <span className="mt-8 flex items-center justify-between text-sm font-bold text-blue-600">
+                  Open directory <span>→</span>
+                </span>
+              </Link>
+            );
+          })}
         </div>
       ) : (
         <>
-          <section
-            className={
-              'rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6' +
-              ' ' +
-              'mb-6'
-            }
-          >
+          {/* Upload Section - Destination Subject Removed */}
+          <section className="mb-6 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
               <div>
                 <BookOpen className="text-blue-600" />
@@ -210,24 +285,10 @@ function ModuleDirectory() {
                   Upload to {CATEGORY_LABELS[program]}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  Your chosen subject determines where the module belongs. PDF,
-                  DOCX, TXT, or scanned image · up to 50 MB per file.
+                  Upload ALS learning materials for automated curriculum parsing.
+                  PDF, DOCX, TXT, or scanned image · up to 50 MB per file.
+                  The AI parser will automatically extract competencies and topics.
                 </p>
-                <label className="mt-5 block text-sm font-semibold">
-                  Destination subject
-                  <select
-                    className={`mt-2 ${fieldClass}`}
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                  >
-                    <option value="">Choose a subject</option>
-                    {subjects.map((s) => (
-                      <option key={s.code} value={s.code}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
               <div
                 onDragOver={(e) => e.preventDefault()}
@@ -252,7 +313,7 @@ function ModuleDirectory() {
                 />
                 <button
                   className={`mt-5 ${buttonClass}`}
-                  disabled={busy || isUploading || !file || !subject}
+                  disabled={busy || isUploading || !file}
                   onClick={upload}
                 >
                   {busy || isUploading ? (
@@ -267,103 +328,123 @@ function ModuleDirectory() {
               </div>
             </div>
           </section>
-          <section
-            className={
-              'rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6'
-            }
-          >
+
+          {/* Program Document Library - Filtered to Current Category */}
+          <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-xl font-bold">Module library</h2>
+                <h2 className="text-xl font-bold">{CATEGORY_LABELS[program]} documents</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {subject ? subjectName(subject) : 'All subjects'} ·{' '}
-                  {directory.length} modules
+                  All documents for this program · {programDocuments.length}{' '}
+                  {programDocuments.length === 1 ? 'document' : 'documents'}
                 </p>
               </div>
-              <input
-                aria-label="Search modules"
-                placeholder="Search filenames…"
-                className={`${fieldClass} sm:!w-64`}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            {subject && (
-              <button
-                className="mb-4 text-sm font-semibold text-blue-600"
-                onClick={() => setSubject('')}
-              >
-                Show all subjects
-              </button>
-            )}
-            <div className="space-y-3">
-              {directory.map((m) => (
-                <article
-                  key={m.id}
-                  className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4"
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={loadBackendDocs}
+                  disabled={loadingDocs}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                  title="Refresh document list"
                 >
-                  <div className="min-w-0">
-                    <span className="inline-block rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
-                      {m.status}
-                    </span>
-                    <h3 className="mt-2 break-all text-sm font-bold">
-                      {m.filename}
-                    </h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {subjectName(m.subject_code)} ·{' '}
-                      {formatTime(m.uploaded_at)}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 text-sm font-semibold">
-                    <button
-                      onClick={() => setPreview(m)}
-                      className="text-blue-600"
-                    >
-                      Review
-                    </button>
-                    <a
-                      href={m.file_data}
-                      download={m.filename}
-                      className="text-blue-600"
-                    >
-                      Download
-                    </a>
-                    {m.status === 'Pending' && (
-                      <button
-                        onClick={() => changeStatus(m.id)}
-                        className={buttonClass}
-                      >
-                        Publish
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => remove(m)}
-                      disabled={deletingId === m.id}
-                      className="inline-flex cursor-pointer items-center gap-1 text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {deletingId === m.id && <Loader2 size={13} className="animate-spin" />}
-                      <span>{deletingId === m.id ? 'Deleting…' : 'Remove'}</span>
-                    </button>
-                  </div>
-                </article>
-              ))}
-              {!directory.length && (
-                <p className="py-10 text-center text-sm text-slate-500">
-                  No modules here yet. Choose a subject and upload your first
-                  file.
-                </p>
-              )}
+                  <RefreshCw size={13} className={loadingDocs ? 'animate-spin' : ''} />
+                  <span>Refresh</span>
+                </button>
+                <input
+                  aria-label="Search modules"
+                  placeholder="Search filenames…"
+                  className={`${fieldClass} sm:!w-64`}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
             </div>
+
+            {loadingDocs && !programDocuments.length ? (
+              <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+                <Loader2 size={20} className="mr-2 animate-spin text-blue-600" />
+                <span>Loading documents for {CATEGORY_LABELS[program]}…</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {programDocuments.map((doc) => {
+                  const isCompleted = doc.status === 'COMPLETED';
+                  const isPending = doc.status === 'PENDING';
+                  return (
+                    <article
+                      key={doc.id}
+                      className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4 transition hover:border-blue-200 hover:shadow-xs"
+                    >
+                      <div className="min-w-0">
+                        <span
+                          className={`inline-block rounded-lg px-2 py-1 text-[11px] font-bold ${
+                            isCompleted
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : isPending
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-red-50 text-red-700'
+                          }`}
+                        >
+                          {doc.status}
+                        </span>
+                        <h3 className="mt-2 break-all text-sm font-bold text-slate-900">
+                          {doc.filename}
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {doc.file_size_bytes
+                            ? `${(doc.file_size_bytes / 1024).toFixed(1)} KB · `
+                            : ''}
+                          {doc.materials_count !== undefined && doc.materials_count > 0
+                            ? `${doc.materials_count} ${doc.materials_count === 1 ? 'curriculum material' : 'curriculum materials'} · `
+                            : ''}
+                          Uploaded {formatTime(doc.created_at)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-sm font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => handleReviewDoc(doc)}
+                          className="text-blue-600 hover:text-blue-700 cursor-pointer"
+                        >
+                          Review
+                        </button>
+                        {doc.storage_url && (
+                          <a
+                            href={doc.storage_url}
+                            download={doc.filename}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-700"
+                          >
+                            Download
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeDoc(doc.id, doc.filename)}
+                          disabled={deletingId === doc.id}
+                          className="inline-flex cursor-pointer items-center gap-1 text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {deletingId === doc.id && <Loader2 size={13} className="animate-spin" />}
+                          <span>{deletingId === doc.id ? 'Deleting…' : 'Remove'}</span>
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+
+                {!programDocuments.length && !loadingDocs && (
+                  <p className="py-10 text-center text-sm text-slate-500">
+                    No documents in {CATEGORY_LABELS[program]} yet. Upload your first module above.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
-          {preview && preview.target_category === program && (
-            <section
-              className={
-                'rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6' +
-                ' ' +
-                'mt-6'
-              }
-            >
+
+          {/* Preview Section */}
+          {preview && (
+            <section className="mt-6 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="flex justify-between items-start gap-3">
                 <div>
                   <span className="inline-block rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
@@ -371,12 +452,12 @@ function ModuleDirectory() {
                   </span>
                   <h2 className="mt-2 break-all text-xl font-bold text-slate-900">{preview.filename}</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    {subjectName(preview.subject_code)} · Uploaded {formatTime(preview.uploaded_at)}
+                    Uploaded {formatTime(preview.uploaded_at)}
                   </p>
                 </div>
                 <button
                   onClick={() => setPreview(null)}
-                  className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 transition-colors"
+                  className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
                 >
                   Close preview
                 </button>
@@ -444,26 +525,36 @@ function ModuleDirectory() {
 
               <div className="mt-6 border-t border-slate-100 pt-5">
                 <h3 className="text-sm font-bold text-slate-800 mb-2">Original Document</h3>
-                {/\.(txt|pdf)$/i.test(preview.filename) ? (
-                  <iframe
-                    title={`Preview ${preview.filename}`}
-                    sandbox="allow-scripts allow-same-origin"
-                    src={preview.storage_url || preview.file_data}
-                    className="h-96 w-full rounded-xl border border-slate-200"
-                  />
+                {preview.storage_url || preview.file_data ? (
+                  /\.(txt|pdf)$/i.test(preview.filename) ? (
+                    <iframe
+                      title={`Preview ${preview.filename}`}
+                      sandbox="allow-scripts allow-same-origin"
+                      src={preview.storage_url || preview.file_data}
+                      className="h-96 w-full rounded-xl border border-slate-200"
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      Download this document to review it in your desktop viewer.
+                    </p>
+                  )
                 ) : (
                   <p className="text-sm text-slate-500">
-                    Download this document to review it in your desktop viewer.
+                    No document preview available.
                   </p>
                 )}
                 <div className="mt-4 flex flex-wrap items-center gap-4">
-                  <a
-                    href={preview.storage_url || preview.file_data}
-                    download={preview.filename}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
-                  >
-                    Download original file →
-                  </a>
+                  {(preview.storage_url || preview.file_data) && (
+                    <a
+                      href={preview.storage_url || preview.file_data}
+                      download={preview.filename}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                    >
+                      Download original file →
+                    </a>
+                  )}
                   {preview.status === 'Pending' && (
                     <button
                       onClick={() => changeStatus(preview.id)}
@@ -474,12 +565,18 @@ function ModuleDirectory() {
                   )}
                   <button
                     type="button"
-                    onClick={() => preview && remove(preview)}
-                    disabled={deletingId === preview.id}
+                    onClick={() => removeDoc(preview.document_id || preview.id, preview.filename)}
+                    disabled={deletingId === (preview.document_id || preview.id)}
                     className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {deletingId === preview.id && <Loader2 size={15} className="animate-spin" />}
-                    <span>{deletingId === preview.id ? 'Deleting…' : 'Delete module'}</span>
+                    {deletingId === (preview.document_id || preview.id) && (
+                      <Loader2 size={15} className="animate-spin" />
+                    )}
+                    <span>
+                      {deletingId === (preview.document_id || preview.id)
+                        ? 'Deleting…'
+                        : 'Delete module'}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -490,6 +587,7 @@ function ModuleDirectory() {
     </div>
   );
 }
+
 export default function ModuleUploadsPage() {
   return (
     <Suspense fallback={<p className="p-8">Loading module directory…</p>}>
