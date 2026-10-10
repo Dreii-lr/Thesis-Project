@@ -48,7 +48,6 @@ class Subject(SQLModel, table=True):
         index=True,
     )
     description: Optional[str] = Field(default=None, nullable=True)
-    image_url: Optional[str] = Field(default=None, nullable=True)
     is_active: bool = Field(default=True, nullable=False)
 
     created_at: datetime = Field(

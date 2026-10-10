@@ -74,9 +74,9 @@ def require_roles(*allowed_roles: UserRole):
     return role_checker
 
 
-require_teacher = require_roles(UserRole.TEACHER, UserRole.ADMIN)
+require_teacher = require_roles(UserRole.TEACHER)
 require_student = require_roles(UserRole.STUDENT)
-require_students = require_student
+require_admin_teacher = require_roles(UserRole.TEACHER,UserRole.ADMIN)
 require_admin = require_roles(UserRole.ADMIN)
 
 

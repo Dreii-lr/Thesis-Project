@@ -1,4 +1,4 @@
-// src/components/layout/teacher/generate-content/ContentSidebar.tsx
+// src/components/layout/teacher/lesson-content/ContentSidebar.tsx
 'use client';
 
 import {
@@ -17,17 +17,23 @@ import { useState } from 'react';
 interface ContentSidebarProps {
   lessons: LessonFolder[];
   activeFileId: string;
+  activeLessonId?: string;
   onFileSelect: (fileId: string) => void;
-  onRenameLesson: (lessonId: string, newTitle: string) => void;
-  onRenameFile: (lessonId: string, fileId: string, newTitle: string) => void;
+  onSelectLesson?: (lessonId: string) => void;
+  onRenameLesson?: (lessonId: string, newTitle: string) => void;
+  onRenameFile?: (lessonId: string, fileId: string, newTitle: string) => void;
+  readOnly?: boolean;
 }
 
 export default function ContentSidebar({
   lessons,
   activeFileId,
+  activeLessonId,
   onFileSelect,
+  onSelectLesson,
   onRenameLesson,
   onRenameFile,
+  readOnly = false,
 }: ContentSidebarProps) {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>(
     lessons.reduce((acc, lesson) => ({ ...acc, [lesson.id]: true }), {})
@@ -47,6 +53,7 @@ export default function ContentSidebar({
 
   const startEditingLesson = (e: React.MouseEvent, lesson: LessonFolder) => {
     e.stopPropagation();
+    if (readOnly || !onRenameLesson) return;
     setEditingItem({ type: 'lesson', lessonId: lesson.id });
     setDraftTitle(lesson.title);
   };
@@ -58,6 +65,7 @@ export default function ContentSidebar({
     currentTitle: string
   ) => {
     e.stopPropagation();
+    if (readOnly || !onRenameFile) return;
     setEditingItem({ type: 'file', lessonId, fileId });
     setDraftTitle(currentTitle);
   };
@@ -69,9 +77,9 @@ export default function ContentSidebar({
     const trimmed = draftTitle.trim();
     if (trimmed) {
       if (editingItem.type === 'lesson') {
-        onRenameLesson(editingItem.lessonId, trimmed);
+        onRenameLesson?.(editingItem.lessonId, trimmed);
       } else if (editingItem.type === 'file' && editingItem.fileId) {
-        onRenameFile(editingItem.lessonId, editingItem.fileId, trimmed);
+        onRenameFile?.(editingItem.lessonId, editingItem.fileId, trimmed);
       }
     }
     setEditingItem(null);
@@ -150,11 +158,24 @@ export default function ContentSidebar({
                   </button>
                 </div>
               ) : (
-                <div className="group flex w-full items-center justify-between rounded-lg px-2 py-2 text-slate-700 transition-colors hover:bg-slate-50">
+                <div
+                  className={`group flex w-full items-center justify-between rounded-lg px-2 py-2 transition-colors ${
+                    activeLessonId === lesson.id && (!activeFileId || lesson.files.length === 0)
+                      ? 'bg-blue-50/70 text-blue-950 ring-1 ring-inset ring-blue-200'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
                   <button
                     type="button"
-                    onClick={() => toggleFolder(lesson.id)}
-                    onDoubleClick={(e) => startEditingLesson(e, lesson)}
+                    onClick={() => {
+                      toggleFolder(lesson.id);
+                      if (onSelectLesson) onSelectLesson(lesson.id);
+                    }}
+                    onDoubleClick={(e) => {
+                      if (!readOnly && onRenameLesson) {
+                        startEditingLesson(e, lesson);
+                      }
+                    }}
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   >
                     <span className="text-slate-400">
@@ -164,31 +185,45 @@ export default function ContentSidebar({
                     <span className="truncate text-[12px] font-semibold">
                       {lesson.title}
                     </span>
+                    {lesson.files.length === 0 && (
+                      <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 ring-1 ring-inset ring-amber-200">
+                        {readOnly ? 'Pending' : 'No content'}
+                      </span>
+                    )}
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={(e) => startEditingLesson(e, lesson)}
-                    className="ml-1 hidden shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 group-hover:inline-flex"
-                    title="Rename main topic"
-                  >
-                    <Edit2 size={12} />
-                  </button>
+                  {!readOnly && onRenameLesson && (
+                    <button
+                      type="button"
+                      onClick={(e) => startEditingLesson(e, lesson)}
+                      className="ml-1 hidden shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 group-hover:inline-flex"
+                      title="Rename main topic"
+                    >
+                      <Edit2 size={12} />
+                    </button>
+                  )}
                 </div>
               )}
 
               {/* Sub-Topics (Files) List with Vertical Tree Line */}
               {isOpen && (
                 <div className="mt-1 mb-1 ml-6 space-y-1 border-l border-slate-200 py-0.5 pl-3">
-                  {lesson.files.map((file) => {
-                    const isActive = activeFileId === file.id;
-                    const isEditingThisFile =
-                      editingItem?.type === 'file' &&
-                      editingItem.lessonId === lesson.id &&
-                      editingItem.fileId === file.id;
+                  {lesson.files.length === 0 ? (
+                    <p className="py-1 text-[11px] text-slate-400 italic">
+                      {readOnly
+                        ? 'Lesson content in preparation'
+                        : 'Awaiting content generation'}
+                    </p>
+                  ) : (
+                    lesson.files.map((file) => {
+                      const isActive = activeFileId === file.id;
+                      const isEditingThisFile =
+                        editingItem?.type === 'file' &&
+                        editingItem.lessonId === lesson.id &&
+                        editingItem.fileId === file.id;
 
-                    if (isEditingThisFile) {
-                      return (
+                      if (isEditingThisFile) {
+                        return (
                         <div
                           key={file.id}
                           className="flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 shadow-xs ring-1 ring-blue-500"
@@ -234,9 +269,11 @@ export default function ContentSidebar({
                         <button
                           type="button"
                           onClick={() => onFileSelect(file.id)}
-                          onDoubleClick={(e) =>
-                            startEditingFile(e, lesson.id, file.id, file.title)
-                          }
+                          onDoubleClick={(e) => {
+                            if (!readOnly && onRenameFile) {
+                              startEditingFile(e, lesson.id, file.id, file.title);
+                            }
+                          }}
                           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
                         >
                           <FileText
@@ -254,19 +291,21 @@ export default function ContentSidebar({
                           </span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={(e) =>
-                            startEditingFile(e, lesson.id, file.id, file.title)
-                          }
-                          className="ml-1 hidden shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 group-hover:inline-flex"
-                          title="Rename sub-topic"
-                        >
-                          <Edit2 size={12} />
-                        </button>
+                        {!readOnly && onRenameFile && (
+                          <button
+                            type="button"
+                            onClick={(e) =>
+                              startEditingFile(e, lesson.id, file.id, file.title)
+                            }
+                            className="ml-1 hidden shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 group-hover:inline-flex"
+                            title="Rename sub-topic"
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                        )}
                       </div>
                     );
-                  })}
+                  }))}
                 </div>
               )}
             </div>

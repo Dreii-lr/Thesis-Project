@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 from app.core.dependencies import (
     get_current_active_user,
     get_subject_service,
-    require_teacher,
+    require_teacher, require_admin,
 )
 from app.features.subjects.schemas import (
     SubjectCreateSchema,
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/subjects", tags=["Subjects"])
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_subject(
     data: SubjectCreateSchema,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin),
     service: SubjectService = Depends(get_subject_service),
 ) -> JSONResponse:
     """
@@ -82,7 +82,7 @@ async def get_subject_details(
 async def update_subject(
     subject_id: str,
     data: SubjectUpdateSchema,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin),
     service: SubjectService = Depends(get_subject_service),
 ) -> JSONResponse:
     """
@@ -97,7 +97,7 @@ async def update_subject(
 @router.delete("/{subject_id}", status_code=status.HTTP_200_OK)
 async def delete_subject(
     subject_id: str,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin),
     service: SubjectService = Depends(get_subject_service),
 ) -> JSONResponse:
     """
@@ -108,24 +108,3 @@ async def delete_subject(
     response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 
-
-@router.post("/{subject_id}/image", status_code=status.HTTP_200_OK)
-async def upload_subject_image(
-    subject_id: str,
-    file: UploadFile = File(..., description="Image file (.png, .jpg, .jpeg, .webp, .svg)"),
-    current_user: UserRead = Depends(require_teacher),
-    service: SubjectService = Depends(get_subject_service),
-) -> JSONResponse:
-    """
-    Upload an image file directly for a subject (especially LS3 - MATH and LS6 - DIGITAL CITIZENSHIP).
-    Restricted to Teachers and Admins.
-    """
-    content = await file.read()
-    response = await service.upload_subject_image(
-        subject_id=subject_id,
-        filename=file.filename or "image.png",
-        content=content,
-        content_type=file.content_type or "image/png",
-    )
-    response.status_code = status.HTTP_200_OK
-    return SharedUtils.SuccessfulResponse(response)

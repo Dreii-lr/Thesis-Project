@@ -427,3 +427,268 @@ export function useModuleUploader() {
     reset,
   };
 }
+
+export interface MaterialTopic {
+  main_topic: string;
+  sub_topics?: string[];
+  recognize_competencies?: boolean | null;
+  delivery_mode?: string | null;
+  duration?: string | null;
+  expected_output?: string | null;
+  start_date?: string | null;
+  finished_date?: string | null;
+  status?: string | null;
+}
+
+export interface MaterialItem {
+  id: string;
+  document_id: string;
+  learner_name?: string | null;
+  cls_name?: string | null;
+  als_program?: string | null;
+  learning_strand?: string | null;
+  main_learning_goal?: string | null;
+  structured_records: MaterialTopic[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface GeneratedLessonItem {
+  id: string;
+  material_id: string;
+  main_topic: string;
+  module_title: string;
+  lesson_title: string;
+  content: {
+    type: string;
+    content?: any[];
+    [key: string]: any;
+  };
+  keywords?: string[];
+  sub_topics_breakdown?: Array<{
+    sub_topic_title: string;
+    explanation: any;
+    concrete_example: any;
+    sub_topic_summary?: any;
+  }>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MaterialLessonsResponse {
+  materials_id: string;
+  learning_strand?: string | null;
+  als_program?: string | null;
+  main_learning_goal?: string | null;
+  total_lessons: number;
+  lessons: GeneratedLessonItem[];
+}
+
+export interface GeneratedLessonUpdatePayload {
+  lesson_title?: string;
+  main_topic?: string;
+  sub_topics?: string[];
+  content: any;
+  sync_to_material?: boolean;
+}
+
+export interface GetMaterialsOptions {
+  documentId?: string;
+  page?: number;
+  pageSize?: number;
+  baseUrl?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Retrieves all curriculum materials from the document processor microservice.
+ * Route: GET /document-processor/
+ */
+export async function getMaterials(
+  options: GetMaterialsOptions = {}
+): Promise<MaterialItem[]> {
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const params = new URLSearchParams();
+  if (options.documentId) params.set('document_id', options.documentId);
+  if (options.page) params.set('page', String(options.page));
+  if (options.pageSize) params.set('page_size', String(options.pageSize));
+
+  const queryString = params.toString();
+  const targetUrl = `${baseUrl}/document-processor/${queryString ? `?${queryString}` : ''}`;
+
+  const response = await fetch(targetUrl, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return (Array.isArray(body) ? body : []) as MaterialItem[];
+}
+
+/**
+ * Retrieves a single material with its structured main topics and subtopics.
+ * Route: GET /document-processor/materials/{material_id}
+ */
+export async function getMaterialById(
+  materialId: string,
+  options: { baseUrl?: string; signal?: AbortSignal } = {}
+): Promise<MaterialItem> {
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}`;
+
+  const response = await fetch(targetUrl, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body as MaterialItem;
+}
+
+/**
+ * Fetches all generated TipTap lessons for a given material.
+ * Attempts enhanced V2 endpoint first (which includes rich sub_topics_breakdown),
+ * falling back to legacy endpoint if unavailable.
+ */
+export async function getLessonsByMaterial(
+  materialsId: string,
+  options: { baseUrl?: string; signal?: AbortSignal } = {}
+): Promise<MaterialLessonsResponse> {
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/lessons/${encodeURIComponent(materialsId)}`;
+
+  const response = await fetch(targetUrl, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body as MaterialLessonsResponse;
+}
+
+/**
+ * Triggers AI TipTap lesson module generation for a material.
+ * Calls enhanced V2 endpoint with guaranteed subtopic expansion,
+ * falling back to legacy generation if unreachable or failed.
+ */
+export async function generateLessonForMaterial(
+  materialsId: string,
+  options: { baseUrl?: string; signal?: AbortSignal; preferEnhanced?: boolean } = {}
+): Promise<any> {
+  const preferEnhanced = options.preferEnhanced ?? true;
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const msHost = baseUrl.replace(/\/api\/v1\/?$/, '');
+  const enhancedUrl = `${msHost}/api/v2/enhanced-lesson-generation/generate-lesson/${encodeURIComponent(materialsId)}`;
+  const legacyUrl = `${baseUrl}/document-processor/generate-lesson/${encodeURIComponent(materialsId)}`;
+
+  if (preferEnhanced) {
+    try {
+      const response = await fetch(enhancedUrl, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        signal: options.signal,
+      });
+
+      const body = await response.json().catch(() => null);
+      if (response.ok) {
+        return body;
+      }
+      console.warn(`Enhanced lesson generation returned ${response.status}, falling back to legacy:`, body);
+    } catch (err) {
+      console.warn('Enhanced lesson generation call unreachable, falling back to legacy:', err);
+    }
+  }
+
+  const response = await fetch(legacyUrl, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body;
+}
+
+/**
+ * Updates a generated lesson's title and TipTap document content.
+ * Attempts enhanced V2 endpoint first, falling back to legacy endpoint.
+ */
+export async function updateGeneratedLesson(
+  lessonId: string,
+  payload: GeneratedLessonUpdatePayload,
+  options: { baseUrl?: string; signal?: AbortSignal; preferEnhanced?: boolean } = {}
+): Promise<GeneratedLessonItem> {
+  const preferEnhanced = options.preferEnhanced ?? true;
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const msHost = baseUrl.replace(/\/api\/v1\/?$/, '');
+  const enhancedUrl = `${msHost}/api/v2/enhanced-lesson-generation/lessons/${encodeURIComponent(lessonId)}`;
+  const legacyUrl = `${baseUrl}/document-processor/lessons/${encodeURIComponent(lessonId)}`;
+
+  if (preferEnhanced) {
+    try {
+      const response = await fetch(enhancedUrl, {
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: options.signal,
+      });
+
+      const body = await response.json().catch(() => null);
+      if (response.ok) {
+        return body as GeneratedLessonItem;
+      }
+    } catch {
+      // Fall through to legacy endpoint
+    }
+  }
+
+  const response = await fetch(legacyUrl, {
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body as GeneratedLessonItem;
+}

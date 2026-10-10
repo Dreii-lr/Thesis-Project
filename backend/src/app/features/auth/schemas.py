@@ -6,7 +6,6 @@ from __future__ import annotations
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Literal
 
-from app.features.users import UserCategory, UserRole
 from app.features.users.schemas import UserRead, UserReadLessData
 
 

@@ -13,7 +13,6 @@ class SubjectCreateSchema(BaseModel):
     code: str = Field(..., description="Subject code (e.g. ALS-E-LS3-MATH, BLP-ENG)")
     name: str = Field(..., description="Subject title/name (e.g. LS3 - MATH, ENGLISH)")
     description: Optional[str] = Field(default=None, description="Optional subject overview/description")
-    image_url: Optional[str] = Field(default=None, description="URL or upload path of the subject icon/image")
     is_active: bool = Field(default=True, description="Whether the subject is active")
 
 
@@ -22,7 +21,6 @@ class SubjectUpdateSchema(BaseModel):
     code: Optional[str] = Field(default=None, description="Updated subject code")
     name: Optional[str] = Field(default=None, description="Updated subject name")
     description: Optional[str] = Field(default=None, description="Updated description")
-    image_url: Optional[str] = Field(default=None, description="Updated image URL/path")
     is_active: Optional[bool] = Field(default=None, description="Updated active status")
 
 
@@ -34,7 +32,6 @@ class SubjectReadSchema(BaseModel):
     code: str
     name: str
     description: Optional[str] = None
-    image_url: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None

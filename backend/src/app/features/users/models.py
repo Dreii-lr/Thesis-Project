@@ -3,40 +3,19 @@ models.py — User and normalized profile entities definition adhering to USERS.
 """
 from datetime import date, datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Optional, Dict, List, Any
 import uuid
 
-from sqlalchemy import Column, Date, DateTime, func
+from sqlalchemy import Column, Date, DateTime, func, JSON
 from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
+
+from app.features.users.schemas import SiblingInfo, ParentGuardianInfo, UserStatus, UserCategory, UserRole, \
+    LearningModality
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class UserRole(str, Enum):
-    STUDENT = "STUDENT"
-    TEACHER = "TEACHER"
-    EMPLOYEE = "EMPLOYEE"
-    ADMIN = "ADMIN"
-
-
-class UserCategory(str, Enum):
-    ELEMENTARY = "ELEMENTARY"
-    SECONDARY = "SECONDARY"
-    BLP = "BLP"
-
-
-class LearningModality(str, Enum):
-    BLENDED = "BLENDED"
-    FTF = "FTF"
-
-
-class UserStatus(str, Enum):
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    COMPLETED = "COMPLETED"  # if the student is finished the ALS program or graduated.
 
 
 class User(SQLModel, table=True):
@@ -46,11 +25,10 @@ class User(SQLModel, table=True):
         default_factory=lambda: str(uuid.uuid4()),
         primary_key=True,
         index=True,
-        nullable=False,
-    )
+        nullable=False)
     firebase_uid: Optional[str] = Field(default=None, nullable=True, index=True)
-    email: str = Field(unique=True, index=True, nullable=False)
-    password: str = Field(nullable=False)
+    email: Optional[str] = Field(default=None, unique=True, index=True, nullable=True)
+    password: Optional[str] = Field(default=None, nullable=True)
     student_id: Optional[str] = Field(default=None, index=True, nullable=True)
     teacher_id: Optional[str] = Field(default=None, unique=True, nullable=True)
     first_name: str = Field(nullable=False)
@@ -58,8 +36,8 @@ class User(SQLModel, table=True):
     middle_name: Optional[str] = Field(default=None, nullable=True)
     suffix: Optional[str] = Field(default=None, nullable=True)
     role: UserRole = Field(default=UserRole.STUDENT, nullable=False)
-    user_category: UserCategory = Field(default=UserCategory.SECONDARY, nullable=True)
-    status: UserStatus = Field(default=UserStatus.ACTIVE, nullable=False)
+    user_category: Optional[UserCategory] = Field(default=UserCategory.SECONDARY, nullable=True)
+    status: UserStatus = Field(default=UserStatus.MAPPED, nullable=False)
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),
@@ -105,6 +83,7 @@ class PersonalDetails(SQLModel, table=True):
         unique=True,
         nullable=False,
     )
+    is_interested: Optional[bool] = Field(default=True, nullable=True)
     student_id: Optional[str] = Field(default=None, index=True, nullable=True)
     gender: Optional[str] = Field(default=None, nullable=True)
     birth_date: Optional[date] = Field(
@@ -114,8 +93,8 @@ class PersonalDetails(SQLModel, table=True):
     nationality: Optional[str] = Field(default="Filipino", nullable=True)
     civil_status: Optional[str] = Field(default=None, nullable=True)
     religion: Optional[str] = Field(default=None, nullable=True)
-    learning_modalities: LearningModality = Field(default=LearningModality.FTF, nullable=True)
-    lrn_number: str = Field(default=None, index=True, nullable=False)
+    learning_modalities: Optional[LearningModality] = Field(default=LearningModality.FTF, nullable=True)
+    lrn_number: Optional[str] = Field(default=None, index=True, nullable=True)
 
     created_at: datetime = Field(
         default_factory=utc_now,
@@ -157,7 +136,6 @@ class ContactDetails(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
-
     user: Optional[User] = Relationship(back_populates="contact_details")
 
     @property
@@ -185,11 +163,11 @@ class FamilyDetails(SQLModel, table=True):
         index=True,
         nullable=False,
     )
-    mother_name: Optional[str] = Field(default=None, nullable=True)
-    father_name: Optional[str] = Field(default=None, nullable=True)
-    guardian_name: Optional[str] = Field(default=None, nullable=True)
-    guardian_relation: Optional[str] = Field(default=None, nullable=True)
-    contact_no: Optional[str] = Field(default=None, nullable=True)
+    mother: Optional[ParentGuardianInfo] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    father: Optional[ParentGuardianInfo] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    guardian: Optional[ParentGuardianInfo] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    siblings: Optional[List[SiblingInfo]] = Field(default_factory=list, sa_column=Column(JSON, nullable=True))
+
 
     created_at: datetime = Field(
         default_factory=utc_now,
@@ -204,7 +182,6 @@ class FamilyDetails(SQLModel, table=True):
 
     @property
     def family_details(self) -> str:
-        """Alias property matching ERD PK naming in USERS.drawio."""
         return self.family_details_id
 
     @family_details.setter

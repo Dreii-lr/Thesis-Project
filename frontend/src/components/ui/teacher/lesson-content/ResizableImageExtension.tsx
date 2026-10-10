@@ -1,4 +1,4 @@
-// src/components/ui/teacher/generate-content/ResizableImageExtension.tsx
+// src/components/ui/teacher/lesson-content/ResizableImageExtension.tsx
 'use client';
 
 import { useState, useRef } from 'react';

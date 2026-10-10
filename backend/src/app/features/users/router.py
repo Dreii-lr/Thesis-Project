@@ -6,6 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, status
 from starlette.responses import JSONResponse
 
+from app.core.dependencies import require_admin_teacher
 from app.core.exceptions import ForbiddenDomainException
 from app.core.security import clear_auth_cookies
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
@@ -17,7 +18,7 @@ from app.features.users.schemas import (
     TeacherCreate,
     UserCreate,
     UserRead,
-    UserUpdate,
+    UserUpdate, MapStudent,
 )
 from app.features.users.service import UserService
 from app.shared.utils import SharedUtils
@@ -26,18 +27,30 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 require_admin = require_roles(UserRole.ADMIN)
 
-
-@router.post("/teacher", status_code=status.HTTP_201_CREATED)
-async def create_teacher(
-        data: TeacherCreate = Depends(TeacherCreate.get_teacher_create_dependency),
-        current_user: UserRead = Depends(require_admin),
+#
+# @router.post("/teacher", status_code=status.HTTP_201_CREATED)
+# async def create_teacher(
+#         data: TeacherCreate = Depends(TeacherCreate.get_teacher_create_dependency),
+#         current_user: UserRead = Depends(require_admin_teacher),
+#         uow: AbstractUnitOfWork = Depends(get_uow),
+# ) -> JSONResponse:
+#     """
+#     Create a new teacher user account.
+#     Restricted to ADMIN role only.
+#     """
+#     response = await UserService.create_teacher(uow, data)
+#     return SharedUtils.SuccessfulResponse(response)
+#
+@router.post("/mapping",status_code=status.HTTP_201_CREATED)
+async def mapping_student(data: UserCreate = Depends(MapStudent.get_map_student_dependency),
+        current_user: UserRead = Depends(require_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
-    Create a new teacher user account.
-    Restricted to ADMIN role only.
+    Map a new student with normalized personal, contact, and family details.
+    Supports both nested details payloads and flat frontend form submissions.
     """
-    response = await UserService.create_teacher(uow, data)
+    response = await UserService.map_student(uow, data)
     return SharedUtils.SuccessfulResponse(response)
 
 

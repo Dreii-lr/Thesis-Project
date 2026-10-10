@@ -65,12 +65,10 @@ class SubjectService:
             code=code_clean,
             name=name_clean,
             description=data.description.strip() if data.description else None,
-            image_url=data.image_url.strip() if data.image_url else None,
             is_active=data.is_active,
         )
 
         await self.uow.subjects.create(subject)
-        await self.uow.commit()
 
         read_dto = SubjectReadSchema.model_validate(subject)
         return SuccessfulResponseSchema(
@@ -91,7 +89,6 @@ class SubjectService:
             code=subject.code,
             name=subject.name,
             description=subject.description,
-            image_url=subject.image_url,
             is_active=subject.is_active,
             created_at=subject.created_at,
             updated_at=subject.updated_at,
@@ -139,7 +136,6 @@ class SubjectService:
                     code=s.code,
                     name=s.name,
                     description=s.description,
-                    image_url=s.image_url,
                     is_active=s.is_active,
                     created_at=s.created_at,
                     updated_at=s.updated_at,
@@ -199,15 +195,10 @@ class SubjectService:
 
         if data.description is not None:
             subject.description = data.description.strip() if data.description else None
-
-        if data.image_url is not None:
-            subject.image_url = data.image_url.strip() if data.image_url else None
-
         if data.is_active is not None:
             subject.is_active = data.is_active
 
         subject.updated_at = utc_now()
-        await self.uow.commit()
 
         read_dto = SubjectReadSchema.model_validate(subject)
         return SuccessfulResponseSchema(
@@ -223,54 +214,9 @@ class SubjectService:
             raise EntityNotFoundException(f"Subject '{subject_id}' not found.")
 
         await self.uow.subjects.delete(subject)
-        await self.uow.commit()
 
         return SuccessfulResponseSchema(
             message="Subject deleted successfully.",
             message_status="SUCCESS_DELETED",
             status_code=200,
-        )
-
-    async def upload_subject_image(
-        self,
-        subject_id: str,
-        filename: str,
-        content: bytes,
-        content_type: str,
-    ) -> SuccessfulResponseSchema:
-        """
-        Uploads and links an image file (e.g. for LS3 MATH or LS6 DIGITAL CITIZENSHIP).
-        """
-        if content_type.lower() not in ALLOWED_IMAGE_TYPES:
-            raise ValidationDomainException(
-                f"Invalid file type '{content_type}'. Supported image types: {', '.join(sorted(ALLOWED_IMAGE_TYPES))}."
-            )
-
-        subject = await self.uow.subjects.get_by_id(subject_id)
-        if not subject:
-            raise EntityNotFoundException(f"Subject '{subject_id}' not found.")
-
-        # Ensure target upload directory exists
-        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-        # Generate unique safe file name
-        extension = Path(filename).suffix.lower() or ".png"
-        unique_filename = f"{subject_id}_{uuid.uuid4().hex[:8]}{extension}"
-        target_path = UPLOAD_DIR / unique_filename
-
-        with open(target_path, "wb") as f:
-            f.write(content)
-
-        relative_url = f"/static/uploads/subjects/{unique_filename}"
-        subject.image_url = relative_url
-        subject.updated_at = utc_now()
-
-        await self.uow.commit()
-
-        read_dto = SubjectReadSchema.model_validate(subject)
-        return SuccessfulResponseSchema(
-            message="Subject image uploaded successfully.",
-            message_status="SUCCESS_IMAGE_UPLOADED",
-            status_code=200,
-            data=AdditionalData(resources=jsonable_encoder(read_dto)),
         )

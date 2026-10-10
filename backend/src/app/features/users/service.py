@@ -46,16 +46,112 @@ from app.features.users.schemas import (
 )
 from app.features.users.utils import UsersUtils
 from app.shared.schema import AdditionalData, SuccessfulResponseSchema
+from app.shared.utils import SharedUtils
 
 logger = logging.getLogger(__name__)
 
 
 class UserService:
+
+    @staticmethod
+    async def map_student(uow: AbstractUnitOfWork, data: UserCreate) -> SuccessfulResponseSchema:
+        try:
+            next_value = await uow.sequence_id_generator.get_next_value()
+            if not next_value:
+                await uow.sequence_id_generator.add()
+                next_value = 1
+            else:
+                await uow.sequence_id_generator.update()
+                next_value += 1
+            student_id = UsersUtils.generate_student_id(next_value)
+
+            user = User(
+                email=data.email,
+
+                first_name=data.first_name,
+                last_name=data.last_name,
+                middle_name=data.middle_name,
+                suffix=data.suffix,
+                student_id=student_id,
+                user_category=data.user_category)
+
+            # Attach normalized personal_details
+            if data.personal_details:
+                pd_bdate = data.personal_details.birth_date
+                if isinstance(pd_bdate, str) and pd_bdate:
+                    try:
+                        pd_bdate = date.fromisoformat(pd_bdate[:10])
+                    except Exception:
+                        pd_bdate = None
+
+                user.personal_details = PersonalDetails(
+                    personal_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    student_id=student_id,
+                    lrn_number=data.personal_details.lrn_number,
+                    gender=data.personal_details.gender,
+                    birth_date=pd_bdate,
+                    nationality=data.personal_details.nationality or "Filipino",
+                    civil_status=data.personal_details.civil_status,
+                    religion=data.personal_details.religion,
+                    learning_modalities=data.personal_details.learning_modalities,
+                )
+            else:
+                user.personal_details = None
+
+            # Attach normalized contact_details
+            if data.contact_details:
+                user.contact_details = ContactDetails(
+                    contact_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    street_building_no=data.contact_details.street_building_no,
+                    municipality=data.contact_details.municipality,
+                    province=data.contact_details.province,
+                    contact_no=data.contact_details.contact_no,
+                )
+            else:
+                user.contact_details = None
+
+
+            normalize_siblings = SharedUtils.to_json_list(data.family_details.siblings)
+            normalize_mother = SharedUtils.to_json_dict(data.family_details.mother)
+            normalize_father = SharedUtils.to_json_dict(data.family_details.father)
+            normalized_guardian = SharedUtils.to_json_dict(data.family_details.guardian)
+            # Attach normalized family_details
+            if data.family_details:
+                user.family_details = FamilyDetails(
+                    family_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    mother = normalize_mother,
+                    siblings=normalize_siblings,
+                    father=normalize_father,
+                    guardian=normalized_guardian
+                )
+            else:
+                user.family_details = None
+
+            await uow.users.create(user)
+
+            # Re-fetch user with all normalized relations loaded
+            read_user = await uow.users.get_by_id_with_details(user.user_id)
+            if not read_user:
+                read_user = UserRead.model_validate(user)
+                del read_user.password
+            response_data = jsonable_encoder(read_user)
+
+            return SuccessfulResponseSchema(
+                message="Successfully created account.",
+                message_status="CREATED",
+                status_code=201,
+                data=AdditionalData(resources=response_data),
+            )
+        except Exception as e:
+            raise e
+
     @staticmethod
     async def create_user(uow: AbstractUnitOfWork, data: UserCreate) -> SuccessfulResponseSchema:
         is_inserted_on_firebase = False
         firebase_uid = None
-
         try:
             existing = check_email_in_firebase(data.email)
             if existing:
@@ -169,135 +265,12 @@ class UserService:
                 status_code=201,
                 data=AdditionalData(resources=response_data),
             )
-
         except Exception as e:
             #delete data if encountered an error.
             if is_inserted_on_firebase and firebase_uid is not None:
                 delete_firebase_user(firebase_uid)
             raise e
 
-    @staticmethod
-    async def create_teacher(uow: AbstractUnitOfWork, data: TeacherCreate) -> SuccessfulResponseSchema:
-        #check in the firebase first
-        existing = check_email_in_firebase(data.email)
-        if existing:
-            raise EntityAlreadyExistsException("A user with this email already exists.")
-        # Determine teacher_id
-        teacher_id = data.teacher_id
-        if teacher_id:
-            existing_teacher = await uow.users.get_by_teacher_id(teacher_id)
-            if existing_teacher:
-                raise EntityAlreadyExistsException(f"A user with teacher ID '{teacher_id}' already exists.")
-        else:
-            try:
-                next_value = await uow.sequence_id_generator.get_next_value()
-                if not next_value:
-                    await uow.sequence_id_generator.add()
-                    next_value = 1
-                else:
-                    await uow.sequence_id_generator.update()
-                    next_value += 1
-                teacher_id = UsersUtils.generate_teacher_id(next_value)
-            except Exception:
-                teacher_id = UsersUtils.generate_teacher_id()
-
-        # Determine raw password
-        raw_password = data.password
-        if not raw_password:
-            if data.personal_details and data.personal_details.birth_date:
-                bdate = data.personal_details.birth_date
-                if isinstance(bdate, date):
-                    raw_password = bdate.strftime("%Y%m%d")
-                else:
-                    raw_password = str(bdate).replace("-", "")
-            else:
-                raw_password = "Password123!"
-
-        hashed_pwd = hash_password(raw_password)
-        # Sync with Firebase Authentication (handles offline/test modes)
-
-        firebase_new_user = create_firebase_new_user(data.email, raw_password)
-
-        user = User(
-            email=data.email.lower(),
-            password=hashed_pwd,
-            first_name=data.first_name,
-            last_name=data.last_name,
-            middle_name=data.middle_name,
-            suffix=data.suffix,
-            firebase_uid=firebase_new_user.uid,
-            teacher_id=teacher_id,
-            student_id=None,
-            role=UserRole.TEACHER,
-            user_category=None,
-        )
-
-        # Attach normalized personal_details
-        if data.personal_details:
-            pd_bdate = data.personal_details.birth_date
-            if isinstance(pd_bdate, str) and pd_bdate:
-                try:
-                    pd_bdate = date.fromisoformat(pd_bdate[:10])
-                except Exception:
-                    pd_bdate = None
-
-            user.personal_details = PersonalDetails(
-                personal_details_id=str(uuid.uuid4()),
-                user_id=user.user_id,
-                student_id=None,
-                lrn_number=data.personal_details.lrn_number,
-                gender=data.personal_details.gender,
-                birth_date=pd_bdate,
-                nationality=data.personal_details.nationality or "Filipino",
-                civil_status=data.personal_details.civil_status,
-                religion=data.personal_details.religion,
-                place_of_birth=data.personal_details.place_of_birth,
-            )
-        else:
-            user.personal_details = None
-
-        # Attach normalized contact_details
-        if data.contact_details:
-            user.contact_details = ContactDetails(
-                contact_details_id=str(uuid.uuid4()),
-                user_id=user.user_id,
-                street_building_no=data.contact_details.street_building_no,
-                municipality=data.contact_details.municipality,
-                province=data.contact_details.province,
-                contact_no=data.contact_details.contact_no,
-            )
-        else:
-            user.contact_details = None
-
-        # Attach normalized family_details
-        if data.family_details:
-            user.family_details = FamilyDetails(
-                family_details_id=str(uuid.uuid4()),
-                user_id=user.user_id,
-                mother_name=data.family_details.mother_name,
-                father_name=data.family_details.father_name,
-                guardian_name=data.family_details.guardian_name,
-                guardian_relation=data.family_details.guardian_relation,
-                contact_no=data.family_details.contact_no,
-            )
-        else:
-            user.family_details = None
-
-        await uow.users.create(user)
-
-        # Re-fetch user with all normalized relations loaded
-        read_user = await uow.users.get_by_id_with_details(user.user_id,)
-        if not read_user:
-            read_user = UserRead.model_validate(user)
-            del read_user.password
-        response_data = jsonable_encoder(read_user)
-
-        return SuccessfulResponseSchema(
-            message="Successfully created teacher account.",
-            message_status="CREATED",
-            status_code=201,
-            data=AdditionalData(resources=response_data),
-        )
 
     @staticmethod
     async def get_user_by_id(uow: AbstractUnitOfWork, user_id: str) -> SuccessfulResponseSchema:

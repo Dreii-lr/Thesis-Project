@@ -4,17 +4,45 @@ schemas.py — Pydantic DTOs for User operations including normalized profile de
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, List, Optional
+from enum import Enum
+from typing import Any, List, Optional, Dict
 
 from fastapi import Form, Body
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.features.users.models import UserRole, UserStatus, UserCategory, LearningModality
 from app.shared.utils import SharedUtils
+
+
+class UserRole(str, Enum):
+    STUDENT = "STUDENT"
+    TEACHER = "TEACHER"
+    EMPLOYEE = "EMPLOYEE"
+    ADMIN = "ADMIN"
+
+
+class UserCategory(str, Enum):
+    ELEMENTARY = "ELEMENTARY"
+    SECONDARY = "SECONDARY"
+    BLP = "BLP"
+
+
+class LearningModality(str, Enum):
+    BLENDED = "BLENDED"
+    FTF = "FTF"
+
+
+class UserStatus(str, Enum):
+    MAPPED = "MAPPED" #This is the initial process, where teacher map the student first before they enroll it.
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    COMPLETED = "COMPLETED"  # if the student is finished the ALS program or graduated.
+
+
 
 
 class PersonalDetailsInput(BaseModel):
     user_id: str | None = None
+    is_interested: bool | None = True
     gender: str | None = None
     birth_date: date | str | None = None
     nationality: str | None = "Filipino"
@@ -40,6 +68,7 @@ class PersonalDetailsRead(BaseModel):
     personal_details_id: str | None = None
     user_id: str | None = None
     student_id: str | None = None
+    is_interested: bool | None = None
     gender: str | None = None
     birth_date: date | None = None
     nationality: str | None = None
@@ -62,9 +91,7 @@ class ContactDetailsInput(BaseModel):
     )
     @classmethod
     def capitalize_first_letter(cls, value: str | None) -> str | None:
-
         return SharedUtils.capitalized_first_letter(value)
-
 
 
 class ContactDetailsRead(BaseModel):
@@ -79,32 +106,164 @@ class ContactDetailsRead(BaseModel):
     updated_at: datetime | None = None
 
 
-class FamilyDetailsInput(BaseModel):
-    mother_name: str | None = None
-    father_name: str | None = None
-    guardian_name: str | None = None
-    guardian_relation: str | None = None
-    contact_no: str | None = None
+class ParentGuardianInfo(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    name: Optional[str] = None
+    contact_no: Optional[str] = Field(default=None)
 
-    @field_validator(
-        "mother_name", "father_name", "guardian_name",'guardian_relation', mode="before"
-    )
-    @classmethod
-    def capitalize_first_letter(cls, value: str | None) -> str | None:
-      return SharedUtils.capitalized_first_letter(value)
+
+class SiblingInfo(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    name: Optional[str] = None
+    last_grade_level_completed: Optional[str] = None
+    occupation: Optional[str] = None
+
+
+class FamilyDetailsInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    mother: Optional[ParentGuardianInfo] = None
+    father: Optional[ParentGuardianInfo] = None
+    guardian: Optional[ParentGuardianInfo]  = None
+    siblings: Optional[List[SiblingInfo]]  = Field(default_factory=list)
+
+    @property
+    def mother_name(self) -> Optional[str]:
+        if isinstance(self.mother, dict):
+            return self.mother.get("name")
+        elif hasattr(self.mother, "name"):
+            return getattr(self.mother, "name", None)
+        return None
+
+    @property
+    def father_name(self) -> Optional[str]:
+        if isinstance(self.father, dict):
+            return self.father.get("name")
+        elif hasattr(self.father, "name"):
+            return getattr(self.father, "name", None)
+        return None
+
+    @property
+    def guardian_name(self) -> Optional[str]:
+        if isinstance(self.guardian, dict):
+            return self.guardian.get("name")
+        elif hasattr(self.guardian, "name"):
+            return getattr(self.guardian, "name", None)
+        return None
+
+    @property
+    def contact_no(self) -> Optional[str]:
+        for entity in (self.guardian, self.mother, self.father):
+            if isinstance(entity, dict):
+                val = entity.get("contact_number") or entity.get("contact_no")
+                if val:
+                    return val
+            elif entity and hasattr(entity, "contact_number"):
+                val = getattr(entity, "contact_number", None) or getattr(entity, "contact_no", None)
+                if val:
+                    return val
+        return None
 
 
 class FamilyDetailsRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     family_details_id: str | None = None
     user_id: str | None = None
-    mother_name: str | None = None
-    father_name: str | None = None
-    guardian_name: str | None = None
-    guardian_relation: str | None = None
-    contact_no: str | None = None
+    mother: Optional[ParentGuardianInfo | Dict[str, Any]] = None
+    father: Optional[ParentGuardianInfo | Dict[str, Any]] = None
+    guardian: Optional[ParentGuardianInfo | Dict[str, Any]] = None
+    siblings: Optional[List[SiblingInfo] | List[Dict[str, Any]]] = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @property
+    def mother_name(self) -> Optional[str]:
+        if isinstance(self.mother, dict):
+            return self.mother.get("name")
+        elif hasattr(self.mother, "name"):
+            return getattr(self.mother, "name", None)
+        return None
+
+    @property
+    def father_name(self) -> Optional[str]:
+        if isinstance(self.father, dict):
+            return self.father.get("name")
+        elif hasattr(self.father, "name"):
+            return getattr(self.father, "name", None)
+        return None
+
+    @property
+    def guardian_name(self) -> Optional[str]:
+        if isinstance(self.guardian, dict):
+            return self.guardian.get("name")
+        elif hasattr(self.guardian, "name"):
+            return getattr(self.guardian, "name", None)
+        return None
+
+    @property
+    def guardian_relation(self) -> Optional[str]:
+        if isinstance(self.guardian, dict):
+            return self.guardian.get("relationship") or self.guardian.get("guardian_relation")
+        elif hasattr(self.guardian, "relationship"):
+            return getattr(self.guardian, "relationship", None)
+        return None
+
+    @property
+    def contact_no(self) -> Optional[str]:
+        for entity in (self.guardian, self.mother, self.father):
+            if isinstance(entity, dict):
+                val = entity.get("contact_number") or entity.get("contact_no")
+                if val:
+                    return val
+            elif entity and hasattr(entity, "contact_number"):
+                val = getattr(entity, "contact_number", None) or getattr(entity, "contact_no", None)
+                if val:
+                    return val
+        return None
+
+
+class MapStudent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    email: EmailStr | None = None
+    password: str | None = None
+    first_name: str = Field()
+    last_name: str = Field()
+    middle_name: str | None = Field(default=None, )
+    suffix: str | None = None
+    student_id: str | None = Field(default=None, )
+    teacher_id: str | None = Field(default=None, )
+    role: UserRole = UserRole.STUDENT
+    user_category: UserCategory = Field(default=UserCategory.SECONDARY, )
+    status: UserStatus = UserStatus.ACTIVE
+    firebase_uid: str | None = None
+    personal_details: PersonalDetailsInput | None = Field(default=None, )
+    contact_details: ContactDetailsInput | None = Field(default=None, )
+    family_details: FamilyDetailsInput | None = Field(default=None, )
+
+    @field_validator("first_name", "last_name", "middle_name", "suffix", )
+    @classmethod
+    def capitalized_first_letter(cls, value: str):
+        return SharedUtils.capitalized_first_letter(value)
+
+    @classmethod
+    def get_map_student_dependency(cls, email: EmailStr | None = Body(),
+                                   first_name: str = Body(),
+                                   last_name: str = Body(),
+                                   middle_name: str | None = Body(default=None, ),
+                                   suffix: str | None = Body(default=None),
+                                   user_category: UserCategory = Body(default=UserCategory.SECONDARY, ),
+                                   personal_details: PersonalDetailsInput | None = Body(default=None, ),
+                                   contact_details: ContactDetailsInput | None = Body(default=None, ),
+                                   family_details: FamilyDetailsInput | None = Body(default=None, )) -> MapStudent:
+        return MapStudent(email=email,
+                          first_name=first_name,
+                          last_name=last_name,
+                          middle_name=middle_name,
+                          suffix=suffix,
+                          user_category=user_category,
+                          personal_details=personal_details,
+                          contact_details=contact_details,
+                          family_details=family_details)
 
 
 class UserCreate(BaseModel):
@@ -126,10 +285,9 @@ class UserCreate(BaseModel):
     contact_details: ContactDetailsInput | None = Field(default=None, )
     family_details: FamilyDetailsInput | None = Field(default=None, )
 
-
-    @field_validator("first_name","last_name","middle_name","suffix",)
+    @field_validator("first_name", "last_name", "middle_name", "suffix", )
     @classmethod
-    def capitalized_first_letter(cls,value : str ):
+    def capitalized_first_letter(cls, value: str):
         return SharedUtils.capitalized_first_letter(value)
 
     @classmethod
@@ -137,12 +295,14 @@ class UserCreate(BaseModel):
                                    first_name: str = Body(default="", ),
                                    last_name: str = Body(default="", ),
                                    middle_name: str | None = Body(default=None, ),
-                                   suffix: str | None =Body(),
+                                   suffix: str | None = Body(default=None),
+                                   role: UserRole = Body(default=UserRole.STUDENT),
                                    user_category: UserCategory = Body(default=UserCategory.SECONDARY, ),
                                    personal_details: PersonalDetailsInput | None = Body(default=None, ),
                                    contact_details: ContactDetailsInput | None = Body(default=None, ),
                                    family_details: FamilyDetailsInput | None = Body(default=None, )) -> UserCreate:
         return UserCreate(email=email,
+                          role=role,
                           first_name=first_name,
                           last_name=last_name,
                           middle_name=middle_name,
@@ -156,31 +316,6 @@ class UserCreate(BaseModel):
 class TeacherCreate(UserCreate):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
     role: UserRole = UserRole.TEACHER
-
-
-
-    @classmethod
-    def get_teacher_create_dependency(cls, email: EmailStr | str = Body(),
-                                      password: str | None = Body(default=None),
-                                      first_name: str = Body(default=""),
-                                      last_name: str = Body(default=""),
-                                      middle_name: str | None = Body(default=""),
-                                      suffix: str | None = Body(default=None),
-                                      personal_details: PersonalDetailsInput | None = Body(default=None, ),
-                                      contact_details: ContactDetailsInput | None = Body(default=None, ),
-                                      family_details: FamilyDetailsInput | None = Body(
-                                          default=None, )) -> TeacherCreate:
-        return TeacherCreate(
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name,
-            middle_name=middle_name,
-            suffix=suffix,
-            personal_details=personal_details,
-            contact_details=contact_details,
-            family_details=family_details
-        )
 
 
 class UserRead(BaseModel):
@@ -270,4 +405,3 @@ class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1, description="Current password of the user")
     new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
     confirm_password: Optional[str] = Field(default=None, description="Confirmation of new password")
-

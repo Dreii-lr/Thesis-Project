@@ -10,9 +10,9 @@ from app.core.dependencies import (
     require_admin,
     require_roles,
     require_student,
-    require_students,
     require_teacher,
     security_bearer,
+    require_admin_teacher,
 )
 
 __all__ = [
@@ -21,7 +21,7 @@ __all__ = [
     "get_current_active_user",
     "require_roles",
     "require_teacher",
+    "require_admin_teacher",
     "require_student",
-    "require_students",
     "require_admin",
 ]
