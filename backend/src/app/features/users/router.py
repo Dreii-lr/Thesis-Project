@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, status
 from starlette.responses import JSONResponse
 
 from app.core.dependencies import require_admin_teacher
-from app.core.exceptions import ForbiddenDomainException
+from app.core.exceptions import DomainForbiddenDomainException
 from app.core.security import clear_auth_cookies
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user, require_roles, require_teacher
@@ -43,7 +43,7 @@ require_admin = require_roles(UserRole.ADMIN)
 #
 @router.post("/mapping",status_code=status.HTTP_201_CREATED)
 async def mapping_student(data: UserCreate = Depends(MapStudent.get_map_student_dependency),
-        current_user: UserRead = Depends(require_teacher),
+        # current_user: UserRead = Depends(require_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
@@ -54,24 +54,25 @@ async def mapping_student(data: UserCreate = Depends(MapStudent.get_map_student_
     return SharedUtils.SuccessfulResponse(response)
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("/{user_id}", status_code=status.HTTP_201_CREATED)
 async def create_user(
-        data: UserCreate = Depends(UserCreate.get_user_create_dependency),
-        current_user: UserRead = Depends(require_teacher),
+        user_id : str,
+        # current_user: UserRead = Depends(require_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     Create a new user account with normalized personal, contact, and family details.
     Supports both nested details payloads and flat frontend form submissions.
     """
-    response = await UserService.create_user(uow, data)
+    response = await UserService.create_user(uow, user_id)
+    response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 
 
 @router.get("/", status_code=status.HTTP_200_OK)
 async def list_users(
         offset: int = Query(0, ge=0),
-        current_user: UserRead = Depends(require_teacher),
+        # current_user: UserRead = Depends(require_teacher),
         limit: int = Query(100, ge=1, le=500),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
@@ -79,6 +80,7 @@ async def list_users(
     List user accounts with pagination.
     """
     response = await UserService.list_users(uow, offset=offset, limit=limit)
+
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -111,7 +113,7 @@ async def change_password_by_id(
     Users can change their own password, and admins can change passwords for any user.
     """
     if current_user.user_id != user_id and current_user.role != UserRole.ADMIN:
-        raise ForbiddenDomainException("You do not have permission to change another user's password.")
+        raise DomainForbiddenDomainException("You do not have permission to change another user's password.")
     response = await UserService.change_password(uow, user_id, data)
     json_response = SharedUtils.SuccessfulResponse(response)
     if current_user.user_id == user_id:

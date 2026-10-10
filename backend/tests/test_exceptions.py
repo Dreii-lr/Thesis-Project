@@ -11,9 +11,9 @@ from app.core.exceptions import (
     CustomConflictHTTPException,
     CustomNotFoundHTTPException,
     DomainException,
-    EntityAlreadyExistsException,
-    EntityNotFoundException,
-    InvalidCredentialsException,
+    DomainEntityAlreadyExistsException,
+    DomainEntityNotFoundException,
+    DomainInvalidCredentialsException,
     map_domain_to_http_exception,
 )
 from app.main import app
@@ -23,7 +23,7 @@ client = TestClient(app)
 
 def test_domain_exception_mapping():
     # 1. EntityNotFoundException -> CustomNotFoundHTTPException (404)
-    domain_not_found = EntityNotFoundException("Test entity missing.")
+    domain_not_found = DomainEntityNotFoundException("Test entity missing.")
     http_exc = map_domain_to_http_exception(domain_not_found)
     assert isinstance(http_exc, CustomNotFoundHTTPException)
     assert http_exc.status_code == status.HTTP_404_NOT_FOUND
@@ -31,7 +31,7 @@ def test_domain_exception_mapping():
     assert http_exc.detail == "Test entity missing."
 
     # 2. EntityAlreadyExistsException -> CustomConflictHTTPException (409)
-    domain_conflict = EntityAlreadyExistsException("Test duplicate.")
+    domain_conflict = DomainEntityAlreadyExistsException("Test duplicate.")
     http_exc_conflict = map_domain_to_http_exception(domain_conflict)
     assert isinstance(http_exc_conflict, CustomConflictHTTPException)
     assert http_exc_conflict.status_code == status.HTTP_409_CONFLICT
@@ -47,7 +47,7 @@ def test_domain_exception_fastapi_handler():
     # Define temporary endpoint raising pure DomainException
     @app.get("/test-domain-exception")
     def test_route():
-        raise InvalidCredentialsException("Domain credentials invalid.")
+        raise DomainInvalidCredentialsException("Domain credentials invalid.")
 
     response = client.get("/test-domain-exception")
     assert response.status_code == 401

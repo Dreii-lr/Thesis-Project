@@ -1,7 +1,7 @@
 from starlette.responses import JSONResponse
 from typing_extensions import Any
 
-from app.core.exceptions import UnprocessableEntity
+from app.core.exceptions import DomainUnprocessableEntity
 from app.shared.schema import SuccessfulResponseSchema
 
 
@@ -19,7 +19,7 @@ class SharedUtils:
             return data
 
         if not isinstance(data, str):
-            raise UnprocessableEntity("Invalid type of data. It must be string only.")
+            raise DomainUnprocessableEntity("Invalid type of data. It must be string only.")
 
         #split the text
         split_text = data.lower().split(" ")

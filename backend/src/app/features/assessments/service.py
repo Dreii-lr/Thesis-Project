@@ -12,9 +12,9 @@ from typing import Any, List, Optional
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.exceptions import (
-    EntityNotFoundException,
-    ForbiddenDomainException,
-    ValidationDomainException,
+    DomainEntityNotFoundException,
+    DomainForbiddenDomainException,
+    DomainValidationDomainException,
 )
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.assessments.models import (
@@ -134,10 +134,10 @@ class AssessmentService:
     ) -> SuccessfulResponseSchema:
         assessment = await self.uow.assessments.get_assessment_by_id(assessment_id)
         if not assessment:
-            raise EntityNotFoundException("Assessment not found.")
+            raise DomainEntityNotFoundException("Assessment not found.")
 
         if assessment.teacher_id != teacher_id:
-            raise ForbiddenDomainException("You are not authorized to update this assessment.")
+            raise DomainForbiddenDomainException("You are not authorized to update this assessment.")
 
         # Update scalar fields if provided
         for field, val in data.model_dump(exclude_unset=True, exclude={"categories_data"}).items():
@@ -293,21 +293,21 @@ class AssessmentService:
     ) -> SuccessfulResponseSchema:
         assessment = await self.uow.assessments.get_assessment_by_id(assessment_id)
         if not assessment:
-            raise EntityNotFoundException("Assessment not found.")
+            raise DomainEntityNotFoundException("Assessment not found.")
 
         if assessment.status != TaskStatus.ACTIVE:
-            raise ValidationDomainException("This assessment is not currently active.")
+            raise DomainValidationDomainException("This assessment is not currently active.")
 
         # Validate Category Targeting
         if assessment.target_category and assessment.target_category != student_user.user_category:
-            raise ForbiddenDomainException("This assessment is not assigned to your learner category.")
+            raise DomainForbiddenDomainException("This assessment is not assigned to your learner category.")
 
         # Check existing submission
         existing = await self.uow.assessments.get_submission_by_student_and_assessment(
             assessment_id, student_user.user_id
         )
         if existing and existing.status in (SubmissionStatus.SUBMITTED, SubmissionStatus.GRADED):
-            raise ValidationDomainException("You have already submitted this assessment.")
+            raise DomainValidationDomainException("You have already submitted this assessment.")
 
         # If already in progress, reuse the frozen delivered question snapshot
         if existing and existing.answers_payload and "delivered_questions" in existing.answers_payload:
@@ -422,7 +422,7 @@ class AssessmentService:
     ) -> SuccessfulResponseSchema:
         assessment = await self.uow.assessments.get_assessment_by_id(assessment_id)
         if not assessment:
-            raise EntityNotFoundException("Assessment not found.")
+            raise DomainEntityNotFoundException("Assessment not found.")
 
         submission = await self.uow.assessments.get_submission_by_student_and_assessment(
             assessment_id, student_user.user_id
@@ -440,7 +440,7 @@ class AssessmentService:
             await self.uow.assessments.create_submission(submission)
 
         if submission.status in (SubmissionStatus.SUBMITTED, SubmissionStatus.GRADED):
-            raise ValidationDomainException("This attempt has already been submitted.")
+            raise DomainValidationDomainException("This attempt has already been submitted.")
 
         # Check if late
         is_late = False
@@ -578,11 +578,11 @@ class AssessmentService:
     ) -> SuccessfulResponseSchema:
         assessment = await self.uow.assessments.get_assessment_by_id(assessment_id)
         if not assessment:
-            raise EntityNotFoundException("Assessment not found.")
+            raise DomainEntityNotFoundException("Assessment not found.")
 
         submission = await self.uow.assessments.get_submission_by_id(submission_id)
         if not submission or submission.assessment_id != assessment_id:
-            raise EntityNotFoundException("Submission not found for this assessment.")
+            raise DomainEntityNotFoundException("Submission not found for this assessment.")
 
         submission.manual_score = grade_data.manual_score
         if assessment.assessment_type in (TaskType.QUIZ, TaskType.EXAM):
@@ -660,7 +660,7 @@ class AssessmentService:
     ) -> SuccessfulResponseSchema:
         submission = await self.uow.assessments.get_submission_by_id(submission_id)
         if not submission or submission.assessment_id != assessment_id:
-            raise EntityNotFoundException("Submission not found for this assessment.")
+            raise DomainEntityNotFoundException("Submission not found for this assessment.")
 
         student = await self.uow.users.get_by_id(submission.student_id)
         student_name = f"{student.first_name} {student.last_name}" if student else None
@@ -737,7 +737,7 @@ class AssessmentService:
     ) -> AssessmentDetailResponse:
         assessment = await self.uow.assessments.get_assessment_by_id(assessment_id)
         if not assessment:
-            raise EntityNotFoundException("Assessment not found.")
+            raise DomainEntityNotFoundException("Assessment not found.")
 
         questions_record = await self.uow.assessments.get_questions_by_assessment_id(assessment_id)
         cat_data = questions_record.categories_data if questions_record else []

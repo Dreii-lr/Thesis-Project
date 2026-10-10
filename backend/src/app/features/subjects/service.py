@@ -14,9 +14,9 @@ import uuid
 from fastapi.encoders import jsonable_encoder
 
 from app.core.exceptions import (
-    EntityAlreadyExistsException,
-    EntityNotFoundException,
-    ValidationDomainException,
+    DomainEntityAlreadyExistsException,
+    DomainEntityNotFoundException,
+    DomainValidationDomainException,
 )
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.subjects.models import Subject, utc_now
@@ -45,7 +45,7 @@ class SubjectService:
             category = await self.uow.user_categories.get_by_code(data.category_id)
 
         if not category:
-            raise EntityNotFoundException(f"User category '{data.category_id}' does not exist.")
+            raise DomainEntityNotFoundException(f"User category '{data.category_id}' does not exist.")
 
         code_clean = data.code.strip().upper()
         name_clean = data.name.strip()
@@ -56,7 +56,7 @@ class SubjectService:
             code=code_clean,
         )
         if existing:
-            raise EntityAlreadyExistsException(
+            raise DomainEntityAlreadyExistsException(
                 f"Subject with code '{code_clean}' already exists in category '{category.name}'."
             )
 
@@ -81,7 +81,7 @@ class SubjectService:
     async def get_subject_by_id(self, subject_id: str) -> SuccessfulResponseSchema:
         subject = await self.uow.subjects.get_by_id(subject_id, load_category=True)
         if not subject:
-            raise EntityNotFoundException(f"Subject '{subject_id}' not found.")
+            raise DomainEntityNotFoundException(f"Subject '{subject_id}' not found.")
 
         detail_dto = SubjectDetailSchema(
             subject_id=subject.subject_id,
@@ -165,7 +165,7 @@ class SubjectService:
     ) -> SuccessfulResponseSchema:
         subject = await self.uow.subjects.get_by_id(subject_id, load_category=True)
         if not subject:
-            raise EntityNotFoundException(f"Subject '{subject_id}' not found.")
+            raise DomainEntityNotFoundException(f"Subject '{subject_id}' not found.")
 
         target_cat_id = subject.category_id
         if data.category_id is not None:
@@ -173,7 +173,7 @@ class SubjectService:
             if not cat:
                 cat = await self.uow.user_categories.get_by_code(data.category_id)
             if not cat:
-                raise EntityNotFoundException(f"Target user category '{data.category_id}' does not exist.")
+                raise DomainEntityNotFoundException(f"Target user category '{data.category_id}' does not exist.")
             target_cat_id = cat.category_id
             subject.category_id = target_cat_id
 
@@ -185,7 +185,7 @@ class SubjectService:
                     code=new_code,
                 )
                 if existing and existing.subject_id != subject.subject_id:
-                    raise EntityAlreadyExistsException(
+                    raise DomainEntityAlreadyExistsException(
                         f"Subject with code '{new_code}' already exists in this category."
                     )
                 subject.code = new_code
@@ -211,7 +211,7 @@ class SubjectService:
     async def delete_subject(self, subject_id: str) -> SuccessfulResponseSchema:
         subject = await self.uow.subjects.get_by_id(subject_id)
         if not subject:
-            raise EntityNotFoundException(f"Subject '{subject_id}' not found.")
+            raise DomainEntityNotFoundException(f"Subject '{subject_id}' not found.")
 
         await self.uow.subjects.delete(subject)
 

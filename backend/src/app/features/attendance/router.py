@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, status
 from starlette.responses import JSONResponse
 
-from app.core.exceptions import ForbiddenDomainException
+from app.core.exceptions import DomainForbiddenDomainException
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user, require_roles
 from app.features.attendance.schemas import AttendanceSessionCreate
@@ -98,7 +98,7 @@ async def get_student_attendance_history(
     )
 
     if not (is_teacher_or_admin or is_own_record):
-        raise ForbiddenDomainException("Operation not permitted for your role.")
+        raise DomainForbiddenDomainException("Operation not permitted for your role.")
 
     response = await AttendanceService.get_student_history(uow, student_id)
     return SharedUtils.SuccessfulResponse(response)

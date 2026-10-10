@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import uuid
 
-from app.core.exceptions import EntityNotFoundException
+from app.core.exceptions import DomainEntityNotFoundException
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.attendance.models import (
     AttendanceRecord,
@@ -189,7 +189,7 @@ class AttendanceService:
     async def get_session(uow: AbstractUnitOfWork, session_id: str) -> SuccessfulResponseSchema:
         session = await uow.attendance.get_session_by_id(session_id)
         if not session:
-            raise EntityNotFoundException(f"Attendance session '{session_id}' not found.")
+            raise DomainEntityNotFoundException(f"Attendance session '{session_id}' not found.")
 
         rate = (session.present_count / session.total_count * 100.0) if session.total_count > 0 else 0.0
         session_read = AttendanceSessionRead(

@@ -10,9 +10,9 @@ from typing import Optional
 from fastapi.encoders import jsonable_encoder
 
 from app.core.exceptions import (
-    EntityAlreadyExistsException,
-    EntityNotFoundException,
-    ValidationDomainException,
+    DomainEntityAlreadyExistsException,
+    DomainEntityNotFoundException,
+    DomainValidationDomainException,
 )
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.subjects.models import Subject
@@ -80,11 +80,11 @@ class UserCategoryService:
 
         existing_code = await self.uow.user_categories.get_by_code(code_clean)
         if existing_code:
-            raise EntityAlreadyExistsException(f"User category with code '{code_clean}' already exists.")
+            raise DomainEntityAlreadyExistsException(f"User category with code '{code_clean}' already exists.")
 
         existing_name = await self.uow.user_categories.get_by_name(name_clean)
         if existing_name:
-            raise EntityAlreadyExistsException(f"User category with name '{name_clean}' already exists.")
+            raise DomainEntityAlreadyExistsException(f"User category with name '{name_clean}' already exists.")
 
         category = UserCategoryModel(
             code=code_clean,
@@ -110,7 +110,7 @@ class UserCategoryService:
             category = await self.uow.user_categories.get_by_code(category_id, load_subjects=True)
 
         if not category:
-            raise EntityNotFoundException(f"User category '{category_id}' not found.")
+            raise DomainEntityNotFoundException(f"User category '{category_id}' not found.")
 
         detail_dto = UserCategoryWithSubjectsSchema.model_validate(category)
         return SuccessfulResponseSchema(
@@ -158,14 +158,14 @@ class UserCategoryService:
     ) -> SuccessfulResponseSchema:
         category = await self.uow.user_categories.get_by_id(category_id)
         if not category:
-            raise EntityNotFoundException(f"User category '{category_id}' not found.")
+            raise DomainEntityNotFoundException(f"User category '{category_id}' not found.")
 
         if data.code is not None:
             new_code = data.code.strip().upper()
             if new_code != category.code:
                 existing = await self.uow.user_categories.get_by_code(new_code)
                 if existing and existing.category_id != category.category_id:
-                    raise EntityAlreadyExistsException(f"User category with code '{new_code}' already exists.")
+                    raise DomainEntityAlreadyExistsException(f"User category with code '{new_code}' already exists.")
                 category.code = new_code
 
         if data.name is not None:
@@ -173,7 +173,7 @@ class UserCategoryService:
             if new_name != category.name:
                 existing = await self.uow.user_categories.get_by_name(new_name)
                 if existing and existing.category_id != category.category_id:
-                    raise EntityAlreadyExistsException(f"User category with name '{new_name}' already exists.")
+                    raise DomainEntityAlreadyExistsException(f"User category with name '{new_name}' already exists.")
                 category.name = new_name
 
         if data.description is not None:
@@ -193,7 +193,7 @@ class UserCategoryService:
     async def delete_category(self, category_id: str) -> SuccessfulResponseSchema:
         category = await self.uow.user_categories.get_by_id(category_id)
         if not category:
-            raise EntityNotFoundException(f"User category '{category_id}' not found.")
+            raise DomainEntityNotFoundException(f"User category '{category_id}' not found.")
 
         await self.uow.user_categories.delete(category)
         await self.uow.commit()

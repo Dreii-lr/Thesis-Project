@@ -10,8 +10,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
 from app.core.exceptions import (
-    ForbiddenDomainException,
-    UnauthorizedDomainException,
+    DomainForbiddenDomainException,
+    DomainUnauthorizedDomainException,
 )
 from app.core.firebase import verify_firebase_id_token
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
@@ -37,20 +37,20 @@ async def get_current_user(
     token = (credentials.credentials if credentials else None) or access_token
 
     if not token:
-        raise UnauthorizedDomainException("Authentication token missing.", "TOKEN_MISSING")
+        raise DomainUnauthorizedDomainException("Authentication token missing.", "TOKEN_MISSING")
 
     # Firebase performs blocking certificate/revocation requests.
     claims = await run_in_threadpool(verify_firebase_id_token, token, check_revoked=True)
     if not claims:
-        raise UnauthorizedDomainException("Invalid, expired, or revoked token.")
+        raise DomainUnauthorizedDomainException("Invalid, expired, or revoked token.")
 
     firebase_uid: str = claims.get("uid", "")
     if not firebase_uid:
-        raise UnauthorizedDomainException("Token payload missing subject.")
+        raise DomainUnauthorizedDomainException("Token payload missing subject.")
 
     user = await uow.users.get_by_firebase_uid(firebase_uid)
     if not user:
-        raise UnauthorizedDomainException("User no longer exists.")
+        raise DomainUnauthorizedDomainException("User no longer exists.")
     return user
 
 
@@ -58,7 +58,7 @@ async def get_current_active_user(
     current_user: UserRead = Depends(get_current_user),
 ) -> UserRead:
     if current_user.status != UserStatus.ACTIVE:
-        raise ForbiddenDomainException("Inactive user account.")
+        raise DomainForbiddenDomainException("Inactive user account.")
     return current_user
 
 
@@ -68,7 +68,7 @@ def require_roles(*allowed_roles: UserRole):
     """
     async def role_checker(current_user: UserRead = Depends(get_current_active_user)) -> UserRead:
         if current_user.role not in allowed_roles:
-            raise ForbiddenDomainException("Operation not permitted for your role.")
+            raise DomainForbiddenDomainException("Operation not permitted for your role.")
         return current_user
 
     return role_checker

@@ -15,7 +15,7 @@ import jwt
 from google.auth import _helpers
 
 from app.core import firebase
-from app.core.exceptions import AuthenticationUnavailableException, UnauthorizedDomainException
+from app.core.exceptions import DomainAuthenticationUnavailableException, DomainUnauthorizedDomainException
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,7 @@ def test_verifier_allows_small_clock_skew_without_disabling_revocation(monkeypat
 def test_invalid_credentials_are_not_retried(monkeypatch, error, code):
     verify = Mock(side_effect=error)
     monkeypatch.setattr(firebase.auth, "verify_id_token", verify)
-    with pytest.raises(UnauthorizedDomainException) as caught:
+    with pytest.raises(DomainUnauthorizedDomainException) as caught:
         firebase.verify_firebase_id_token("token")
     assert caught.value.error_code == code
     assert verify.call_count == 1
@@ -61,7 +61,7 @@ def test_transient_verification_failure_recovers(monkeypatch):
 def test_verification_outage_is_not_unauthorized(monkeypatch):
     verify = Mock(side_effect=exceptions.UnavailableError("offline"))
     monkeypatch.setattr(firebase.auth, "verify_id_token", verify)
-    with pytest.raises(AuthenticationUnavailableException):
+    with pytest.raises(DomainAuthenticationUnavailableException):
         firebase.verify_firebase_id_token("token")
     assert verify.call_count == 2
 
@@ -97,7 +97,7 @@ async def test_refresh_recovers_from_transient_provider_failure(monkeypatch):
 @pytest.mark.parametrize("response", [httpx.Response(503), httpx.ConnectTimeout("offline")])
 async def test_refresh_outage_is_bounded_and_not_session_expiry(monkeypatch, response):
     calls = mock_provider(monkeypatch, [response])
-    with pytest.raises(AuthenticationUnavailableException):
+    with pytest.raises(DomainAuthenticationUnavailableException):
         await firebase.refresh_firebase_token("refresh")
     assert len(calls) == 3
 
@@ -118,7 +118,7 @@ async def test_revoked_refresh_is_not_retried(monkeypatch):
 ])
 async def test_configuration_throttling_and_bad_responses_are_not_expiry(monkeypatch, response):
     calls = mock_provider(monkeypatch, [response])
-    with pytest.raises(AuthenticationUnavailableException):
+    with pytest.raises(DomainAuthenticationUnavailableException):
         await firebase.refresh_firebase_token("refresh")
     assert len(calls) == 1
 
@@ -151,5 +151,5 @@ def test_real_signed_token_tolerates_small_skew_but_rejects_invalid_tokens(monke
 
 def test_failed_account_creation_never_fabricates_a_uid(monkeypatch):
     monkeypatch.setattr(firebase.auth, "create_user", Mock(side_effect=exceptions.UnavailableError("offline")))
-    with pytest.raises(AuthenticationUnavailableException):
+    with pytest.raises(DomainAuthenticationUnavailableException):
         firebase.create_firebase_new_user("user@example.com", "password")

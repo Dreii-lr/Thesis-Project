@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
-from app.features.users import UserRole
+from app.features.users import UserRole, PersonalDetails
 from app.features.users.models import User, UserStatus, utc_now
 from app.features.users.schemas import UserRead, ListUserRead
 
@@ -28,6 +28,13 @@ class UserRepository:
     async def get_by_id(self, user_id: str) -> UserRead | None:
         """Retrieve user by ID including all normalized details (personal, contact, family)."""
         statement = _user_query().where(User.user_id == user_id)
+        result = await self._session.execute(statement)
+        data = result.scalar_one_or_none()
+        return UserRead.model_validate(data) if data is not None else None
+
+    async def get_by_lrn(self, lrn: str) -> UserRead | None:
+        """Retrieve user by ID including all normalized details (personal, contact, family)."""
+        statement = _user_query().where(PersonalDetails.lrn_number == lrn)
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
         return UserRead.model_validate(data) if data is not None else None
@@ -124,8 +131,7 @@ class UserRepository:
         total = total_res.scalar_one()
 
         statement = (
-            _user_query().where(and_(User.role == UserRole.STUDENT,
-                                     or_(User.status == UserStatus.ACTIVE, User.status == UserStatus.COMPLETED)))
+            _user_query().where(and_(User.role == UserRole.STUDENT))
             .order_by(User.created_at.desc())
             .offset(offset)
             .limit(limit)
@@ -159,7 +165,6 @@ class UserRepository:
                 .values(**data)
                 .where(User.user_id == user_id))
         await self._session.execute(stmt)
-        return UserRead(**data)
 
     async def soft_delete(self, user_id: str) -> UserRead | None:
         """

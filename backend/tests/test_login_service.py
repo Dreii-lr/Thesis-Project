@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.core.exceptions import AuthenticationUnavailableException, InvalidCredentialsException, UnauthorizedDomainException
+from app.core.exceptions import DomainAuthenticationUnavailableException, DomainInvalidCredentialsException, DomainUnauthorizedDomainException
 from sqlalchemy.exc import ProgrammingError
 from app.features.auth import service
 from app.features.auth.schemas import LoginRequest
@@ -42,7 +42,7 @@ async def test_login_supports_each_identity(kind, login_dependencies):
     if kind == "student":
         uow.users.get_by_student_id.return_value = user
     identity = "person@example.com" if kind == "email" else "ID-123"
-    result = await service.AuthService.login_with_password(uow, LoginRequest(email=identity, password="password"))
+    result = await service.AuthService.login_with_password(uow, LoginRequest(student_id=identity, password="password"))
     assert result.data.token.idToken == "access"
     assert result.data.token.refreshToken == "refresh"
     service.sign_in_with_password.assert_awaited_once_with("person@example.com", "password")
@@ -58,32 +58,32 @@ async def test_login_supports_each_identity(kind, login_dependencies):
 async def test_email_without_application_account_is_rejected(login_dependencies):
     uow, _ = login_dependencies
     uow.users.get_by_firebase_uid.return_value = None
-    with pytest.raises(UnauthorizedDomainException, match="not registered"):
-        await service.AuthService.login_with_password(uow, LoginRequest(email="person@example.com", password="password"))
+    with pytest.raises(DomainUnauthorizedDomainException, match="not registered"):
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id="person@example.com", password="password"))
 
 
 @pytest.mark.asyncio
 async def test_inactive_email_account_is_rejected(login_dependencies):
     uow, user = login_dependencies
     user.status = "inactive"
-    with pytest.raises(UnauthorizedDomainException, match="inactive"):
-        await service.AuthService.login_with_password(uow, LoginRequest(email="person@example.com", password="password"))
+    with pytest.raises(DomainUnauthorizedDomainException, match="inactive"):
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id="person@example.com", password="password"))
 
 
 @pytest.mark.asyncio
 async def test_wrong_teacher_password_is_rejected(login_dependencies):
     uow, _ = login_dependencies
     service.sign_in_with_password.return_value = None
-    with pytest.raises(InvalidCredentialsException):
-        await service.AuthService.login_with_password(uow, LoginRequest(email="ID-123", password="wrong"))
+    with pytest.raises(DomainInvalidCredentialsException):
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id="ID-123", password="wrong"))
 
 
 @pytest.mark.asyncio
 async def test_failed_email_login_does_not_fall_through_to_id_lookup(login_dependencies):
     uow, _ = login_dependencies
     service.sign_in_with_password.return_value = None
-    with pytest.raises(InvalidCredentialsException):
-        await service.AuthService.login_with_password(uow, LoginRequest(email="person@example.com", password="wrong"))
+    with pytest.raises(DomainInvalidCredentialsException):
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id="person@example.com", password="wrong"))
     uow.users.get_by_student_id.assert_not_awaited()
     uow.users.get_by_teacher_id.assert_not_awaited()
 
@@ -91,16 +91,16 @@ async def test_failed_email_login_does_not_fall_through_to_id_lookup(login_depen
 @pytest.mark.asyncio
 async def test_provider_outage_is_not_an_invalid_password(login_dependencies):
     uow, _ = login_dependencies
-    service.sign_in_with_password.side_effect = AuthenticationUnavailableException()
-    with pytest.raises(AuthenticationUnavailableException):
-        await service.AuthService.login_with_password(uow, LoginRequest(email="ID-123", password="password"))
+    service.sign_in_with_password.side_effect = DomainAuthenticationUnavailableException()
+    with pytest.raises(DomainAuthenticationUnavailableException):
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id="ID-123", password="password"))
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("identity", ["ID-123", "person@example.com"])
 async def test_login_does_not_require_a_selected_portal(identity, login_dependencies):
     uow, _ = login_dependencies
-    result = await service.AuthService.login_with_password(uow, LoginRequest(email=identity, password="password"))
+    result = await service.AuthService.login_with_password(uow, LoginRequest(student_id=identity, password="password"))
     assert result.data.token.idToken == "access"
 
 
@@ -110,7 +110,7 @@ async def test_database_failure_is_not_retried_in_aborted_transaction(login_depe
     failure = ProgrammingError("SELECT users", {}, Exception("missing profile column"))
     uow.users.get_by_firebase_uid.side_effect = failure
     with pytest.raises(ProgrammingError) as caught:
-        await service.AuthService.login_with_password(uow, LoginRequest(email="person@example.com", password="password"))
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id="person@example.com", password="password"))
     assert caught.value is failure
     uow.users.get_by_firebase_uid.assert_awaited_once()
     service.sign_in_with_password.assert_awaited_once()
@@ -129,9 +129,9 @@ async def test_email_reset_password_is_authoritative_for_all_logins(kind, login_
             return {"localId": user.firebase_uid, "idToken": "new-access", "refreshToken": "new-refresh"}
         return None
     service.sign_in_with_password.side_effect = firebase_password
-    with pytest.raises(InvalidCredentialsException):
-        await service.AuthService.login_with_password(uow, LoginRequest(email=identity, password="old-password"))
-    result = await service.AuthService.login_with_password(uow, LoginRequest(email=identity, password="new-password"))
+    with pytest.raises(DomainInvalidCredentialsException):
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id=identity, password="old-password"))
+    result = await service.AuthService.login_with_password(uow, LoginRequest(student_id=identity, password="new-password"))
     assert result.data.token.idToken == "new-access"
 
 
@@ -139,5 +139,5 @@ async def test_email_reset_password_is_authoritative_for_all_logins(kind, login_
 async def test_id_cannot_sign_in_as_a_different_firebase_account(login_dependencies):
     uow, _ = login_dependencies
     service.sign_in_with_password.return_value["localId"] = "another-account"
-    with pytest.raises(InvalidCredentialsException):
-        await service.AuthService.login_with_password(uow, LoginRequest(email="ID-123", password="password"))
+    with pytest.raises(DomainInvalidCredentialsException):
+        await service.AuthService.login_with_password(uow, LoginRequest(student_id="ID-123", password="password"))

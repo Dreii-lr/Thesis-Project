@@ -35,71 +35,71 @@ class DomainException(Exception):
         self.message = message
         self.error_code = error_code
 
-class UnprocessableEntity(DomainException):
+class DomainUnprocessableEntity(DomainException):
     def __init__(self, message: str = "Cannot process this data.") -> None:
         super().__init__(message, error_code="UNPROCSESABLE_ENTITY")
-class EntityNotFoundException(DomainException):
+class DomainEntityNotFoundException(DomainException):
     """Raised when a requested domain entity is missing."""
 
     def __init__(self, message: str = "Requested entity was not found.") -> None:
         super().__init__(message, error_code="NOT_FOUND")
 
 
-class EntityAlreadyExistsException(DomainException):
+class DomainEntityAlreadyExistsException(DomainException):
     """Raised when a domain entity already exists (e.g. duplicate email)."""
 
     def __init__(self, message: str = "Entity already exists.") -> None:
         super().__init__(message, error_code="CONFLICT")
 
 
-class InvalidCredentialsException(DomainException):
+class DomainInvalidCredentialsException(DomainException):
     """Raised when user credentials (password/token) fail validation."""
 
     def __init__(self, message: str = "Invalid credentials provided.") -> None:
         super().__init__(message, error_code="UNAUTHORIZED")
 
 
-class UnauthorizedDomainException(DomainException):
+class DomainUnauthorizedDomainException(DomainException):
     """Raised when an operation lacks authentication."""
 
     def __init__(self, message: str = "Authentication required.", error_code: str = "UNAUTHORIZED") -> None:
         super().__init__(message, error_code=error_code)
 
 
-class AuthenticationUnavailableException(DomainException):
+class DomainAuthenticationUnavailableException(DomainException):
     """Authentication could not be checked; this does not invalidate the session."""
 
     def __init__(self, message: str = "The sign-in service is temporarily unavailable. Please try again.") -> None:
         super().__init__(message, error_code="AUTH_UNAVAILABLE")
 
 
-class RecoveryRateLimitException(DomainException):
+class DomainRecoveryRateLimitException(DomainException):
     def __init__(self, message: str = "Too many recovery requests. Please wait a few minutes before trying again.") -> None:
         super().__init__(message, error_code="RECOVERY_RATE_LIMITED")
 
 
-class ForbiddenDomainException(DomainException):
+class DomainForbiddenDomainException(DomainException):
     """Raised when an authenticated user lacks permission for an action."""
 
     def __init__(self, message: str = "Operation forbidden for your role.") -> None:
         super().__init__(message, error_code="FORBIDDEN")
 
 
-class ValidationDomainException(DomainException):
+class DomainValidationDomainException(DomainException):
     """Raised when domain parameters or payload fail business validation."""
 
     def __init__(self, message: str = "Validation error.") -> None:
         super().__init__(message, error_code="BAD_REQUEST")
 
 
-class SessionExpiredException(DomainException):
+class DomainSessionExpiredException(DomainException):
     """Raised when a user session or token has expired."""
 
     def __init__(self, message: str = "Session or token has expired.") -> None:
         super().__init__(message, error_code="UNAUTHORIZED")
 
 
-class SessionRevokedException(DomainException):
+class DomainSessionRevokedException(DomainException):
     """Raised when a user session has been revoked."""
 
     def __init__(self, message: str = "Session has been revoked.") -> None:
@@ -177,16 +177,16 @@ BadRequestException = CustomBadRequestHTTPException
 
 
 DOMAIN_TO_HTTP_MAP: dict[Type[DomainException], Type[CustomHTTPException]] = {
-    RecoveryRateLimitException: CustomTooManyRequestsHTTPException,
-    AuthenticationUnavailableException: CustomServiceUnavailableHTTPException,
-    EntityNotFoundException: CustomNotFoundHTTPException,
-    EntityAlreadyExistsException: CustomConflictHTTPException,
-    InvalidCredentialsException: CustomUnauthorizedHTTPException,
-    UnauthorizedDomainException: CustomUnauthorizedHTTPException,
-    ForbiddenDomainException: CustomForbiddenHTTPException,
-    ValidationDomainException: CustomBadRequestHTTPException,
-    SessionExpiredException: CustomUnauthorizedHTTPException,
-    SessionRevokedException: CustomUnauthorizedHTTPException,
+    DomainRecoveryRateLimitException: CustomTooManyRequestsHTTPException,
+    DomainAuthenticationUnavailableException: CustomServiceUnavailableHTTPException,
+    DomainEntityNotFoundException: CustomNotFoundHTTPException,
+    DomainEntityAlreadyExistsException: CustomConflictHTTPException,
+    DomainInvalidCredentialsException: CustomUnauthorizedHTTPException,
+    DomainUnauthorizedDomainException: CustomUnauthorizedHTTPException,
+    DomainForbiddenDomainException: CustomForbiddenHTTPException,
+    DomainValidationDomainException: CustomBadRequestHTTPException,
+    DomainSessionExpiredException: CustomUnauthorizedHTTPException,
+    DomainSessionRevokedException: CustomUnauthorizedHTTPException,
 }
 
 

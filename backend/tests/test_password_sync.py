@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
-from app.core.exceptions import DomainException, InvalidCredentialsException
+from app.core.exceptions import DomainException, DomainInvalidCredentialsException
 from app.features.users import service
 from app.features.users.schemas import ChangePasswordRequest
 
@@ -54,7 +54,7 @@ async def test_password_change_rejects_stale_password_or_mismatched_account(monk
     monkeypatch.setattr(service, "sign_in_with_password", AsyncMock(return_value=credentials))
     update = Mock()
     monkeypatch.setattr(service, "update_firebase_user_password", update)
-    with pytest.raises(InvalidCredentialsException):
+    with pytest.raises(DomainInvalidCredentialsException):
         await service.UserService.change_password(uow, "user-1", ChangePasswordRequest(
             current_password="old-password", new_password="new-password",
         ))

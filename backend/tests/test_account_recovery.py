@@ -9,7 +9,7 @@ import pytest_asyncio
 from firebase_admin import auth
 
 from app.core import firebase
-from app.core.exceptions import AuthenticationUnavailableException, RecoveryRateLimitException
+from app.core.exceptions import DomainAuthenticationUnavailableException, DomainRecoveryRateLimitException
 from app.core.unit_of_work import get_uow
 from app.features.auth import service
 from app.features.users.schemas import UserRead
@@ -92,7 +92,7 @@ async def test_recovery_validates_input_before_delivery(recovery_client, payload
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("error,status", [(AuthenticationUnavailableException(), 503), (RecoveryRateLimitException(), 429)])
+@pytest.mark.parametrize("error,status", [(DomainAuthenticationUnavailableException(), 503), (DomainRecoveryRateLimitException(), 429)])
 async def test_recovery_reports_delivery_failures(recovery_client, error, status):
     client, _, _, send = recovery_client
     send.side_effect = error
@@ -140,7 +140,7 @@ async def test_reset_email_uses_firebase_destination_and_hosted_action(provider)
 async def test_email_delivery_failure_is_not_silent_or_retried(provider, response):
     _, requests, result = provider
     result.response = response
-    with pytest.raises(AuthenticationUnavailableException):
+    with pytest.raises(DomainAuthenticationUnavailableException):
         await firebase.send_password_reset_email("firebase-1")
     assert len(requests) == 1
 
@@ -149,7 +149,7 @@ async def test_email_delivery_failure_is_not_silent_or_retried(provider, respons
 async def test_firebase_email_throttling_is_reported(provider):
     _, _, result = provider
     result.response = httpx.Response(400, json={"error": {"message": "TOO_MANY_ATTEMPTS_TRY_LATER"}})
-    with pytest.raises(RecoveryRateLimitException):
+    with pytest.raises(DomainRecoveryRateLimitException):
         await firebase.send_password_reset_email("firebase-1")
 
 

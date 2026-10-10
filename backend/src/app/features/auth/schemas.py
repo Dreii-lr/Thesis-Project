@@ -10,7 +10,7 @@ from app.features.users.schemas import UserRead, UserReadLessData
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr | str
+    student_id: str
     password: str
 
 

@@ -7,7 +7,7 @@ import pytest
 import pytest_asyncio
 
 from app.core import dependencies
-from app.core.exceptions import AuthenticationUnavailableException, UnauthorizedDomainException
+from app.core.exceptions import DomainAuthenticationUnavailableException, DomainUnauthorizedDomainException
 from app.core.unit_of_work import get_uow
 from app.features.auth import service
 from app.features.auth.schemas import TokenResponse
@@ -66,9 +66,9 @@ async def test_login_refresh_logout_cookie_lifecycle(session_client):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error,status,code", [
-    (AuthenticationUnavailableException(), 503, "AUTH_UNAVAILABLE"),
-    (UnauthorizedDomainException("expired", "TOKEN_EXPIRED"), 401, "TOKEN_EXPIRED"),
-    (UnauthorizedDomainException("revoked", "TOKEN_REVOKED"), 401, "TOKEN_REVOKED"),
+    (DomainAuthenticationUnavailableException(), 503, "AUTH_UNAVAILABLE"),
+    (DomainUnauthorizedDomainException("expired", "TOKEN_EXPIRED"), 401, "TOKEN_EXPIRED"),
+    (DomainUnauthorizedDomainException("revoked", "TOKEN_REVOKED"), 401, "TOKEN_REVOKED"),
 ])
 async def test_profile_reports_the_actual_failure(session_client, error, status, code):
     session_client.cookies.set("access_token", "access")
@@ -82,7 +82,7 @@ async def test_profile_reports_the_actual_failure(session_client, error, status,
 @pytest.mark.asyncio
 async def test_refresh_outage_keeps_existing_cookies(session_client):
     session_client.cookies.set("refresh_token", "refresh")
-    service.refresh_firebase_token.side_effect = AuthenticationUnavailableException()
+    service.refresh_firebase_token.side_effect = DomainAuthenticationUnavailableException()
     response = await session_client.post("/api/v1/auth/refresh")
     assert response.status_code == 503
     assert "set-cookie" not in response.headers
