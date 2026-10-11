@@ -23,6 +23,9 @@ export function normalizeUserRole(user: UserRead): DemoRole | null {
   if (rawRole === 'student') {
     return 'student';
   }
+  if (rawRole === 'admin') {
+    return 'admin';
+  }
   return null;
 }
 
@@ -82,7 +85,7 @@ export async function loginAndFetchUser(
 
     const actualRole = normalizeUserRole(user);
     if (!actualRole) {
-      throw new Error('This account does not have access to the teacher or student portal.');
+      throw new Error('This account does not have access to the admin, teacher, or student portal.');
     }
 
     return user;
@@ -230,4 +233,26 @@ export async function requestAccountRecovery(identity: string): Promise<void> {
     throw new Error(await extractErrorMessage(response,
       'Unable to send the recovery email. Please try again later.'));
   }
+}
+
+export async function authenticatedRequest<T>(
+  path: string,
+  options: RequestInit = {},
+  expectResources = true
+): Promise<T> {
+  const response = await authenticatedFetch(path, options);
+  if (!response.ok) {
+    throw new SessionError(
+      await extractErrorMessage(response, 'Unable to load or save data. Please try again.'),
+      response.status
+    );
+  }
+
+  const body = await response.json();
+  if (!expectResources) return undefined as T;
+  const data = body?.data;
+  if (!data || typeof data !== 'object' || !('resources' in data)) {
+    throw new Error('Unexpected server response. Please try again.');
+  }
+  return data.resources as T;
 }

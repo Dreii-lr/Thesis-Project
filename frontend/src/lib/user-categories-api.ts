@@ -1,9 +1,11 @@
 // frontend/src/lib/user-categories-api.ts
-import { authenticatedFetch } from './auth-api';
+import { authenticatedFetch, authenticatedRequest } from './auth-api';
+import type { SubjectRecord } from './subjects-api';
 
 export interface UserCategorySubject {
   subject_id: string;
   category_id: string;
+  code?: string;
   name: string;
   description?: string | null;
   is_active: boolean;
@@ -19,6 +21,19 @@ export interface UserCategoryItem {
   created_at: string;
   updated_at?: string | null;
   subjects?: UserCategorySubject[];
+}
+
+export type UserCategoryRecord = UserCategoryItem;
+
+export interface UserCategoryDetails extends UserCategoryRecord {
+  subjects: SubjectRecord[];
+}
+
+interface ListCategoriesResponse {
+  categories: UserCategoryRecord[];
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 export const DEFAULT_USER_CATEGORIES: UserCategoryItem[] = [
@@ -78,6 +93,31 @@ export async function getUserCategories(): Promise<UserCategoryItem[]> {
     console.warn('Failed to fetch user categories from API, using defaults:', err);
     return DEFAULT_USER_CATEGORIES;
   }
+}
+
+/**
+ * Lists all user categories with pagination support.
+ */
+export async function listUserCategories(): Promise<UserCategoryRecord[]> {
+  try {
+    const categories: UserCategoryRecord[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const result = await authenticatedRequest<ListCategoriesResponse>(`/user-categories/?offset=${offset}&limit=500`);
+      categories.push(...result.categories);
+      if (categories.length >= result.total) return categories;
+      if (!result.categories.length) throw new Error('Learning programs changed while loading. Please refresh.');
+    }
+  } catch (err) {
+    console.warn('Failed to list user categories via authenticatedRequest, falling back to getUserCategories():', err);
+    return getUserCategories();
+  }
+}
+
+/**
+ * Fetches details for a single category including its subjects.
+ */
+export function getUserCategory(id: string): Promise<UserCategoryDetails> {
+  return authenticatedRequest<UserCategoryDetails>(`/user-categories/${encodeURIComponent(id)}`);
 }
 
 /**

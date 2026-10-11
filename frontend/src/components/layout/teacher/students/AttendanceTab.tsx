@@ -2,20 +2,19 @@
 
 import { useState } from 'react';
 import { Search, CalendarDays, CheckCircle2, XCircle, Clock } from 'lucide-react';
-import { Student } from '@/src/data/mockStudents';
+import type { StudentAttendanceHistory } from '@/src/lib/attendance-api';
 
-export default function AttendanceTab({ student }: { student: Student }) {
-  const attendanceRecords = student.attendance || [];
+export default function AttendanceTab({ history }: { history: StudentAttendanceHistory }) {
+  const attendanceRecords = history.records;
   const [filter, setFilter] = useState<'All' | 'Present' | 'Absent' | 'Excused'>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Calculate Statistics
-  const totalDays = attendanceRecords.length;
-  const presentDays = attendanceRecords.filter(r => r.status === 'Present').length;
-  const absentDays = attendanceRecords.filter(r => r.status === 'Absent').length;
-  const excusedDays = attendanceRecords.filter(r => r.status === 'Excused').length;
+  const presentDays = history.present_days;
+  const absentDays = history.absent_days;
+  const excusedDays = history.excused_days;
   
-  const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+  const attendanceRate = history.attendance_rate;
 
   // Filter Logic
   const filteredRecords = attendanceRecords.filter(record => {
@@ -89,6 +88,7 @@ export default function AttendanceTab({ student }: { student: Student }) {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input 
             type="text" 
+            aria-label="Search learner attendance"
             placeholder="Search date or subject..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -98,7 +98,8 @@ export default function AttendanceTab({ student }: { student: Student }) {
       </div>
 
       {/* List of Records */}
-      <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-x-auto">
+        <div className="min-w-[640px]">
         <div className="grid grid-cols-[1fr_auto_minmax(150px,250px)] gap-4 p-3 border-b border-gray-200 bg-gray-50 shrink-0">
           <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider pl-3">Session Details</div>
           <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider w-24 text-center">Status</div>
@@ -132,8 +133,8 @@ export default function AttendanceTab({ student }: { student: Student }) {
                   </div>
 
                   <div>
-                    {record.remarks ? (
-                      <p className="text-[12px] text-gray-600 italic">"{record.remarks}"</p>
+                    {(record.reason_of_absence || record.remarks) ? (
+                      <p className="text-[12px] text-gray-600 italic">{record.reason_of_absence || record.remarks}</p>
                     ) : (
                       <span className="text-[12px] text-gray-400">-</span>
                     )}
@@ -146,6 +147,7 @@ export default function AttendanceTab({ student }: { student: Student }) {
               No records match your filters.
             </div>
           )}
+        </div>
         </div>
       </div>
 

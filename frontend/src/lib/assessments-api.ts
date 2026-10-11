@@ -1,4 +1,4 @@
-import { authenticatedFetch } from './auth-api';
+import { authenticatedRequest } from './auth-api';
 
 export type TargetCategory = 'ELEMENTARY' | 'SECONDARY' | 'BLP';
 export const CATEGORY_LABELS = { ELEMENTARY: 'Elementary', SECONDARY: 'Junior High School', BLP: 'Basic Literacy Program' };
@@ -21,35 +21,17 @@ export interface AssessmentPayload {
 }
 export type AssessmentUpdate = Partial<Omit<AssessmentPayload, 'assessment_id' | 'assessment_type' | 'materials' | 'is_ai_generated' | 'submissions_count'>>;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await authenticatedFetch(`/assessments${path}`, init);
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = body?.detail;
-    const message = Array.isArray(detail)
-      ? detail.map((item: { loc?: string[]; msg: string }) => `${item.loc?.slice(1).join('.')}: ${item.msg}`).join('; ')
-      : typeof detail === 'string' ? detail : body?.message;
-    throw new Error(message || `Unable to save or load assessment (${response.status}).`);
-  }
-  if (!body?.data || !('resources' in body.data)) throw new Error('Unexpected assessment response.');
-  return body.data.resources as T;
+function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return authenticatedRequest<T>(`/assessments${path}`, init);
 }
 export function getAssessment(id: string) { return request<AssessmentPayload>(`/${encodeURIComponent(id)}`); }
 export async function listAssessments() {
+  const rows = await listAssessmentRecords();
   const tasks: AssessmentPayload[] = [];
-  for (let offset = 0; ; offset += 100) {
-    const page = await request<AssessmentPayload[]>(`/teacher/my-tasks?offset=${offset}&limit=100`);
-    // The list route serializes assessment rows without question banks or counts.
-    // Fetch the detail contract in bounded batches for publishing and dashboard totals.
-    for (let index = 0; index < page.length; index += 8) {
-      const details = await Promise.all(page.slice(index, index + 8).map(task => {
-        if (!task.assessment_id) throw new Error('Assessment ID is missing from the response.');
-        return getAssessment(task.assessment_id);
-      }));
-      tasks.push(...details);
-    }
-    if (page.length < 100) return tasks;
+  for (let index = 0; index < rows.length; index += 8) {
+    tasks.push(...await Promise.all(rows.slice(index, index + 8).map(task => getAssessment(task.assessment_id))));
   }
+  return tasks;
 }
 export function createAssessment(task: AssessmentPayload) {
   const { title, description, subject_code, target_category, assessment_type, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score, is_ai_generated, categories_data, materials } = task;
@@ -62,4 +44,68 @@ export function toAssessmentUpdatePayload(task: AssessmentPayload): AssessmentUp
   const { title, description, subject_code, target_category, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score } = task;
   return { title, description, subject_code, target_category, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score,
     ...(task.assessment_type === 'ACTIVITY' ? {} : { categories_data: task.categories_data }) };
+}
+
+export interface AssessmentRow {
+  assessment_id: string;
+  teacher_id: string;
+  title: string;
+  description?: string | null;
+  subject_code: string;
+  target_category?: TargetCategory | null;
+  assessment_type: TaskType;
+  status: TaskStatus;
+  start_date?: string | null;
+  end_date?: string | null;
+  grace_period_minutes: number;
+  duration_minutes?: number | null;
+  max_score: number;
+  is_ai_generated: boolean;
+  created_at: string;
+  updated_at?: string | null;
+}
+export interface SubmissionDetail {
+  submission_id: string;
+  assessment_id: string;
+  student_id: string;
+  student_name?: string | null;
+  student_category?: TargetCategory | null;
+  auto_score: number;
+  manual_score: number;
+  final_score: number;
+  feedback?: string | null;
+  is_late: boolean;
+  status: 'IN_PROGRESS' | 'SUBMITTED' | 'GRADED';
+  started_at: string;
+  submitted_at?: string | null;
+  time_spent_seconds: number;
+  answers_payload?: Record<string, unknown> | null;
+  attachments_payload?: Record<string, unknown>[] | null;
+}
+export interface TeacherSubmission {
+  task: AssessmentRow;
+  submission: SubmissionDetail;
+}
+export async function listAssessmentRecords(): Promise<AssessmentRow[]> {
+  const tasks: AssessmentRow[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const page = await request<AssessmentRow[]>(`/teacher/my-tasks?offset=${offset}&limit=100`);
+    if (!Array.isArray(page) || page.some(task => !task.assessment_id)) throw new Error('Unexpected assessment list response.');
+    tasks.push(...page);
+    if (page.length < 100) return tasks;
+  }
+}
+export function listAssessmentSubmissions(id: string) {
+  return request<SubmissionDetail[]>(`/${encodeURIComponent(id)}/submissions`);
+}
+export async function listTeacherSubmissions(tasks: AssessmentRow[]): Promise<TeacherSubmission[]> {
+  const records: TeacherSubmission[] = [];
+  for (let index = 0; index < tasks.length; index += 8) {
+    const batches = await Promise.all(tasks.slice(index, index + 8).map(async task => {
+      const submissions = await listAssessmentSubmissions(task.assessment_id);
+      return submissions.map(submission => ({ task, submission }));
+    }));
+    records.push(...batches.flat());
+  }
+  return records;
 }

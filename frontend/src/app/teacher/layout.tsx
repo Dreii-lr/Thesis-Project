@@ -5,7 +5,7 @@ import { StudentProvider } from '@/src/context/StudentContext';
 import { TeacherProvider } from '@/src/context/TeacherContext';
 import DemoAuthGuard from '@/src/components/auth/DemoAuthGuard';
 
-export default function AdminLayout({
+export default function TeacherLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -15,7 +15,7 @@ export default function AdminLayout({
       <SidebarProvider>
         <StudentProvider>
           <TeacherProvider>
-            <div className="flex min-h-screen bg-[#f6f8fc] text-slate-900">
+            <div data-portal-role="teacher" className="portal-theme flex min-h-screen bg-[var(--portal-background)] text-slate-900">
               <Sidebar />
 
               <div className="flex min-w-0 flex-1 flex-col">

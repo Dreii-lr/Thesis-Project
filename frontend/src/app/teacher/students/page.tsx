@@ -2,25 +2,24 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Search, Plus, ExternalLink } from 'lucide-react';
-import { useTeacher } from '@/src/context/TeacherContext';
+import { useStudents } from '@/src/context/StudentContext';
+import ApiState from '@/src/components/ui/ApiState';
 
 export default function StudentsListPage() {
-  const { students } = useTeacher();
+  const { students, isLoading, error, refreshStudents } = useStudents();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredStudents = students.filter(student => {
-    const fullName = `${student.first_name} ${student.last_name}`.toLowerCase();
-    return fullName.includes(searchQuery.toLowerCase()) || student.personal_details.lrn_number.includes(searchQuery);
+    const query = searchQuery.trim().toLowerCase();
+    return [student.first_name, student.middle_name, student.last_name, student.student_id, student.personal_details.lrn_number, student.email]
+      .join(' ').toLowerCase().includes(query);
   });
 
-  const getStatus = (id: string) => {
-    const statuses = [
-      { label: 'Active', bg: 'bg-green-100 text-green-800' },
-      { label: 'Needs Review', bg: 'bg-amber-100 text-amber-800' },
-      { label: 'Intervention', bg: 'bg-red-100 text-red-800' },
-      { label: 'Inactive', bg: 'bg-gray-100 text-gray-800' },
-    ];
-    return statuses[id.charCodeAt(id.length - 1) % statuses.length];
+  const statuses = {
+    MAPPED: { label: 'Mapped', bg: 'bg-amber-100 text-amber-800' },
+    ACTIVE: { label: 'Active', bg: 'bg-green-100 text-green-800' },
+    COMPLETED: { label: 'Completed', bg: 'bg-blue-100 text-blue-800' },
+    INACTIVE: { label: 'Inactive', bg: 'bg-gray-100 text-gray-800' },
   };
 
   return (
@@ -41,10 +40,12 @@ export default function StudentsListPage() {
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
           >
             <Plus size={16} />
-            Add Learner
+            Create Account
           </Link>
         </div>
       </div>
+
+      <ApiState loading={isLoading} error={error} onRetry={() => void refreshStudents()} />
 
       {/* Main Content Area */}
       <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden flex-1 min-w-0">
@@ -55,7 +56,10 @@ export default function StudentsListPage() {
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input 
               type="text" 
-              placeholder="Search students..." 
+              placeholder="Search students..."
+              aria-label="Search students"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
               className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all"
             />
           </div>
@@ -74,14 +78,14 @@ export default function StudentsListPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredStudents.length > 0 ? (
+              {!isLoading && !error && filteredStudents.length > 0 ? (
                 filteredStudents.map((student) => {
-                  const status = getStatus(student.id);
+                  const status = student.status ? statuses[student.status] : { label: 'Unavailable', bg: 'bg-gray-100 text-gray-800' };
                   return (
                     <tr key={student.id} className="hover:bg-gray-50 transition-colors bg-white">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{student.id}</td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{student.student_id || '—'}</td>
                       <td className="px-6 py-4 text-sm text-gray-700">{student.first_name} {student.last_name}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{student.personal_details.lrn_number}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{student.personal_details.lrn_number || '—'}</td>
                       <td className="px-6 py-4 text-sm">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${status.bg}`}>
                           {status.label}
@@ -102,7 +106,7 @@ export default function StudentsListPage() {
               ) : (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-500 text-sm">
-                    No students found.
+                    {isLoading ? 'Loading students...' : error ? 'Student records could not be loaded.' : 'No students found.'}
                   </td>
                 </tr>
               )}
@@ -112,7 +116,7 @@ export default function StudentsListPage() {
         
         {/* Footer */}
         <div className="border-t border-gray-200 px-6 py-3 flex items-center justify-between text-sm text-gray-500 bg-gray-50 mt-auto">
-          <span>Showing {filteredStudents.length} entries</span>
+          <span>{isLoading || error ? '—' : `Showing ${filteredStudents.length} of ${students.length} entries`}</span>
         </div>
       </div>
     </div>

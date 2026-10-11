@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
-import { ChevronDown, Loader2, LogOut, Settings, User } from 'lucide-react';
+import { ChevronDown, Loader2, LogOut, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
   clearDemoSession,
@@ -15,7 +14,7 @@ export default function ProfileDropdown() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
   const [displayName, setDisplayName] = useState('Loading...');
-  const [roleLabel, setRoleLabel] = useState<'Student' | 'Teacher'>('Teacher');
+  const [roleLabel, setRoleLabel] = useState<'Student' | 'Teacher' | 'Admin' | null>(null);
 
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -38,7 +37,7 @@ export default function ProfileDropdown() {
       if (!resolvedRole) return;
 
       setDisplayName(fullName);
-      setRoleLabel(resolvedRole === 'student' ? 'Student' : 'Teacher');
+      setRoleLabel(resolvedRole === 'student' ? 'Student' : resolvedRole === 'admin' ? 'Admin' : 'Teacher');
     }
 
     loadUserProfile();
@@ -91,13 +90,9 @@ export default function ProfileDropdown() {
         aria-expanded={isOpen}
         aria-label="Open profile menu"
       >
-        <Image
-          src={`https://i.pravatar.cc/150?u=${encodeURIComponent(displayName)}`}
-          alt={displayName}
-          width={36}
-          height={36}
-          className="h-9 w-9 rounded-xl border border-slate-200 object-cover shadow-sm"
-        />
+        <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-xs font-bold text-blue-700">
+          {displayName.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
+        </span>
 
         <div className="hidden min-w-0 text-left md:block">
           <p className="max-w-28 truncate text-[13px] font-semibold leading-4 text-slate-800">
@@ -125,22 +120,14 @@ export default function ProfileDropdown() {
             <p className="mt-0.5 text-[11px] text-slate-400">{roleLabel}</p>
           </div>
 
-          <Link
-            href="/admin/profile"
+          {(roleLabel === 'Admin' || roleLabel === 'Student') && <Link
+            href={roleLabel === 'Admin' ? '/admin/profile' : '/student/profile'}
             className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
             onClick={() => setIsOpen(false)}
           >
             <User size={16} className="text-slate-400" />
             View Profile
-          </Link>
-          <Link
-            href="/admin/settings"
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
-            onClick={() => setIsOpen(false)}
-          >
-            <Settings size={16} className="text-slate-400" />
-            System Settings
-          </Link>
+          </Link>}
           <div className="my-1 h-px bg-slate-100" />
           <button
             type="button"

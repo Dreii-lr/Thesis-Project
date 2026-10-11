@@ -25,6 +25,22 @@ const nextConfig: NextConfig = {
         destination: `${BACKEND_URL}/api/v1/users/`,
       },
       {
+        source: '/api/v1/subjects',
+        destination: `${BACKEND_URL}/api/v1/subjects/`,
+      },
+      {
+        source: '/api/v1/subjects/',
+        destination: `${BACKEND_URL}/api/v1/subjects/`,
+      },
+      {
+        source: '/api/v1/user-categories',
+        destination: `${BACKEND_URL}/api/v1/user-categories/`,
+      },
+      {
+        source: '/api/v1/user-categories/',
+        destination: `${BACKEND_URL}/api/v1/user-categories/`,
+      },
+      {
         source: '/api/v1/:path*',
         destination: `${BACKEND_URL}/api/v1/:path*`,
       },
