@@ -40,7 +40,7 @@ export default function StudentsListPage() {
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
           >
             <Plus size={16} />
-            Add Learner
+            Create Account
           </Link>
         </div>
       </div>

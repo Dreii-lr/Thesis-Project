@@ -23,6 +23,9 @@ export function normalizeUserRole(user: UserRead): DemoRole | null {
   if (rawRole === 'student') {
     return 'student';
   }
+  if (rawRole === 'admin') {
+    return 'admin';
+  }
   return null;
 }
 
@@ -82,7 +85,7 @@ export async function loginAndFetchUser(
 
     const actualRole = normalizeUserRole(user);
     if (!actualRole) {
-      throw new Error('This account does not have access to the teacher or student portal.');
+      throw new Error('This account does not have access to the admin, teacher, or student portal.');
     }
 
     return user;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getCurrentUser,
@@ -9,7 +9,7 @@ import {
   SessionError,
 } from "@/src/lib/auth-api";
 
-export type DemoRole = "student" | "teacher";
+export type DemoRole = "student" | "teacher" | "admin";
 
 const SESSION_KEY = "als-lms-demo-session";
 
@@ -64,19 +64,25 @@ export default function DemoAuthGuard({
 }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [verifiedRole, setVerifiedRole] = useState<DemoRole | null>(null);
   const [error, setError] = useState("");
+  const verification = useRef(0);
 
   useEffect(() => {
     let active = true;
 
     async function verifyBackendSession() {
+      const version = ++verification.current;
+      setReady(false);
+      setError("");
       try {
         const user = await getCurrentUser(true);
 
-        if (!active) return;
+        if (!active || version !== verification.current) return;
 
         if (!user) {
-          localStorage.removeItem(SESSION_KEY);
+          setVerifiedRole(null);
+          try { localStorage.removeItem(SESSION_KEY); } catch { /* Display cache only. */ }
           router.replace("/login");
           return;
         }
@@ -84,20 +90,23 @@ export default function DemoAuthGuard({
         const backendRole = normalizeUserRole(user);
 
         if (backendRole !== role) {
+          setVerifiedRole(null);
           router.replace(backendRole ? `/${backendRole}/dashboard` : "/login");
           return;
         }
 
         saveDemoSession(role, user.email || String(user.user_id));
+        setVerifiedRole(role);
         setReady(true);
         setError("");
       } catch (err) {
-        if (!active) return;
+        if (!active || version !== verification.current) return;
         setReady(false);
         if (
           err instanceof SessionError &&
           (err.status === 401 || err.status === 403)
         ) {
+          setVerifiedRole(null);
           router.replace("/login");
         } else {
           setError(
@@ -121,30 +130,28 @@ export default function DemoAuthGuard({
     };
   }, [role, router]);
 
-  if (error) {
-    return (
-      <div role="alert" className="p-8 text-center">
-        <p>{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-4 underline"
-        >
-          Try again
-        </button>
-      </div>
-    );
-  }
-
-  if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc]">
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-600 shadow-sm">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
-          Checking your session...
+  return (
+    <>
+      {error && (
+        <div role="alert" className="p-8 text-center">
+          <p>{error}</p>
+          <button onClick={() => window.location.reload()} className="mt-4 underline">Try again</button>
         </div>
-      </div>
-    );
-  }
-
-  return <>{children}</>;
+      )}
+      {!ready && !error && (
+        <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc]">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-600 shadow-sm">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
+            Checking your session...
+          </div>
+        </div>
+      )}
+      {/* Keep verified forms mounted during focus checks without displaying them. */}
+      {verifiedRole === role && (
+        <div className={ready && !error ? 'contents' : 'hidden'} inert={!ready || !!error}>
+          {children}
+        </div>
+      )}
+    </>
+  );
 }

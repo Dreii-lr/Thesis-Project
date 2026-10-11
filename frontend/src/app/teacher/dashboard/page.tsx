@@ -82,7 +82,7 @@ export default function TeacherDashboard() {
         <>
           <ApiState loading={false} error={studentsError} onRetry={() => void refreshStudents()} />
           <ApiState loading={false} error={attendanceError} onRetry={() => { setAttendanceLoading(true); setAttendanceError(null); setAttendanceRetry(value => value + 1); }} />
-          <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#1f5fe0] via-[#2d6af0] to-[#4f46e5] p-7 text-white shadow-xl shadow-blue-600/15 sm:p-8">
+          <section className="portal-hero relative overflow-hidden rounded-[28px] p-7 text-white shadow-xl shadow-blue-600/15 sm:p-8">
             <div className="absolute -right-12 -top-20 h-64 w-64 rounded-full bg-white/10" />
             <div className="relative flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
               <div>
@@ -97,10 +97,10 @@ export default function TeacherDashboard() {
                   {programs.length} learning programs.
                 </p>
                 <Link
-                  href="/teacher/students"
+                  href="/teacher/create-account/add-student"
                   className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-bold text-blue-700"
                 >
-                  Review learner records <ArrowRight size={16} />
+                  Create learner accounts <ArrowRight size={16} />
                 </Link>
               </div>
               <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/20">

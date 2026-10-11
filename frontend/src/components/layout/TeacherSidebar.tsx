@@ -9,7 +9,6 @@ import {
   ClipboardCheck,
   CloudUpload,
   SquareText,
-  FileCheck,
   Library,
   FilePlus,
   FileText,

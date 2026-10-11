@@ -9,11 +9,11 @@ import React, {
   useRef,
 } from 'react';
 import {
-  createStudentInApi,
+  mapStudentInApi,
   fetchStudentsFromApi,
   updateStudentInApi,
   type Student,
-  type StudentCreatePayload,
+  type StudentMappingPayload,
   type StudentUpdatePayload,
 } from '@/src/lib/students-api';
 
@@ -22,7 +22,7 @@ interface StudentContextType {
   isLoading: boolean;
   error: string | null;
   refreshStudents: () => Promise<void>;
-  addStudent: (studentData: StudentCreatePayload) => Promise<Student>;
+  mapStudent: (studentData: StudentMappingPayload) => Promise<Student>;
   updateStudent: (
     id: string,
     updatedData: StudentUpdatePayload
@@ -62,12 +62,12 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
     return () => { active = false; requestVersion.current += 1; };
   }, [refreshStudents]);
 
-  const addStudent = async (
-    studentData: StudentCreatePayload
+  const mapStudent = async (
+    studentData: StudentMappingPayload
   ): Promise<Student> => {
-    const created = await createStudentInApi(studentData);
-    setStudents((prev) => [created, ...prev]);
-    return created;
+    const mapped = await mapStudentInApi(studentData);
+    setStudents((prev) => [mapped, ...prev]);
+    return mapped;
   };
 
   const updateStudent = async (
@@ -90,7 +90,7 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         error,
         refreshStudents,
-        addStudent,
+        mapStudent,
         updateStudent,
       }}
     >

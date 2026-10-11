@@ -31,3 +31,41 @@ export async function listSubjects(): Promise<SubjectRecord[]> {
 export function subjectName(subjects: SubjectRecord[], code: string, category?: string | null): string {
   return subjects.find(subject => subject.code === code && (!category || subject.category_code === category))?.name || code;
 }
+
+export interface SubjectCreatePayload {
+  category_id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  is_active: boolean;
+}
+export type SubjectUpdatePayload = Partial<SubjectCreatePayload>;
+
+function subjectPayload(payload: SubjectUpdatePayload) {
+  // Send only fields accepted by the active subject schemas.
+  return {
+    ...(payload.category_id !== undefined ? { category_id: payload.category_id } : {}),
+    ...(payload.code !== undefined ? { code: payload.code.trim() } : {}),
+    ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
+    ...(payload.description !== undefined ? { description: payload.description?.trim() ?? '' } : {}),
+    ...(payload.is_active !== undefined ? { is_active: payload.is_active } : {}),
+  };
+}
+
+export function createSubject(payload: SubjectCreatePayload): Promise<SubjectRecord> {
+  return authenticatedRequest<SubjectRecord>('/subjects/', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subjectPayload(payload)),
+  });
+}
+
+export function updateSubject(id: string, payload: SubjectUpdatePayload): Promise<SubjectRecord> {
+  return authenticatedRequest<SubjectRecord>(`/subjects/${encodeURIComponent(id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subjectPayload(payload)),
+  });
+}
+
+export function deleteSubject(id: string): Promise<void> {
+  return authenticatedRequest<void>(`/subjects/${encodeURIComponent(id)}`, { method: 'DELETE' }, false);
+}

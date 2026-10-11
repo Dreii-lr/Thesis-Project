@@ -66,7 +66,7 @@ export default function LoginPage() {
     setError("");
 
     if (!identity.trim()) {
-      setError("Please enter your email or ID.");
+      setError("Please enter your account ID.");
       return;
     }
 
@@ -84,11 +84,7 @@ export default function LoginPage() {
 
       saveDemoSession(resolvedRole, user.email || identity.trim());
 
-      router.replace(
-        resolvedRole === "teacher"
-          ? "/teacher/dashboard"
-          : "/student/dashboard",
-      );
+      router.replace(`/${resolvedRole}/dashboard`);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Login failed. Please try again.",
@@ -218,7 +214,7 @@ export default function LoginPage() {
                     htmlFor="identity"
                     className="mb-2 block text-sm font-semibold text-slate-800"
                   >
-                    Email or ID
+                    Account ID
                   </label>
 
                   <div className="flex h-[54px] items-center rounded-xl border border-slate-200 bg-white px-4 transition focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-50">
@@ -229,7 +225,7 @@ export default function LoginPage() {
                       disabled={isSubmitting}
                       value={identity}
                       onChange={(event) => setIdentity(event.target.value)}
-                      placeholder="Enter your email or ID"
+                      placeholder="Enter your account ID"
                       autoComplete="username"
                       className="ml-3 h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
                     />
