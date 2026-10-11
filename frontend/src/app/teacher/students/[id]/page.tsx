@@ -1,36 +1,48 @@
 'use client';
-import { formatCategoryLevel } from '@/src/data/mockStudents';
+import { fetchStudentByIdFromApi, formatCategoryLevel, type Student } from '@/src/lib/students-api';
+import ApiState from '@/src/components/ui/ApiState';
+import { dateKey } from '@/src/lib/teacher-calendar';
 
 
 import Link from 'next/link';
-import { use } from 'react';
+import { use, useEffect, useState } from 'react';
 import { ChevronLeft, Edit } from 'lucide-react';
-import { useTeacher } from '@/src/context/TeacherContext';
-import { notFound } from 'next/navigation';
 import RightContentArea from '@/src/components/layout/teacher/students/RightContentArea';
 
 export default function StudentProfileView({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
-  const { students } = useTeacher();
-  
-  const student = students.find(s => s.id === resolvedParams.id);
-  if (!student) return notFound();
+  const [student, setStudent] = useState<Student | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    fetchStudentByIdFromApi(resolvedParams.id)
+      .then(data => { if (active) setStudent(data); })
+      .catch(err => { if (active) setError(err instanceof Error ? err.message : 'Unable to load the learner.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [resolvedParams.id, retry]);
+
+  if (loading || error || !student || student.id !== resolvedParams.id) return (
+    <div className="p-6">
+      <Link href="/teacher/students" className="text-sm text-blue-600">Back to Directory</Link>
+      <ApiState loading={loading || (!error && student?.id !== resolvedParams.id)} error={error} onRetry={() => { setLoading(true); setError(null); setRetry(value => value + 1); }} />
+    </div>
+  );
 
   // Calculate accurate age from birthDate
   const calculateAge = (birthDateString: string) => {
-    const today = new Date();
-    const birthDate = new Date(birthDateString);
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
-    return age;
+    const [year, month, day] = dateKey(new Date()).split('-').map(Number);
+    const [birthYear, birthMonth, birthDay] = birthDateString.split('-').map(Number);
+    return year - birthYear - (month < birthMonth || (month === birthMonth && day < birthDay) ? 1 : 0);
   };
 
-  const formattedDate = new Date(student.personal_details.birth_date).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric'
-  });
+  const birthDate = student.personal_details.birth_date;
+  const hasBirthDate = !!birthDate && Number.isFinite(Date.parse(birthDate));
+  const formattedDate = hasBirthDate ? new Date(birthDate + 'T12:00:00+08:00').toLocaleDateString('en-GB', {
+    timeZone: 'Asia/Manila', day: '2-digit', month: 'short', year: 'numeric'
+  }) : '—';
   
   const initials = `${student.first_name.charAt(0)}${student.last_name.charAt(0)}`.toUpperCase();
 
@@ -71,10 +83,10 @@ export default function StudentProfileView({ params }: { params: Promise<{ id: s
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Middle Name</span><span className="font-medium text-gray-900">: {student.middle_name || '-'}</span></div>
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Last Name</span><span className="font-medium text-gray-900">: {student.last_name}</span></div>
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Gender</span><span className="font-medium text-gray-900">: {student.personal_details.gender}</span></div>
-                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Birth Date</span><span className="font-medium text-gray-900">: {formattedDate} ({calculateAge(student.personal_details.birth_date)} yo)</span></div>
+                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Birth Date</span><span className="font-medium text-gray-900">: {formattedDate}{hasBirthDate ? ` (${calculateAge(birthDate)} yo)` : ''}</span></div>
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Civil Status</span><span className="font-medium text-gray-900">: {student.personal_details.civil_status}</span></div>
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Religion</span><span className="font-medium text-gray-900">: {student.personal_details.religion}</span></div>
-                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Place of Birth</span><span className="font-medium text-gray-900">: {student.personal_details.place_of_birth}</span></div>
+                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Place of Birth</span><span className="font-medium text-gray-900">: Unavailable</span></div>
               </div>
             </section>
 
@@ -96,7 +108,7 @@ export default function StudentProfileView({ params }: { params: Promise<{ id: s
               <h3 className="text-[11px] font-bold text-gray-900 uppercase tracking-wider mb-3">Academic Profile</h3>
               <div className="space-y-2.5 text-sm">
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Level</span><span className="font-medium text-gray-900">: {formatCategoryLevel(student.user_category)}</span></div>
-                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Current Focus</span><span className="font-medium text-gray-900">: LS2 (Scientific Literacy)</span></div>
+                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Current Focus</span><span className="font-medium text-gray-900">: Unavailable</span></div>
               </div>
             </section>
             
@@ -111,7 +123,7 @@ export default function StudentProfileView({ params }: { params: Promise<{ id: s
         </aside>
 
         {/* RIGHT AREA: Tabs and Content */}
-        <RightContentArea />
+        <RightContentArea key={student.id} student={student} />
 
       </div>
     </div>

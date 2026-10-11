@@ -20,12 +20,12 @@ export default function AddStudentPage() {
     isOpen: boolean;
     name: string;
     id: string;
-    password: string;
+    recordId: string;
   }>({
     isOpen: false,
     name: '',
     id: '',
-    password: '',
+    recordId: '',
   });
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -39,15 +39,14 @@ export default function AddStudentPage() {
     const lastName = ((formData.get('last_name') as string) || '').trim();
     const birthDate = (formData.get('birth_date') as string) || '';
     const lrnNumber = ((formData.get('lrn_number') as string) || '').trim();
-    const defaultPassword = birthDate.replace(/-/g, '');
 
     const payload: StudentCreatePayload = {
-      email: ((formData.get('email') as string) || '').trim(),
+      email: ((formData.get('email') as string) || '').trim() || null,
       first_name: firstName,
       last_name: lastName,
       middle_name: ((formData.get('middle_name') as string) || '').trim(),
       suffix: ((formData.get('suffix') as string) || '').trim(),
-      user_category: (formData.get('user_category') as string) || 'secondary',
+      user_category: (formData.get('user_category') as StudentCreatePayload['user_category']) || 'SECONDARY',
       personal_details: {
         gender: (formData.get('gender') as string) || '',
         birth_date: birthDate,
@@ -56,9 +55,6 @@ export default function AddStudentPage() {
         ).trim(),
         civil_status: ((formData.get('civil_status') as string) || '').trim(),
         religion: ((formData.get('religion') as string) || '').trim(),
-        place_of_birth: (
-          (formData.get('place_of_birth') as string) || ''
-        ).trim(),
         lrn_number: lrnNumber,
       },
       contact_details: {
@@ -70,15 +66,16 @@ export default function AddStudentPage() {
         contact_no: ((formData.get('contact_no') as string) || '').trim(),
       },
       family_details: {
-        mother_name: ((formData.get('mother_name') as string) || '').trim(),
-        father_name: ((formData.get('father_name') as string) || '').trim(),
-        guardian_name: ((formData.get('guardian_name') as string) || '').trim(),
-        guardian_relation: (
-          (formData.get('guardian_relation') as string) || ''
-        ).trim(),
-        contact_no: (
-          (formData.get('family_contact_no') as string) || ''
-        ).trim(),
+        mother: {
+          name: ((formData.get('mother_name') as string) || '').trim(),
+        },
+        father: {
+          name: ((formData.get('father_name') as string) || '').trim(),
+        },
+        guardian: {
+          name: ((formData.get('guardian_name') as string) || '').trim(),
+          contact_no: ((formData.get('family_contact_no') as string) || '').trim(),
+        },
       },
     };
 
@@ -92,7 +89,7 @@ export default function AddStudentPage() {
           createdStudent.student_id ||
           createdStudent.id ||
           createdStudent.email,
-        password: createdStudent.generated_password || defaultPassword,
+        recordId: createdStudent.id,
       });
     } catch (err: unknown) {
       setError(
@@ -107,7 +104,7 @@ export default function AddStudentPage() {
 
   const closeModalAndRedirect = () => {
     setModalData((prev) => ({ ...prev, isOpen: false }));
-    router.push('/teacher/create-account');
+    router.push(`/teacher/create-account/${encodeURIComponent(modalData.recordId)}`);
   };
 
   const inputClass =
@@ -204,7 +201,7 @@ export default function AddStudentPage() {
                   defaultValue="secondary"
                   className={inputClass}
                 >
-                  <option value="elementary">Elementary</option>
+                  <option value="ELEMENTARY">Elementary</option>
                   <option value="junior">Junior High School</option>
                   <option value="basic_literacy">Basic Literacy</option>
                 </select>
@@ -255,14 +252,9 @@ export default function AddStudentPage() {
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm text-gray-600 font-medium">
-                  Place of Birth <span className="text-red-500">*</span>
+                  Place of Birth
                 </label>
-                <input
-                  name="place_of_birth"
-                  required
-                  type="text"
-                  className={inputClass}
-                />
+                <input name="place_of_birth" disabled placeholder="Unavailable" type="text" className={inputClass} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm text-gray-600 font-medium">
@@ -309,11 +301,10 @@ export default function AddStudentPage() {
               </div>
               <div className="flex flex-col gap-1.5 lg:col-span-2">
                 <label className="text-sm text-gray-600 font-medium">
-                  Email <span className="text-red-500">*</span>
+                  Email
                 </label>
                 <input
                   name="email"
-                  required
                   type="email"
                   className={inputClass}
                 />
@@ -355,6 +346,8 @@ export default function AddStudentPage() {
                 </label>
                 <input
                   name="guardian_relation"
+                  disabled
+                  placeholder="Unavailable"
                   type="text"
                   className={inputClass}
                 />
@@ -394,10 +387,10 @@ export default function AddStudentPage() {
             </div>
 
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Account Created!
+              Learner Saved!
             </h2>
             <p className="text-gray-500 text-sm mb-6 px-4 leading-relaxed">
-              The learner has been successfully enrolled into the system.
+              The learner has been mapped. Review the saved details to enroll this learner.
             </p>
 
             <div className="bg-gray-50 border border-gray-100 rounded-xl p-5 text-left mb-8 space-y-4">
@@ -411,30 +404,20 @@ export default function AddStudentPage() {
               </div>
               <div>
                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                  Student ID / Username
+                  Student ID
                 </p>
                 <p className="text-lg font-bold text-blue-600">
                   {modalData.id}
                 </p>
               </div>
-              <div>
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                  Default Password
-                </p>
-                <p className="text-sm font-medium text-gray-900">
-                  {modalData.password}
-                </p>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  Format: YYYYMMDD (Based on Birthdate)
-                </p>
-              </div>
+
             </div>
 
             <button
               onClick={closeModalAndRedirect}
               className="w-full py-3 bg-[#2563eb] hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm"
             >
-              Done & Close
+              Review Learner
             </button>
           </div>
         </div>

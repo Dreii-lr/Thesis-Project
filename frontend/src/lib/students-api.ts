@@ -1,9 +1,85 @@
-// frontend/src/lib/students-api.ts
-import { authenticatedFetch } from './auth-api';
+import { authenticatedRequest } from './auth-api';
+import type { TargetCategory } from './assessments-api';
+
+export type UserStatus = 'MAPPED' | 'ACTIVE' | 'INACTIVE' | 'COMPLETED';
+export type LearningModality = 'FTF' | 'BLENDED';
+
+export interface PersonalDetailsInput {
+  user_id?: string | null;
+  is_interested?: boolean | null;
+  gender?: string | null;
+  birth_date?: string | null;
+  nationality?: string | null;
+  civil_status?: string | null;
+  religion?: string | null;
+  learning_modalities?: LearningModality | null;
+  lrn_number?: string | null;
+}
+export interface ContactDetailsInput {
+  street_building_no?: string | null;
+  municipality?: string | null;
+  province?: string | null;
+  contact_no?: string | null;
+}
+export interface ParentGuardianInfo {
+  name?: string | null;
+  contact_no?: string | null;
+}
+export interface SiblingInfo {
+  name?: string | null;
+  last_grade_level_completed?: string | null;
+  occupation?: string | null;
+}
+export interface FamilyDetailsInput {
+  mother?: ParentGuardianInfo | null;
+  father?: ParentGuardianInfo | null;
+  guardian?: ParentGuardianInfo | null;
+  siblings?: SiblingInfo[] | null;
+}
+export interface FamilyDetailsRead extends DetailDates {
+  family_details_id?: string | null;
+  user_id?: string | null;
+  mother?: ParentGuardianInfo | Record<string, unknown> | null;
+  father?: ParentGuardianInfo | Record<string, unknown> | null;
+  guardian?: ParentGuardianInfo | Record<string, unknown> | null;
+  siblings?: (SiblingInfo | Record<string, unknown>)[] | null;
+}
+interface DetailDates {
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+export interface UserRecord {
+  user_id?: string | null;
+  student_id?: string | null;
+  teacher_id?: string | null;
+  employee_id?: string | null;
+  firebase_uid?: string | null;
+  email?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  middle_name?: string | null;
+  suffix?: string | null;
+  password?: string | null;
+  role?: 'STUDENT' | 'TEACHER' | 'EMPLOYEE' | 'ADMIN' | null;
+  user_category?: TargetCategory | null;
+  status?: UserStatus | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  personal_details?: (PersonalDetailsInput & DetailDates & { personal_details_id?: string | null; student_id?: string | null }) | null;
+  contact_details?: (ContactDetailsInput & DetailDates & { contact_details_id?: string | null; user_id?: string | null }) | null;
+  family_details?: FamilyDetailsRead | null;
+}
+export interface ListUsersResponse {
+  users?: UserRecord[] | null;
+  total?: number | null;
+  offset?: number | null;
+  limit?: number | null;
+}
 
 export interface PersonalDetails {
   user_id?: string | null;
   student_id?: string | null;
+  is_interested?: boolean | null;
   gender: string;
   birth_date: string;
   nationality: string;
@@ -11,138 +87,101 @@ export interface PersonalDetails {
   religion: string;
   place_of_birth: string;
   lrn_number: string;
+  learning_modalities?: LearningModality | null;
 }
-
 export interface ContactDetails {
   street_building_no: string;
   municipality: string;
   province: string;
   contact_no: string;
 }
-
-export interface FamilyDetails {
+export interface FamilyDetails extends FamilyDetailsInput {
   mother_name: string;
   father_name: string;
   guardian_name: string;
   guardian_relation: string;
   contact_no: string;
 }
-
 export interface Student {
-  id: string;          // Primary key UUID (user_id) used for GET/PATCH /users/{user_id}
-  student_id: string;  // Generated Student ID (e.g. 2026-0001) displayed in UI
+  id: string;
+  student_id: string;
   email: string;
   first_name: string;
   last_name: string;
   middle_name: string;
   suffix: string;
   user_category: string;
+  status: UserStatus | null;
   personal_details: PersonalDetails;
   contact_details: ContactDetails;
   family_details: FamilyDetails;
-  generated_password?: string;
+}
+export interface StudentCreatePayload {
+  email: string | null;
+  first_name: string;
+  last_name: string;
+  middle_name?: string | null;
+  suffix?: string | null;
+  user_category?: TargetCategory;
+  personal_details?: PersonalDetailsInput | null;
+  contact_details?: ContactDetailsInput | null;
+  family_details?: FamilyDetailsInput | null;
+}
+export interface StudentUpdatePayload {
+  first_name?: string | null;
+  last_name?: string | null;
+  middle_name?: string | null;
+  suffix?: string | null;
+  user_category?: TargetCategory | null;
+  status?: UserStatus | null;
+  personal_details?: PersonalDetailsInput | null;
+  contact_details?: ContactDetailsInput | null;
+  family_details?: FamilyDetailsInput | null;
 }
 
-export type StudentCreatePayload = Omit<
-  Student,
-  'id' | 'student_id' | 'generated_password'
->;
-
-export type StudentUpdatePayload = Partial<StudentCreatePayload>;
-
-/**
- * Formats backend UserCategory values into human-readable labels
- */
 export function formatCategoryLevel(category?: string): string {
-  switch ((category || '').toLowerCase()) {
-    case 'elementary':
-    case 'primary':
-      return 'Elementary';
-    case 'secondary':
-      return 'Secondary (High School)';
-    case 'junior':
-      return 'Junior High School';
-    case 'senior':
-      return 'Senior High School';
-    default:
-      return category || 'N/A';
+  switch ((category || '').toUpperCase()) {
+    case 'ELEMENTARY': return 'Elementary';
+    case 'SECONDARY': return 'Secondary (High School)';
+    case 'BLP': return 'Basic Literacy Program';
+    default: return category || 'N/A';
   }
 }
 
-async function extractApiError(
-  response: Response,
-  fallback: string
-): Promise<string> {
-  try {
-    const body = await response.json();
-    // FastAPI 422 Pydantic validation array
-    if (Array.isArray(body?.detail)) {
-      const first = body.detail[0];
-      const field = first?.loc?.slice(1)?.join('.') || '';
-      return field ? `${field}: ${first.msg}` : first?.msg || fallback;
-    }
-    return (
-      body?.message ||
-      body?.detail ||
-      body?.error?.message ||
-      (typeof body?.detail === 'string' ? body.detail : fallback)
-    );
-  } catch {
-    return fallback;
-  }
+function familyText(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+function parentInfo(parent?: ParentGuardianInfo | Record<string, unknown> | null): ParentGuardianInfo | null {
+  return parent ? { name: familyText(parent.name), contact_no: familyText(parent.contact_no) } : null;
 }
 
-/**
- * Unwraps FastAPI SuccessfulResponseSchema:
- * { message, message_status, status_code, data: { resources: ... } }
- */
-function unwrapData<T>(json: any): T {
-  if (json && typeof json === 'object' && 'data' in json && json.data !== null && json.data !== undefined) {
-    if (typeof json.data === 'object' && 'resources' in json.data && json.data.resources !== undefined) {
-      return json.data.resources as T;
-    }
-    return json.data as T;
-  }
-  return json as T;
-}
-
-/**
- * Maps the backend UserRead response to the Student interface
- */
-export function normalizeStudentRecord(raw: any): Student {
-  const personal = raw?.personal_details || {};
-  const contact = raw?.contact_details || {};
-  const family = raw?.family_details || {};
-
-  // Always preserve the actual UUID user_id for API operations
-  const resolvedUserId = String(
-    raw?.user_id ?? raw?.id ?? personal?.user_id ?? ''
-  );
-
-  // Use the backend-generated student_id for display
-  const resolvedStudentId = String(
-    raw?.student_id ?? personal?.student_id ?? resolvedUserId
-  );
-
+export function normalizeStudentRecord(raw: UserRecord): Student {
+  if (!raw.user_id || raw.role !== 'STUDENT') throw new Error('The requested learner record is unavailable.');
+  const personal = raw.personal_details;
+  const contact = raw.contact_details;
+  const family = raw.family_details;
   return {
-    id: resolvedUserId,
-    student_id: resolvedStudentId,
-    email: raw?.email ?? '',
-    first_name: raw?.first_name ?? '',
-    last_name: raw?.last_name ?? '',
-    middle_name: raw?.middle_name ?? '',
-    suffix: raw?.suffix ?? '',
-    user_category: raw?.user_category ?? 'secondary',
+    id: raw.user_id,
+    student_id: raw.student_id ?? '',
+    email: raw.email ?? '',
+    first_name: raw.first_name ?? '',
+    last_name: raw.last_name ?? '',
+    middle_name: raw.middle_name ?? '',
+    suffix: raw.suffix ?? '',
+    user_category: raw.user_category ?? '',
+    status: raw.status ?? null,
     personal_details: {
-      user_id: resolvedUserId,
-      student_id: resolvedStudentId,
+      user_id: raw.user_id,
+      student_id: raw.student_id,
+      is_interested: personal?.is_interested,
       gender: personal?.gender ?? '',
-      birth_date: personal?.birth_date ? String(personal.birth_date).slice(0, 10) : '',
-      nationality: personal?.nationality ?? 'Filipino',
+      birth_date: personal?.birth_date ?? '',
+      nationality: personal?.nationality ?? '',
       civil_status: personal?.civil_status ?? '',
       religion: personal?.religion ?? '',
-      place_of_birth: personal?.place_of_birth ?? '',
+      place_of_birth: '',
       lrn_number: personal?.lrn_number ?? '',
+      learning_modalities: personal?.learning_modalities,
     },
     contact_details: {
       street_building_no: contact?.street_building_no ?? '',
@@ -151,128 +190,86 @@ export function normalizeStudentRecord(raw: any): Student {
       contact_no: contact?.contact_no ?? '',
     },
     family_details: {
-      mother_name: family?.mother_name ?? '',
-      father_name: family?.father_name ?? '',
-      guardian_name: family?.guardian_name ?? '',
-      guardian_relation: family?.guardian_relation ?? '',
-      contact_no: family?.contact_no ?? '',
+      mother: parentInfo(family?.mother),
+      father: parentInfo(family?.father),
+      guardian: parentInfo(family?.guardian),
+      siblings: family?.siblings?.map(sibling => ({
+        name: familyText(sibling.name),
+        last_grade_level_completed: familyText(sibling.last_grade_level_completed),
+        occupation: familyText(sibling.occupation),
+      })),
+      mother_name: familyText(family?.mother?.name),
+      father_name: familyText(family?.father?.name),
+      guardian_name: familyText(family?.guardian?.name),
+      guardian_relation: familyText((family?.guardian as Record<string, unknown> | null)?.relationship || (family?.guardian as Record<string, unknown> | null)?.guardian_relation),
+      contact_no: familyText(family?.guardian?.contact_no || family?.mother?.contact_no || family?.father?.contact_no),
     },
-    generated_password: raw?.password || raw?.default_password || undefined,
   };
 }
 
-/**
- * GET /api/v1/users/ — Fetches all students from FastAPI
- */
 export async function fetchStudentsFromApi(offset = 0, limit = 100): Promise<Student[]> {
-  const response = await authenticatedFetch(`/users/?offset=${offset}&limit=${limit}`, {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store',
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      await extractApiError(response, 'Failed to fetch students from backend.')
-    );
+  const students: Student[] = [];
+  for (let current = offset; ; current += limit) {
+    const page = await authenticatedRequest<ListUsersResponse>(`/users/?offset=${current}&limit=${limit}`);
+    if (!Array.isArray(page.users) || typeof page.total !== 'number') throw new Error('Unexpected learner list response.');
+    students.push(...page.users.map(normalizeStudentRecord));
+    // The backend total excludes mapped and inactive learners, while rows include them.
+    if (page.users.length < limit) return students;
   }
-
-  const json = await response.json();
-  const unwrapped = unwrapData<any>(json);
-
-  // Matches ListUserRead: { users: [...], total, offset, limit }
-  const items = Array.isArray(unwrapped)
-    ? unwrapped
-    : Array.isArray(unwrapped?.users)
-    ? unwrapped.users
-    : Array.isArray(unwrapped?.items)
-    ? unwrapped.items
-    : [];
-
-  return items.map(normalizeStudentRecord);
 }
 
-/**
- * GET /api/v1/users/{user_id} — Fetches a single student by UUID user_id
- */
 export async function fetchStudentByIdFromApi(id: string): Promise<Student> {
-  const response = await authenticatedFetch(
-    `/users/${encodeURIComponent(id)}`,
-    {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      await extractApiError(response, 'Failed to load student details.')
-    );
-  }
-
-  const json = await response.json();
-  return normalizeStudentRecord(unwrapData<any>(json));
+  return normalizeStudentRecord(await authenticatedRequest<UserRecord>(`/users/${encodeURIComponent(id)}`));
 }
 
-/**
- * POST /api/v1/users/ — Registers a new student in FastAPI
- */
-export async function createStudentInApi(
-  payload: StudentCreatePayload
-): Promise<Student> {
-  const response = await authenticatedFetch('/users/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      await extractApiError(response, 'Failed to register student.')
-    );
-  }
-
-  const json = await response.json();
-  const created = unwrapData<any>(json);
-
-  return normalizeStudentRecord({
-    ...payload,
-    ...(created && typeof created === 'object' ? created : {}),
-  });
+function categoryValue(value: string): TargetCategory {
+  const category = value.toUpperCase();
+  if (category !== 'ELEMENTARY' && category !== 'SECONDARY' && category !== 'BLP') throw new Error('Please select a valid learning program.');
+  return category;
 }
 
-/**
- * PATCH /api/v1/users/{user_id} — Updates an existing student in FastAPI
- * (Changed from PUT to PATCH to match @router.patch("/{user_id}"))
- */
-export async function updateStudentInApi(
-  id: string,
-  payload: StudentUpdatePayload
-): Promise<Student> {
-  const response = await authenticatedFetch(
-    `/users/${encodeURIComponent(id)}`,
-    {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload),
-    }
-  );
+function profilePayload(payload: StudentUpdatePayload) {
+  const personal = payload.personal_details;
+  return {
+    ...(payload.first_name !== undefined ? { first_name: payload.first_name } : {}),
+    ...(payload.last_name !== undefined ? { last_name: payload.last_name } : {}),
+    ...(payload.middle_name !== undefined ? { middle_name: payload.middle_name } : {}),
+    ...(payload.suffix !== undefined ? { suffix: payload.suffix } : {}),
+    ...(personal ? { personal_details: {
+      ...(personal.is_interested !== undefined ? { is_interested: personal.is_interested } : {}),
+      gender: personal.gender,
+      birth_date: personal.birth_date || null,
+      nationality: personal.nationality,
+      civil_status: personal.civil_status,
+      religion: personal.religion,
+      lrn_number: personal.lrn_number,
+      ...(personal.learning_modalities !== undefined ? { learning_modalities: personal.learning_modalities } : {}),
+    } } : {}),
+    ...(payload.contact_details ? { contact_details: payload.contact_details } : {}),
+    ...(payload.family_details ? { family_details: payload.family_details } : {}),
+  };
+}
 
-  if (!response.ok) {
-    throw new Error(
-      await extractApiError(response, 'Failed to update student.')
-    );
-  }
-
-  const json = await response.json();
-  const updated = unwrapData<any>(json);
-
-  return normalizeStudentRecord({
-    ...payload,
-    ...(updated && typeof updated === 'object' ? updated : {}),
-    user_id: id,
+export async function createStudentInApi(payload: StudentCreatePayload): Promise<Student> {
+  const created = await authenticatedRequest<UserRecord>('/users/mapping', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...profilePayload(payload), email: payload.email || null, ...(payload.user_category ? { user_category: categoryValue(payload.user_category) } : {}) }),
   });
+  return normalizeStudentRecord(created);
+}
+
+export async function updateStudentInApi(id: string, payload: StudentUpdatePayload): Promise<Student> {
+  // The dependency binds scalar category changes as query parameters.
+  const params = new URLSearchParams();
+  if (payload.user_category) params.set('user_category', categoryValue(payload.user_category));
+  if (payload.status) params.set('status', payload.status);
+  const query = params.size ? '?' + params.toString() : '';
+  const updated = await authenticatedRequest<UserRecord>(`/users/${encodeURIComponent(id)}${query}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(profilePayload(payload)),
+  });
+  return normalizeStudentRecord(updated);
+}
+
+export function enrollStudentInApi(id: string): Promise<void> {
+  return authenticatedRequest<void>(`/users/${encodeURIComponent(id)}`, { method: 'POST' }, false);
 }
