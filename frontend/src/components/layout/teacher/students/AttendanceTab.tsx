@@ -2,20 +2,19 @@
 
 import { useState } from 'react';
 import { Search, CalendarDays, CheckCircle2, XCircle, Clock } from 'lucide-react';
-import { Student } from '@/src/data/mockStudents';
+import type { StudentAttendanceHistory } from '@/src/lib/attendance-api';
 
-export default function AttendanceTab({ student }: { student: Student }) {
-  const attendanceRecords = student.attendance || [];
+export default function AttendanceTab({ history }: { history: StudentAttendanceHistory }) {
+  const attendanceRecords = history.records;
   const [filter, setFilter] = useState<'All' | 'Present' | 'Absent' | 'Excused'>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Calculate Statistics
-  const totalDays = attendanceRecords.length;
-  const presentDays = attendanceRecords.filter(r => r.status === 'Present').length;
-  const absentDays = attendanceRecords.filter(r => r.status === 'Absent').length;
-  const excusedDays = attendanceRecords.filter(r => r.status === 'Excused').length;
+  const presentDays = history.present_days;
+  const absentDays = history.absent_days;
+  const excusedDays = history.excused_days;
   
-  const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+  const attendanceRate = history.attendance_rate;
 
   // Filter Logic
   const filteredRecords = attendanceRecords.filter(record => {
@@ -132,8 +131,8 @@ export default function AttendanceTab({ student }: { student: Student }) {
                   </div>
 
                   <div>
-                    {record.remarks ? (
-                      <p className="text-[12px] text-gray-600 italic">"{record.remarks}"</p>
+                    {(record.reason_of_absence || record.remarks) ? (
+                      <p className="text-[12px] text-gray-600 italic">{record.reason_of_absence || record.remarks}</p>
                     ) : (
                       <span className="text-[12px] text-gray-400">-</span>
                     )}

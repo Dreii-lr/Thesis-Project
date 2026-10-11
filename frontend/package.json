@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:auth": "node --test tests/auth-api.test.cjs"
+    "test:auth": "node --test tests/auth-api.test.cjs",
+    "test:teacher": "node --test tests/teacher-api.test.cjs"
   },
   "dependencies": {
     "@tiptap/extension-image": "^3.31.4",

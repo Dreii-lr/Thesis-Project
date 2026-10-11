@@ -8,8 +8,9 @@ import { ArrowLeft, Loader2, Save } from 'lucide-react';
 import { useStudents } from '@/src/context/StudentContext';
 import {
   fetchStudentByIdFromApi,
+  enrollStudentInApi,
   type Student,
-  type StudentCreatePayload,
+  type StudentUpdatePayload,
 } from '@/src/lib/students-api';
 
 export default function EditStudentPage({
@@ -17,29 +18,22 @@ export default function EditStudentPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const resolvedParams = use(params);
-  const decodedId = decodeURIComponent(resolvedParams.id);
+  const { id } = use(params);
+  return <EditStudentForm key={id} id={id} />;
+}
+
+function EditStudentForm({ id: decodedId }: { id: string }) {
   const router = useRouter();
-  const { students, updateStudent } = useStudents();
+  const { updateStudent, refreshStudents } = useStudents();
 
-  const existingInContext = students.find(
-    (s) => s.id === decodedId || s.student_id === decodedId
-  );
-
-  const [student, setStudent] = useState<Student | null>(
-    existingInContext || null
-  );
-  const [isLoadingStudent, setIsLoadingStudent] = useState(!existingInContext);
+  const [student, setStudent] = useState<Student | null>(null);
+  const [isLoadingStudent, setIsLoadingStudent] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEnrolling, setIsEnrolling] = useState(false);
+  const [enrolled, setEnrolled] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (existingInContext) {
-      setStudent(existingInContext);
-      setIsLoadingStudent(false);
-      return;
-    }
-
     let active = true;
     async function loadFromApi() {
       try {
@@ -62,7 +56,7 @@ export default function EditStudentPage({
     return () => {
       active = false;
     };
-  }, [decodedId, existingInContext]);
+  }, [decodedId]);
 
   if (isLoadingStudent) {
     return (
@@ -96,16 +90,16 @@ export default function EditStudentPage({
 
     const formData = new FormData(e.currentTarget);
 
-    const updatedPayload: StudentCreatePayload = {
-      email: ((formData.get('email') as string) || student.email).trim(),
+    const updatedPayload: StudentUpdatePayload = {
       first_name: ((formData.get('first_name') as string) || '').trim(),
       last_name: ((formData.get('last_name') as string) || '').trim(),
       middle_name: ((formData.get('middle_name') as string) || '').trim(),
       suffix: ((formData.get('suffix') as string) || '').trim(),
       user_category:
-        (formData.get('user_category') as string) || student.user_category,
+        (formData.get('user_category') as StudentUpdatePayload['user_category']) || undefined,
       personal_details: {
-        user_id: student.id,
+        is_interested: student.personal_details.is_interested,
+        learning_modalities: student.personal_details.learning_modalities,
         gender: (formData.get('gender') as string) || '',
         birth_date: (formData.get('birth_date') as string) || '',
         nationality: (
@@ -113,9 +107,6 @@ export default function EditStudentPage({
         ).trim(),
         civil_status: ((formData.get('civil_status') as string) || '').trim(),
         religion: ((formData.get('religion') as string) || '').trim(),
-        place_of_birth: (
-          (formData.get('place_of_birth') as string) || ''
-        ).trim(),
         lrn_number: ((formData.get('lrn_number') as string) || '').trim(),
       },
       contact_details: {
@@ -127,15 +118,19 @@ export default function EditStudentPage({
         contact_no: ((formData.get('contact_no') as string) || '').trim(),
       },
       family_details: {
-        mother_name: ((formData.get('mother_name') as string) || '').trim(),
-        father_name: ((formData.get('father_name') as string) || '').trim(),
-        guardian_name: ((formData.get('guardian_name') as string) || '').trim(),
-        guardian_relation: (
-          (formData.get('guardian_relation') as string) || ''
-        ).trim(),
-        contact_no: (
-          (formData.get('family_contact_no') as string) || ''
-        ).trim(),
+        mother: {
+          ...student.family_details.mother,
+          name: ((formData.get('mother_name') as string) || '').trim(),
+        },
+        father: {
+          ...student.family_details.father,
+          name: ((formData.get('father_name') as string) || '').trim(),
+        },
+        guardian: {
+          name: ((formData.get('guardian_name') as string) || '').trim(),
+          contact_no: ((formData.get('family_contact_no') as string) || '').trim(),
+        },
+        siblings: student.family_details.siblings,
       },
     };
 
@@ -151,6 +146,25 @@ export default function EditStudentPage({
       );
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleEnroll = async () => {
+    if (!student.personal_details.birth_date) {
+      setError('Save a birth date before enrolling this learner.');
+      return;
+    }
+    setIsEnrolling(true);
+    setError(null);
+    try {
+      await enrollStudentInApi(student.id);
+      setEnrolled(true);
+      await refreshStudents();
+      setStudent(await fetchStudentByIdFromApi(student.id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unable to enroll this learner.');
+    } finally {
+      setIsEnrolling(false);
     }
   };
 
@@ -178,6 +192,17 @@ export default function EditStudentPage({
         </Link>
       </div>
 
+      {student.status === 'MAPPED' && !enrolled && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm">
+          <p className="text-blue-700">This learner is mapped. Save any changes before enrolling.</p>
+          <button type="button" onClick={handleEnroll} disabled={isEnrolling || isSubmitting}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50">
+            {isEnrolling && <Loader2 size={16} className="animate-spin" />}
+            {isEnrolling ? 'Enrolling...' : 'Enroll Learner'}
+          </button>
+        </div>
+      )}
+      {enrolled && <p role="status" className="mb-6 p-4 bg-green-50 border border-green-100 text-green-700 rounded-xl text-sm">Learner enrolled successfully.</p>}
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
           {error}
@@ -186,7 +211,7 @@ export default function EditStudentPage({
 
       {/* Form */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 lg:p-8 animate-in slide-in-from-right-4 duration-300 min-w-0">
-        <form onSubmit={handleSubmit} className="space-y-10">
+        <form key={student.id} onSubmit={handleSubmit} className="space-y-10">
           {/* Personal Details */}
           <section>
             <h2 className="text-[13px] font-bold text-gray-700 uppercase tracking-wider mb-5">
@@ -249,8 +274,9 @@ export default function EditStudentPage({
                   defaultValue={student.user_category}
                   className={inputClass}
                 >
-                  <option value="elementary">Elementary</option>
-                  <option value="secondary">Secondary (High School)</option>
+                  <option value="ELEMENTARY">Elementary</option>
+                  <option value="SECONDARY">Secondary (High School)</option>
+                  <option value="BLP">Basic Literacy Program</option>
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
@@ -314,15 +340,9 @@ export default function EditStudentPage({
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm text-gray-600 font-medium">
-                  Place of Birth <span className="text-red-500">*</span>
+                  Place of Birth
                 </label>
-                <input
-                  name="place_of_birth"
-                  defaultValue={student.personal_details.place_of_birth}
-                  required
-                  type="text"
-                  className={inputClass}
-                />
+                <input name="place_of_birth" disabled placeholder="Unavailable" type="text" className={inputClass} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm text-gray-600 font-medium">
@@ -448,6 +468,8 @@ export default function EditStudentPage({
                 </label>
                 <input
                   name="guardian_relation"
+                  disabled
+                  placeholder="Unavailable"
                   defaultValue={student.family_details.guardian_relation}
                   type="text"
                   className={inputClass}
@@ -470,7 +492,7 @@ export default function EditStudentPage({
           <div className="flex justify-end pt-6 border-t border-gray-100">
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isEnrolling}
               className="flex items-center gap-2 px-6 py-2.5 bg-[#2563eb] hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
             >
               {isSubmitting ? (

@@ -231,3 +231,25 @@ export async function requestAccountRecovery(identity: string): Promise<void> {
       'Unable to send the recovery email. Please try again later.'));
   }
 }
+
+export async function authenticatedRequest<T>(
+  path: string,
+  options: RequestInit = {},
+  expectResources = true
+): Promise<T> {
+  const response = await authenticatedFetch(path, options);
+  if (!response.ok) {
+    throw new SessionError(
+      await extractErrorMessage(response, 'Unable to load or save data. Please try again.'),
+      response.status
+    );
+  }
+
+  const body = await response.json();
+  if (!expectResources) return undefined as T;
+  const data = body?.data;
+  if (!data || typeof data !== 'object' || !('resources' in data)) {
+    throw new Error('Unexpected server response. Please try again.');
+  }
+  return data.resources as T;
+}

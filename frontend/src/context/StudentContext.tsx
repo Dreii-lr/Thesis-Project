@@ -6,6 +6,7 @@ import React, {
   useContext,
   useEffect,
   useState,
+  useRef,
 } from 'react';
 import {
   createStudentInApi,
@@ -13,6 +14,7 @@ import {
   updateStudentInApi,
   type Student,
   type StudentCreatePayload,
+  type StudentUpdatePayload,
 } from '@/src/lib/students-api';
 
 interface StudentContextType {
@@ -23,7 +25,7 @@ interface StudentContextType {
   addStudent: (studentData: StudentCreatePayload) => Promise<Student>;
   updateStudent: (
     id: string,
-    updatedData: StudentCreatePayload
+    updatedData: StudentUpdatePayload
   ) => Promise<Student>;
 }
 
@@ -34,24 +36,30 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const requestVersion = useRef(0);
+
   const refreshStudents = useCallback(async () => {
+    const version = ++requestVersion.current;
     setIsLoading(true);
     setError(null);
     try {
       const data = await fetchStudentsFromApi();
-      setStudents(data);
+      if (version === requestVersion.current) setStudents(data);
     } catch (err: unknown) {
+      if (version !== requestVersion.current) return;
       setStudents([]);
       setError(
         err instanceof Error ? err.message : 'Failed to load students from API.'
       );
     } finally {
-      setIsLoading(false);
+      if (version === requestVersion.current) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refreshStudents();
+    let active = true;
+    void Promise.resolve().then(() => { if (active) return refreshStudents(); });
+    return () => { active = false; requestVersion.current += 1; };
   }, [refreshStudents]);
 
   const addStudent = async (
@@ -64,7 +72,7 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
 
   const updateStudent = async (
     id: string,
-    updatedData: StudentCreatePayload
+    updatedData: StudentUpdatePayload
   ): Promise<Student> => {
     const updated = await updateStudentInApi(id, updatedData);
     setStudents((prev) =>
