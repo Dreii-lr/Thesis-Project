@@ -58,9 +58,10 @@ class UserService:
     async def map_student(uow: AbstractUnitOfWork, data: UserCreate) -> SuccessfulResponseSchema:
         try:
             #check the email if already exist
-            is_email_exists = await uow.users.get_by_email(data.email)
-            if is_email_exists:
-                raise DomainEntityAlreadyExistsException("Email is already taken. Please use another email.")
+            if data.email:
+                is_email_exists = await uow.users.get_by_email(data.email)
+                if is_email_exists:
+                    raise DomainEntityAlreadyExistsException("Email is already taken. Please use another email.")
             #check first if the LRN of student is already exist
             user_data = await uow.users.get_by_lrn(data.personal_details.lrn_number)
             if user_data:
@@ -157,6 +158,7 @@ class UserService:
                 data=AdditionalData(resources=response_data),
             )
         except Exception as e:
+            print(str(e))
             raise e
 
     # @staticmethod

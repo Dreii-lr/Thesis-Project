@@ -8,44 +8,52 @@ import {
   clearDemoSession,
 } from '@/src/components/auth/DemoAuthGuard';
 import { getCurrentUser, normalizeUserRole } from '@/src/lib/auth-api';
+import { useOptionalAuth } from '@/src/context/AuthContext';
 
 export default function ProfileDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
-  const [displayName, setDisplayName] = useState('Loading...');
-  const [roleLabel, setRoleLabel] = useState<'Student' | 'Teacher' | 'Admin' | null>(null);
+  const [fallbackUser, setFallbackUser] = useState<unknown | null>(null);
 
+  const auth = useOptionalAuth();
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Display the account returned by the authenticated API.
+  // If outside AuthContext, fallback to getCurrentUser with in-memory caching
   useEffect(() => {
+    if (auth?.user) return;
     let active = true;
 
     async function loadUserProfile() {
-      const user = await getCurrentUser();
-      if (!active || !user) return;
-
-      const fullName =
-        user.full_name ||
-        [user.first_name, user.last_name].filter(Boolean).join(' ').trim() ||
-        user.email ||
-        String(user.user_id);
-
-      const resolvedRole = normalizeUserRole(user);
-      if (!resolvedRole) return;
-
-      setDisplayName(fullName);
-      setRoleLabel(resolvedRole === 'student' ? 'Student' : resolvedRole === 'admin' ? 'Admin' : 'Teacher');
+      const u = await getCurrentUser();
+      if (!active || !u) return;
+      setFallbackUser(u);
     }
 
     loadUserProfile();
-
     return () => {
       active = false;
     };
-  }, []);
+  }, [auth?.user]);
+
+  const activeUser = auth?.user || (fallbackUser as import('@/src/lib/auth-api').UserRead | null);
+
+  const displayName = activeUser
+    ? activeUser.full_name ||
+      [activeUser.first_name, activeUser.last_name].filter(Boolean).join(' ').trim() ||
+      activeUser.email ||
+      String(activeUser.user_id)
+    : 'Loading...';
+
+  const resolvedRole = activeUser ? normalizeUserRole(activeUser) : auth?.role;
+  const roleLabel: 'Student' | 'Teacher' | 'Admin' | null = resolvedRole
+    ? resolvedRole === 'student'
+      ? 'Student'
+      : resolvedRole === 'admin'
+      ? 'Admin'
+      : 'Teacher'
+    : null;
 
   // 2. Close dropdown when clicking outside
   useEffect(() => {
@@ -69,10 +77,14 @@ export default function ProfileDropdown() {
     setSignOutError('');
 
     try {
-      await clearDemoSession(); // Calls POST /api/v1/auth/logout & clears localStorage
+      if (auth?.logout) {
+        await auth.logout();
+      } else {
+        await clearDemoSession(); // Calls POST /api/v1/auth/logout & clears localStorage
+        router.replace('/login');
+        router.refresh(); // Clears Next.js client router cache
+      }
       setIsOpen(false);
-      router.replace('/login');
-      router.refresh(); // Clears Next.js client router cache
     } catch {
       setSignOutError('Unable to sign out. Please check your connection and try again.');
     } finally {

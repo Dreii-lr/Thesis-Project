@@ -82,6 +82,8 @@ export async function loginAndFetchUser(
         'Your session could not be verified. Please allow cookies for this site and try again.'), meRes.status);
     }
     const user: UserRead = await meRes.json();
+    cachedCurrentUser = user;
+    cachedUserTimestamp = Date.now();
 
     const actualRole = normalizeUserRole(user);
     if (!actualRole) {
@@ -97,6 +99,17 @@ export class SessionError extends Error {
     super(message);
     this.name = 'SessionError';
   }
+}
+
+let cachedCurrentUser: UserRead | null = null;
+let cachedUserTimestamp = 0;
+let currentUserInFlight: Promise<UserRead | null> | null = null;
+const USER_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+export function clearCurrentUserCache(): void {
+  cachedCurrentUser = null;
+  cachedUserTimestamp = 0;
+  currentUserInFlight = null;
 }
 
 let refreshInFlight: Promise<Response> | null = null;
@@ -163,6 +176,7 @@ export async function authenticatedFetch(
   }
   const refreshed = await refreshSession(requestVersion);
   if (!refreshed.ok) {
+    clearCurrentUserCache();
     throw new SessionError(
       await extractErrorMessage(refreshed, 'Your session has expired. Please sign in again.'),
       refreshed.status
@@ -173,29 +187,56 @@ export async function authenticatedFetch(
   return request();
 }
 
-export async function getCurrentUser(reportErrors = false): Promise<UserRead | null> {
-  try {
-    const meRes = await authenticatedFetch('/auth/me');
+export async function getCurrentUser(
+  reportErrors = false,
+  forceRefresh = false
+): Promise<UserRead | null> {
+  if (!forceRefresh && cachedCurrentUser && Date.now() - cachedUserTimestamp < USER_CACHE_TTL_MS) {
+    return cachedCurrentUser;
+  }
 
-    if (!meRes.ok) {
+  if (currentUserInFlight && !forceRefresh) {
+    return currentUserInFlight;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const meRes = await authenticatedFetch('/auth/me');
+
+      if (!meRes.ok) {
+        clearCurrentUserCache();
+        if (reportErrors) {
+          throw new SessionError(
+            await extractErrorMessage(meRes, 'Unable to verify your account. Please try again.'),
+            meRes.status
+          );
+        }
+        return null;
+      }
+      const user: UserRead = await meRes.json();
+      cachedCurrentUser = user;
+      cachedUserTimestamp = Date.now();
+      return user;
+    } catch (error) {
+      clearCurrentUserCache();
       if (reportErrors) {
-        throw new SessionError(await extractErrorMessage(meRes, 'Unable to verify your account. Please try again.'), meRes.status);
+        if (error instanceof TypeError) {
+          throw new Error('Unable to reach the server. Please check your connection and try again.');
+        }
+        throw error;
       }
       return null;
+    } finally {
+      currentUserInFlight = null;
     }
-    return await meRes.json();
-  } catch (error) {
-    if (reportErrors) {
-      if (error instanceof TypeError) {
-        throw new Error('Unable to reach the server. Please check your connection and try again.');
-      }
-      throw error;
-    }
-    return null;
-  }
+  })();
+
+  currentUserInFlight = fetchPromise;
+  return fetchPromise;
 }
 
 export async function logoutUser(): Promise<void> {
+  clearCurrentUserCache();
   if (logoutInFlight) return logoutInFlight;
   const previouslyEnded = sessionEnded;
   sessionEnded = true;

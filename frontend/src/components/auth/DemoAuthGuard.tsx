@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { logoutUser } from "@/src/lib/auth-api";
 import {
-  getCurrentUser,
-  logoutUser,
-  normalizeUserRole,
-  SessionError,
-} from "@/src/lib/auth-api";
+  AuthProvider,
+  useOptionalAuth,
+  type AuthContextType,
+} from "@/src/context/AuthContext";
 
 export type DemoRole = "student" | "teacher" | "admin";
 
@@ -55,6 +55,75 @@ export async function clearDemoSession() {
   }
 }
 
+function GuardContent({
+  role,
+  auth,
+  children,
+}: {
+  role: DemoRole;
+  auth: AuthContextType;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const { user, role: userRole, isLoading, error } = auth;
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!user || error) {
+      try {
+        localStorage.removeItem(SESSION_KEY);
+      } catch {
+        /* Display cache only. */
+      }
+      router.replace("/login");
+      return;
+    }
+
+    if (userRole !== role) {
+      router.replace(userRole ? `/${userRole}/dashboard` : "/login");
+    }
+  }, [isLoading, user, userRole, error, role, router]);
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc]">
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-600 shadow-sm">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
+          Checking your session...
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !user) {
+    return (
+      <div role="alert" className="p-8 text-center">
+        <p className="text-sm text-red-600">{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-4 text-sm text-blue-600 underline"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  if (userRole !== role) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc]">
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-600 shadow-sm">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
+          Redirecting to your portal...
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 export default function DemoAuthGuard({
   role,
   children,
@@ -62,96 +131,19 @@ export default function DemoAuthGuard({
   role: DemoRole;
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-  const [ready, setReady] = useState(false);
-  const [verifiedRole, setVerifiedRole] = useState<DemoRole | null>(null);
-  const [error, setError] = useState("");
-  const verification = useRef(0);
+  const auth = useOptionalAuth();
 
-  useEffect(() => {
-    let active = true;
-
-    async function verifyBackendSession() {
-      const version = ++verification.current;
-      setReady(false);
-      setError("");
-      try {
-        const user = await getCurrentUser(true);
-
-        if (!active || version !== verification.current) return;
-
-        if (!user) {
-          setVerifiedRole(null);
-          try { localStorage.removeItem(SESSION_KEY); } catch { /* Display cache only. */ }
-          router.replace("/login");
-          return;
-        }
-
-        const backendRole = normalizeUserRole(user);
-
-        if (backendRole !== role) {
-          setVerifiedRole(null);
-          router.replace(backendRole ? `/${backendRole}/dashboard` : "/login");
-          return;
-        }
-
-        saveDemoSession(role, user.email || String(user.user_id));
-        setVerifiedRole(role);
-        setReady(true);
-        setError("");
-      } catch (err) {
-        if (!active || version !== verification.current) return;
-        setReady(false);
-        if (
-          err instanceof SessionError &&
-          (err.status === 401 || err.status === 403)
-        ) {
-          setVerifiedRole(null);
-          router.replace("/login");
-        } else {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to check your session. Please try again.",
-          );
-        }
-      }
-    }
-
-    verifyBackendSession();
-    const onFocus = () => {
-      void verifyBackendSession();
-    };
-    window.addEventListener("focus", onFocus);
-
-    return () => {
-      active = false;
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [role, router]);
+  if (auth) {
+    return (
+      <GuardContent role={role} auth={auth}>
+        {children}
+      </GuardContent>
+    );
+  }
 
   return (
-    <>
-      {error && (
-        <div role="alert" className="p-8 text-center">
-          <p>{error}</p>
-          <button onClick={() => window.location.reload()} className="mt-4 underline">Try again</button>
-        </div>
-      )}
-      {!ready && !error && (
-        <div className="flex min-h-screen items-center justify-center bg-[#f6f8fc]">
-          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-600 shadow-sm">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-r-transparent" />
-            Checking your session...
-          </div>
-        </div>
-      )}
-      {/* Keep verified forms mounted during focus checks without displaying them. */}
-      {verifiedRole === role && (
-        <div className={ready && !error ? 'contents' : 'hidden'} inert={!ready || !!error}>
-          {children}
-        </div>
-      )}
-    </>
+    <AuthProvider>
+      <DemoAuthGuard role={role}>{children}</DemoAuthGuard>
+    </AuthProvider>
   );
 }

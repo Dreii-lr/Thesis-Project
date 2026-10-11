@@ -246,7 +246,7 @@ class MapStudent(BaseModel):
         return SharedUtils.capitalized_first_letter(value)
 
     @classmethod
-    def get_map_student_dependency(cls, email: EmailStr | None = Body(),
+    def get_map_student_dependency(cls, email: EmailStr | None = Body(default=None),
                                    first_name: str = Body(),
                                    last_name: str = Body(),
                                    middle_name: str | None = Body(default=None, ),
@@ -268,7 +268,7 @@ class MapStudent(BaseModel):
 class UserCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    email: Optional[EmailStr]
+    email: Optional[EmailStr] = Field(default=None)
     password: str | None = None
     first_name: str = Field(default="", )
     last_name: str = Field(default="", )
@@ -290,7 +290,7 @@ class UserCreate(BaseModel):
         return SharedUtils.capitalized_first_letter(value)
 
     @classmethod
-    def get_user_create_dependency(cls, email: EmailStr | str = Body(),
+    def get_user_create_dependency(cls, email: Optional[EmailStr] = Body(default=None),
                                    first_name: str = Body(default="", ),
                                    last_name: str = Body(default="", ),
                                    middle_name: str | None = Body(default=None, ),

@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, {
   createContext,
@@ -7,7 +7,7 @@ import React, {
   useEffect,
   useState,
   useRef,
-} from 'react';
+} from "react";
 import {
   mapStudentInApi,
   fetchStudentsFromApi,
@@ -15,7 +15,7 @@ import {
   type Student,
   type StudentMappingPayload,
   type StudentUpdatePayload,
-} from '@/src/lib/students-api';
+} from "@/src/lib/students-api";
 
 interface StudentContextType {
   students: Student[];
@@ -25,7 +25,7 @@ interface StudentContextType {
   mapStudent: (studentData: StudentMappingPayload) => Promise<Student>;
   updateStudent: (
     id: string,
-    updatedData: StudentUpdatePayload
+    updatedData: StudentUpdatePayload,
   ) => Promise<Student>;
 }
 
@@ -49,7 +49,9 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
       if (version !== requestVersion.current) return;
       setStudents([]);
       setError(
-        err instanceof Error ? err.message : 'Failed to load students from API.'
+        err instanceof Error
+          ? err.message
+          : "Failed to load students from API.",
       );
     } finally {
       if (version === requestVersion.current) setIsLoading(false);
@@ -58,27 +60,33 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    void Promise.resolve().then(() => { if (active) return refreshStudents(); });
-    return () => { active = false; requestVersion.current += 1; };
+    void Promise.resolve().then(() => {
+      if (active) return refreshStudents();
+    });
+    return () => {
+      active = false;
+      requestVersion.current += 1;
+    };
   }, [refreshStudents]);
 
   const mapStudent = async (
-    studentData: StudentMappingPayload
+    studentData: StudentMappingPayload,
   ): Promise<Student> => {
     const mapped = await mapStudentInApi(studentData);
+
     setStudents((prev) => [mapped, ...prev]);
     return mapped;
   };
 
   const updateStudent = async (
     id: string,
-    updatedData: StudentUpdatePayload
+    updatedData: StudentUpdatePayload,
   ): Promise<Student> => {
     const updated = await updateStudentInApi(id, updatedData);
     setStudents((prev) =>
       prev.map((s) =>
-        s.id === id || s.personal_details.user_id === id ? updated : s
-      )
+        s.id === id || s.personal_details.user_id === id ? updated : s,
+      ),
     );
     return updated;
   };
@@ -102,7 +110,7 @@ export function StudentProvider({ children }: { children: React.ReactNode }) {
 export function useStudents() {
   const context = useContext(StudentContext);
   if (!context) {
-    throw new Error('useStudents must be used within a StudentProvider');
+    throw new Error("useStudents must be used within a StudentProvider");
   }
   return context;
 }

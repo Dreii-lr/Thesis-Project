@@ -31,9 +31,9 @@ export default function TeacherSidebar() {
         },
         { name: "Students", icon: GraduationCap, href: "/teacher/students" },
         {
-          name: "Create Account",
+          name: "Learner Accounts",
           icon: UserPlus,
-          href: "/teacher/create-account",
+          href: "/teacher/learner-accounts",
         },
         {
           name: "Attendance",
