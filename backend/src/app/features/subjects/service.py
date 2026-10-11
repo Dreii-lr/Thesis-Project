@@ -6,10 +6,7 @@ Provides image upload support for LS3 Math, LS6 Digital Citizenship, and all sub
 from __future__ import annotations
 
 import logging
-import os
-from pathlib import Path
 from typing import Optional
-import uuid
 
 from fastapi.encoders import jsonable_encoder
 
@@ -21,6 +18,7 @@ from app.core.exceptions import (
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.subjects.models import Subject, utc_now
 from app.features.subjects.schemas import (
+    SubjectCopyResultSchema,
     SubjectCreateSchema,
     SubjectDetailSchema,
     SubjectReadSchema,
@@ -29,9 +27,6 @@ from app.features.subjects.schemas import (
 from app.shared.schema import AdditionalData, SuccessfulResponseSchema
 
 logger = logging.getLogger(__name__)
-
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"}
-UPLOAD_DIR = Path("static/uploads/subjects")
 
 
 class SubjectService:
@@ -47,22 +42,20 @@ class SubjectService:
         if not category:
             raise DomainEntityNotFoundException(f"User category '{data.category_id}' does not exist.")
 
-        code_clean = data.code.strip().upper()
         name_clean = data.name.strip()
 
-        # 2. Check for duplicate code within the same category
-        existing = await self.uow.subjects.get_by_category_and_code(
+        # 2. Check for duplicate name within the same category
+        existing = await self.uow.subjects.get_by_category_and_name(
             category_id=category.category_id,
-            code=code_clean,
+            name=name_clean,
         )
         if existing:
             raise DomainEntityAlreadyExistsException(
-                f"Subject with code '{code_clean}' already exists in category '{category.name}'."
+                f"Subject with name '{name_clean}' already exists in category '{category.name}'."
             )
 
         subject = Subject(
             category_id=category.category_id,
-            code=code_clean,
             name=name_clean,
             description=data.description.strip() if data.description else None,
             is_active=data.is_active,
@@ -86,7 +79,6 @@ class SubjectService:
         detail_dto = SubjectDetailSchema(
             subject_id=subject.subject_id,
             category_id=subject.category_id,
-            code=subject.code,
             name=subject.name,
             description=subject.description,
             is_active=subject.is_active,
@@ -133,7 +125,6 @@ class SubjectService:
                 SubjectDetailSchema(
                     subject_id=s.subject_id,
                     category_id=s.category_id,
-                    code=s.code,
                     name=s.name,
                     description=s.description,
                     is_active=s.is_active,
@@ -177,21 +168,18 @@ class SubjectService:
             target_cat_id = cat.category_id
             subject.category_id = target_cat_id
 
-        if data.code is not None:
-            new_code = data.code.strip().upper()
-            if new_code != subject.code or target_cat_id != subject.category_id:
-                existing = await self.uow.subjects.get_by_category_and_code(
+        if data.name is not None or (data.category_id is not None and target_cat_id != subject.category_id):
+            new_name = data.name.strip() if data.name is not None else subject.name
+            if new_name.upper() != subject.name.upper() or target_cat_id != subject.category_id:
+                existing = await self.uow.subjects.get_by_category_and_name(
                     category_id=target_cat_id,
-                    code=new_code,
+                    name=new_name,
                 )
                 if existing and existing.subject_id != subject.subject_id:
                     raise DomainEntityAlreadyExistsException(
-                        f"Subject with code '{new_code}' already exists in this category."
+                        f"Subject with name '{new_name}' already exists in this category."
                     )
-                subject.code = new_code
-
-        if data.name is not None:
-            subject.name = data.name.strip()
+            subject.name = new_name
 
         if data.description is not None:
             subject.description = data.description.strip() if data.description else None
@@ -219,4 +207,75 @@ class SubjectService:
             message="Subject deleted successfully.",
             message_status="SUCCESS_DELETED",
             status_code=200,
+        )
+
+    async def copy_subjects_between_categories(
+        self,
+        source_category: str,
+        target_category: str,
+    ) -> SuccessfulResponseSchema:
+        # 1. Resolve source category
+        source_cat = await self.uow.user_categories.get_by_id(source_category)
+        if not source_cat:
+            source_cat = await self.uow.user_categories.get_by_code(source_category)
+        if not source_cat:
+            raise DomainEntityNotFoundException(f"Source user category '{source_category}' not found.")
+
+        # 2. Resolve target category
+        target_cat = await self.uow.user_categories.get_by_id(target_category)
+        if not target_cat:
+            target_cat = await self.uow.user_categories.get_by_code(target_category)
+        if not target_cat:
+            raise DomainEntityNotFoundException(f"Target user category '{target_category}' not found.")
+
+        if source_cat.category_id == target_cat.category_id:
+            raise DomainValidationDomainException("Source and target categories must be different.")
+
+        # 3. Fetch source subjects
+        source_subjects = await self.uow.subjects.get_all_by_category(source_cat.category_id)
+        if not source_subjects:
+            raise DomainValidationDomainException(f"Source category '{source_cat.name}' has no subjects to copy.")
+
+        # 4. Fetch target existing subjects to prevent duplicate names
+        target_subjects = await self.uow.subjects.get_all_by_category(target_cat.category_id)
+        existing_names = {s.name.strip().upper() for s in target_subjects}
+
+        new_subjects: list[Subject] = []
+        skipped_names: list[str] = []
+
+        for s in source_subjects:
+            cleaned_name = s.name.strip()
+            if cleaned_name.upper() in existing_names:
+                skipped_names.append(cleaned_name)
+            else:
+                new_sub = Subject(
+                    category_id=target_cat.category_id,
+                    name=cleaned_name,
+                    description=s.description,
+                    is_active=s.is_active,
+                )
+                new_subjects.append(new_sub)
+                existing_names.add(cleaned_name.upper())
+
+        # 5. Bulk insert newly created subjects
+        if new_subjects:
+            await self.uow.subjects.bulk_create(new_subjects)
+
+        read_dtos = [SubjectReadSchema.model_validate(ns) for ns in new_subjects]
+        result_payload = SubjectCopyResultSchema(
+            source_category_id=source_cat.category_id,
+            source_category_name=source_cat.name,
+            target_category_id=target_cat.category_id,
+            target_category_name=target_cat.name,
+            copied_count=len(new_subjects),
+            skipped_count=len(skipped_names),
+            copied_subjects=read_dtos,
+            skipped_subjects=skipped_names,
+        )
+
+        return SuccessfulResponseSchema(
+            message=f"Copied {len(new_subjects)} subject(s) from '{source_cat.name}' to '{target_cat.name}'. {len(skipped_names)} already existed.",
+            message_status="SUCCESS_COPIED",
+            status_code=201 if new_subjects else 200,
+            data=AdditionalData(resources=jsonable_encoder(result_payload)),
         )

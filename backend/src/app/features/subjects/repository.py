@@ -30,14 +30,14 @@ class SubjectRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_category_and_code(
+    async def get_by_category_and_name(
         self,
         category_id: str,
-        code: str,
+        name: str,
     ) -> Optional[Subject]:
         stmt = select(Subject).where(
             Subject.category_id == category_id,
-            func.upper(Subject.code) == code.upper(),
+            func.upper(Subject.name) == name.upper(),
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
@@ -69,3 +69,16 @@ class SubjectRepository:
 
     async def delete(self, subject: Subject) -> None:
         await self._session.delete(subject)
+
+    async def get_all_by_category(self, category_id: str) -> List[Subject]:
+        stmt = (
+            select(Subject)
+            .where(Subject.category_id == category_id)
+            .order_by(Subject.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def bulk_create(self, subjects: List[Subject]) -> List[Subject]:
+        self._session.add_all(subjects)
+        return subjects

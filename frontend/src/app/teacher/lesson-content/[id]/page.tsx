@@ -28,6 +28,8 @@ import {
   getLessonsByMaterial,
   generateLessonForMaterial,
   updateGeneratedLesson,
+  updateMaterialStatus,
+  normalizeMaterialStatus,
   type MaterialItem,
   type MaterialTopic,
   type GeneratedLessonItem,
@@ -65,6 +67,12 @@ export default function DocumentViewPage({
   const [isSaving, setIsSaving] = useState(false);
   const [draftJson, setDraftJson] = useState<JSONContent | null>(null);
 
+  // Responsive sidebar state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Status update state
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationMessage, setGenerationMessage] = useState<string | null>(
@@ -78,7 +86,8 @@ export default function DocumentViewPage({
     try {
       // 1. Fetch the material record with structured topics
       const mat = await getMaterialById(materialId);
-      setMaterial(mat);
+      const normalizedStatus = normalizeMaterialStatus(mat.status);
+      setMaterial({ ...mat, status: normalizedStatus });
 
       // 2. Fetch any already-generated lessons for this material from database
       let generatedLessons: GeneratedLessonItem[] = [];
@@ -229,18 +238,45 @@ export default function DocumentViewPage({
     const moduleLike: Module = {
       id: material.id,
       materials_id: material.id,
-      learner_name: material.learner_name || undefined,
-      cls_name: material.cls_name || undefined,
       als_program: material.als_program || undefined,
       learning_strand: material.learning_strand || undefined,
       main_learning_goal: material.main_learning_goal,
       title: material.learning_strand || "ALS Curriculum Material",
-      subtitle: `${material.learner_name || "ALS Learner"} • ${material.cls_name || ""}`,
+      subtitle: material.als_program ? `${material.als_program} Material` : "ALS Curriculum Material",
       lessons: updatedLessons,
     };
     const dbPayload = buildDatabasePayload(moduleLike, updatedLessons);
     console.log("Updated database payload:", dbPayload);
     return dbPayload;
+  };
+
+  // Update material status handler (Publish or Save as Draft)
+  const handleUpdateStatus = async (newStatus: "DRAFT" | "PUBLISHED") => {
+    if (!material) return;
+    setIsUpdatingStatus(true);
+    try {
+      const updated = await updateMaterialStatus(material.id, newStatus);
+      const normalizedUpdatedStatus = normalizeMaterialStatus(
+        updated.status || newStatus,
+      );
+      setMaterial((prev) =>
+        prev
+          ? { ...prev, status: normalizedUpdatedStatus }
+          : { ...updated, status: normalizedUpdatedStatus },
+      );
+      setGenerationMessage(
+        newStatus === "PUBLISHED"
+          ? "Lesson content published successfully! It is now accessible to learners."
+          : "Lesson content saved as draft."
+      );
+    } catch (err) {
+      console.error("Error updating material status:", err);
+      const msg =
+        err instanceof Error ? err.message : "Failed to update material status.";
+      alert(msg);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
   // Generate lesson content handler: calls backend API and reloads latest data for all lessons
@@ -434,19 +470,26 @@ export default function DocumentViewPage({
   return (
     <div className="h-screen overflow-hidden">
       <div className="flex h-full min-h-0 w-full overflow-hidden bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-        {/* Outline Sidebar */}
-        <DocumentSidebar
-          lessons={lessons}
-          activeFileId={activeFileId}
-          activeLessonId={activeLesson?.id}
-          onFileSelect={(fileId) => {
-            setActiveFileId(fileId);
-            setIsEditing(false);
-          }}
-          onSelectLesson={handleSelectLesson}
-          onRenameLesson={handleRenameLesson}
-          onRenameFile={handleRenameFile}
-        />
+        {/* Outline Sidebar with responsive collapse */}
+        <div
+          className={`h-full shrink-0 transition-all duration-200 overflow-hidden ${
+            isSidebarOpen ? "w-72" : "w-0 hidden md:hidden"
+          }`}
+        >
+          <DocumentSidebar
+            lessons={lessons}
+            activeFileId={activeFileId}
+            activeLessonId={activeLesson?.id}
+            onFileSelect={(fileId) => {
+              setActiveFileId(fileId);
+              setIsEditing(false);
+            }}
+            onSelectLesson={handleSelectLesson}
+            onRenameLesson={handleRenameLesson}
+            onRenameFile={handleRenameFile}
+            onToggleCollapse={() => setIsSidebarOpen(false)}
+          />
+        </div>
 
         {/* Content Pane */}
         <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
@@ -454,6 +497,16 @@ export default function DocumentViewPage({
             onGenerateContent={handleGenerateContent}
             hasGeneratedContent={hasGeneratedContent}
             isGenerating={isGenerating}
+            status={material.status}
+            onUpdateStatus={handleUpdateStatus}
+            isUpdatingStatus={isUpdatingStatus}
+            isSidebarOpen={isSidebarOpen}
+            onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+            materialTitle={
+              material.learning_strand ||
+              material.main_learning_goal ||
+              "Curriculum Material"
+            }
           />
 
           {generationMessage && (

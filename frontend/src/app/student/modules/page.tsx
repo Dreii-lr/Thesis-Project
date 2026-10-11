@@ -155,9 +155,9 @@ export default function StudentModulesPage() {
               const programSuffix = material.als_program
                 ? ` (${material.als_program})`
                 : "";
-              const subtitle = `${material.learner_name || "ALS Learner"} • ${
-                material.cls_name || "Community Learning Center"
-              }`;
+              const subtitle = material.als_program
+                ? `${material.als_program} Curriculum`
+                : "Curriculum Material";
 
               return (
                 <ModuleCard
@@ -166,6 +166,7 @@ export default function StudentModulesPage() {
                   title={`${title}${programSuffix}`}
                   subtitle={subtitle}
                   fileCount={topicsCount}
+                  status={material.status}
                   href={`/student/modules/${material.id}`}
                 />
               );

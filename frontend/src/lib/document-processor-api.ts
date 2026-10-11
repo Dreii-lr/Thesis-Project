@@ -448,6 +448,7 @@ export interface MaterialItem {
   als_program?: string | null;
   learning_strand?: string | null;
   main_learning_goal?: string | null;
+  status?: string | null;
   structured_records: MaterialTopic[];
   created_at?: string | null;
   updated_at?: string | null;
@@ -494,6 +495,7 @@ export interface GeneratedLessonUpdatePayload {
 
 export interface GetMaterialsOptions {
   documentId?: string;
+  status?: string;
   page?: number;
   pageSize?: number;
   baseUrl?: string;
@@ -510,6 +512,7 @@ export async function getMaterials(
   const baseUrl = options.baseUrl || DOCS_MS_URL;
   const params = new URLSearchParams();
   if (options.documentId) params.set('document_id', options.documentId);
+  if (options.status) params.set('status', options.status);
   if (options.page) params.set('page', String(options.page));
   if (options.pageSize) params.set('page_size', String(options.pageSize));
 
@@ -555,6 +558,52 @@ export async function getMaterialById(
   }
 
   return body as MaterialItem;
+}
+
+/**
+ * Updates the publication status ('DRAFT', 'PUBLISHED', 'ARCHIVED') of a curriculum material.
+ * Route: PATCH /document-processor/materials/{material_id}/status
+ */
+export async function updateMaterialStatus(
+  materialId: string,
+  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' | string,
+  options: { baseUrl?: string; signal?: AbortSignal } = {}
+): Promise<MaterialItem> {
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}/status`;
+
+  const response = await fetch(targetUrl, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body as MaterialItem;
+}
+
+/**
+ * Normalizes a raw material status string from database or API into a strict status union.
+ * Safely handles null, undefined, 'None', 'null', empty strings, or case differences,
+ * guaranteeing existing un-published records default safely to 'DRAFT'.
+ */
+export function normalizeMaterialStatus(
+  status?: string | null
+): 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' {
+  if (!status || typeof status !== 'string') return 'DRAFT';
+  const clean = status.trim().toUpperCase();
+  if (clean === 'PUBLISHED') return 'PUBLISHED';
+  if (clean === 'ARCHIVED') return 'ARCHIVED';
+  return 'DRAFT';
 }
 
 /**

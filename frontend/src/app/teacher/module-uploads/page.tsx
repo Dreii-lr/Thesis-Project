@@ -14,23 +14,85 @@ import { useTeacher } from '@/src/context/TeacherContext';
 import {
   useModuleUploader,
   toWorkspaceModule,
+  normalizeProgramToCategory,
   getModuleDocuments,
   getModuleDocumentById,
   matchDocumentToProgram,
   type DocumentItem,
   type EnrichedWorkspaceModule,
 } from '@/src/lib/document-processor-api';
+import {
+  getUserCategories,
+  type UserCategoryItem,
+  DEFAULT_USER_CATEGORIES,
+} from '@/src/lib/user-categories-api';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500';
 const buttonClass =
   'inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40';
 
+function matchDocumentToCategory(doc: DocumentItem, cat: UserCategoryItem): boolean {
+  const code = (cat.code || '').toUpperCase();
+  const name = (cat.name || '').toLowerCase();
+
+  if (doc.als_program) {
+    const p = doc.als_program.toUpperCase();
+    if (p === code || p.includes(code)) return true;
+    if (code === 'SECONDARY' && (p.includes('JUNIOR') || p.includes('JHS') || p.includes('SEC'))) return true;
+    if (code === 'BLP' && (p.includes('BLP') || p.includes('BASIC'))) return true;
+    if (code === 'ELEMENTARY' && p.includes('ELEM')) return true;
+  }
+  if (doc.storage_key) {
+    const folder = doc.storage_key.split('/')[0].toUpperCase();
+    if (folder === code || folder.includes(code)) return true;
+    if (code === 'SECONDARY' && (folder.includes('JUNIOR') || folder.includes('SECONDARY'))) return true;
+    if (code === 'BLP' && (folder.includes('BLP') || folder.includes('BASIC'))) return true;
+    if (code === 'ELEMENTARY' && folder.includes('ELEM')) return true;
+  }
+  const normFile = doc.filename.toLowerCase();
+  if (code === 'ELEMENTARY' && normFile.includes('elem')) return true;
+  if (code === 'BLP' && (normFile.includes('blp') || normFile.includes('basic'))) return true;
+  if (code === 'SECONDARY' && (normFile.includes('junior') || normFile.includes('secondary') || normFile.includes('jhs') || normFile.includes('sec'))) return true;
+
+  if (name && normFile.includes(name)) return true;
+  return false;
+}
+
 function ModuleDirectory() {
   const { modules, setModules } = useTeacher();
+  const [categories, setCategories] = useState<UserCategoryItem[]>(DEFAULT_USER_CATEGORIES);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
+  // Load user categories from backend API
+  useEffect(() => {
+    let isMounted = true;
+    getUserCategories()
+      .then((data) => {
+        if (isMounted && data.length > 0) {
+          setCategories(data);
+        }
+      })
+      .finally(() => {
+        if (isMounted) setLoadingCategories(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const params = useSearchParams();
   const requested = params.get('program');
-  const program = programs.find((p) => p === requested);
+  const activeCategory = categories.find(
+    (c) =>
+      c.category_id === requested ||
+      c.code.toLowerCase() === requested?.toLowerCase() ||
+      c.name.toLowerCase() === requested?.toLowerCase() ||
+      (requested?.toLowerCase() === 'junior' && c.code.toLowerCase() === 'secondary') ||
+      (requested?.toLowerCase() === 'basic_literacy' && c.code.toLowerCase() === 'blp')
+  );
+  const program = activeCategory?.code.toLowerCase();
+  const categoryName = activeCategory?.name || (program && CATEGORY_LABELS[program as keyof typeof CATEGORY_LABELS]) || 'Curriculum & modules';
   const [search, setSearch] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState('');
@@ -89,7 +151,7 @@ function ModuleDirectory() {
     setMessage('Uploading and analyzing module with AI parser…');
     try {
       const parsedData = await uploadDoc(file);
-      const item = toWorkspaceModule(parsedData, program);
+      const item = toWorkspaceModule(parsedData, normalizeProgramToCategory(program));
 
       setModules([item, ...modules]);
       setMessage('Module uploaded and parsed successfully! Review the extracted curriculum below.');
@@ -153,7 +215,7 @@ function ModuleDirectory() {
     const initialPreview: EnrichedWorkspaceModule = {
       id: doc.id,
       filename: doc.filename,
-      target_category: program || 'junior',
+      target_category: normalizeProgramToCategory(program),
       subject_code: doc.learning_strand || 'ALS-LS1-COMM',
       uploaded_at: doc.created_at,
       status: doc.status === 'COMPLETED' ? 'Published' : 'Pending',
@@ -183,10 +245,10 @@ function ModuleDirectory() {
   };
 
   // Program-specific documents filtered from backend GET
-  const programDocuments = program
+  const programDocuments = activeCategory
     ? backendDocs.filter(
         (d) =>
-          matchDocumentToProgram(d, program) &&
+          matchDocumentToCategory(d, activeCategory) &&
           d.filename.toLowerCase().includes(search.toLowerCase()),
       )
     : [];
@@ -199,15 +261,15 @@ function ModuleDirectory() {
             Teacher workspace · Document processing
           </p>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
-            {program ? CATEGORY_LABELS[program] : 'Curriculum & modules'}
+            {activeCategory ? categoryName : 'Curriculum & modules'}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            {program
-              ? `Manage digitized curriculum and learning materials for ${CATEGORY_LABELS[program]}.`
+            {activeCategory
+              ? `Manage digitized curriculum and learning materials for ${categoryName}.`
               : 'Choose a program directory to manage its learning materials and view ingested documents.'}
           </p>
         </div>
-        {program && (
+        {activeCategory && (
           <Link
             href="/teacher/module-uploads"
             className="text-sm font-semibold text-blue-600 hover:text-blue-700"
@@ -238,23 +300,23 @@ function ModuleDirectory() {
         </div>
       )}
 
-      {!program ? (
+      {!activeCategory ? (
         <div className="grid gap-5 md:grid-cols-3">
-          {programs.map((p, i) => {
-            const programDocCount = backendDocs.filter((d) => matchDocumentToProgram(d, p)).length;
+          {categories.map((cat, i) => {
+            const programDocCount = backendDocs.filter((d) => matchDocumentToCategory(d, cat)).length;
             const awaitingReviewCount = backendDocs.filter(
-              (d) => matchDocumentToProgram(d, p) && d.status !== 'COMPLETED',
+              (d) => matchDocumentToCategory(d, cat) && d.status !== 'COMPLETED',
             ).length;
 
             return (
               <Link
-                href={`/teacher/module-uploads?program=${p}`}
-                key={p}
+                href={`/teacher/module-uploads?program=${cat.code.toLowerCase()}`}
+                key={cat.category_id || cat.code}
                 className="group rounded-[24px] border border-slate-200 bg-white p-7 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-md"
               >
                 <span
                   className={`mb-7 flex h-14 w-14 items-center justify-center rounded-2xl ${
-                    ['bg-blue-50 text-blue-600', 'bg-violet-50 text-violet-600', 'bg-emerald-50 text-emerald-600'][i]
+                    ['bg-blue-50 text-blue-600', 'bg-violet-50 text-violet-600', 'bg-emerald-50 text-emerald-600'][i % 3]
                   }`}
                 >
                   <FolderOpen size={28} />
@@ -262,8 +324,9 @@ function ModuleDirectory() {
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
                   Program directory
                 </p>
-                <h2 className="mt-2 text-xl font-bold">{CATEGORY_LABELS[p]}</h2>
+                <h2 className="mt-2 text-xl font-bold">{cat.name}</h2>
                 <p className="mt-4 text-sm text-slate-500">
+                  {cat.subjects && cat.subjects.length > 0 ? `${cat.subjects.length} subjects · ` : ''}
                   {programDocCount} {programDocCount === 1 ? 'document' : 'documents'}
                   {awaitingReviewCount > 0 && ` · ${awaitingReviewCount} pending`}
                 </p>
@@ -282,7 +345,7 @@ function ModuleDirectory() {
               <div>
                 <BookOpen className="text-blue-600" />
                 <h2 className="mt-3 text-lg font-bold">
-                  Upload to {CATEGORY_LABELS[program]}
+                  Upload to {categoryName}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   Upload ALS learning materials for automated curriculum parsing.
@@ -333,7 +396,7 @@ function ModuleDirectory() {
           <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-xl font-bold">{CATEGORY_LABELS[program]} documents</h2>
+                <h2 className="text-xl font-bold">{categoryName} documents</h2>
                 <p className="mt-1 text-sm text-slate-500">
                   All documents for this program · {programDocuments.length}{' '}
                   {programDocuments.length === 1 ? 'document' : 'documents'}
@@ -363,7 +426,7 @@ function ModuleDirectory() {
             {loadingDocs && !programDocuments.length ? (
               <div className="flex items-center justify-center py-12 text-sm text-slate-500">
                 <Loader2 size={20} className="mr-2 animate-spin text-blue-600" />
-                <span>Loading documents for {CATEGORY_LABELS[program]}…</span>
+                <span>Loading documents for {categoryName}…</span>
               </div>
             ) : (
               <div className="space-y-3">
@@ -435,7 +498,7 @@ function ModuleDirectory() {
 
                 {!programDocuments.length && !loadingDocs && (
                   <p className="py-10 text-center text-sm text-slate-500">
-                    No documents in {CATEGORY_LABELS[program]} yet. Upload your first module above.
+                    No documents in {categoryName} yet. Upload your first module above.
                   </p>
                 )}
               </div>

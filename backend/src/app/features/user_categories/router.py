@@ -40,30 +40,18 @@ async def create_user_category(
     return SharedUtils.SuccessfulResponse(response)
 
 
-@router.post("/seed", status_code=status.HTTP_200_OK)
-async def seed_curriculum(
-    current_user: UserRead = Depends(require_teacher),
-    service: UserCategoryService = Depends(get_user_category_service),
-) -> JSONResponse:
-    """
-    Idempotently seeds standard DepEd ALS categories (Elementary, Secondary, BLP)
-    and their complete sets of subjects.
-    Restricted to Teachers and Admins.
-    """
-    response = await service.seed_default_curriculum()
-    return SharedUtils.SuccessfulResponse(response)
 
 
 @router.get("/", status_code=status.HTTP_200_OK)
 async def list_user_categories(
-    include_subjects: bool = Query(default=False, description="Whether to include related subjects"),
+    include_subjects: bool = Query(default=True, description="Whether to include related subjects"),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
     current_user: UserRead = Depends(get_current_active_user),
     service: UserCategoryService = Depends(get_user_category_service),
 ) -> JSONResponse:
     """
-    List user categories with optional nested subjects.
+    List user categories with nested subjects.
     Accessible to all active users.
     """
     response = await service.list_categories(

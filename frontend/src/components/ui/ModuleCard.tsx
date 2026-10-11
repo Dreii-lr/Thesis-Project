@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { ArrowUpRight, BookOpen, FileText } from "lucide-react";
+import { normalizeMaterialStatus } from "@/src/lib/document-processor-api";
 
 interface ModuleCardProps {
   id: string;
   title: string;
   subtitle: string;
   fileCount: number;
+  status?: string | null;
   href?: string;
 }
 
@@ -14,9 +16,12 @@ export default function ModuleCard({
   title,
   subtitle,
   fileCount,
+  status,
   href,
 }: ModuleCardProps) {
-  const isPublished = subtitle.toLowerCase().includes("published");
+  const actualStatus = normalizeMaterialStatus(status);
+  const isPublished = actualStatus === "PUBLISHED";
+  const isArchived = actualStatus === "ARCHIVED";
   const targetHref = href || `/teacher/lesson-content/${id}`;
 
   return (
@@ -50,10 +55,12 @@ export default function ModuleCard({
             className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${
               isPublished
                 ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100"
+                : isArchived
+                ? "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200"
                 : "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100"
             }`}
           >
-            {isPublished ? "Published" : "Draft"}
+            {isPublished ? "Published" : isArchived ? "Archived" : "Draft"}
           </span>
         </div>
       </article>

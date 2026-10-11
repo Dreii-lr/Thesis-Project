@@ -57,11 +57,16 @@ class UserService:
     @staticmethod
     async def map_student(uow: AbstractUnitOfWork, data: UserCreate) -> SuccessfulResponseSchema:
         try:
-
+            #check the email if already exist
+            is_email_exists = await uow.users.get_by_email(data.email)
+            if is_email_exists:
+                raise DomainEntityAlreadyExistsException("Email is already taken. Please use another email.")
             #check first if the LRN of student is already exist
             user_data = await uow.users.get_by_lrn(data.personal_details.lrn_number)
             if user_data:
-                raise DomainEntityAlreadyExistsException
+                raise DomainEntityAlreadyExistsException("This student is already exists.")
+
+
 
             next_value = await uow.sequence_id_generator.get_next_value()
             if not next_value:
@@ -308,7 +313,6 @@ class UserService:
                     else:
                         raw_password = str(bdate).replace("-", "")
 
-            print(raw_password)
             hashed_password = hash_password(raw_password)
 
             # insert user into firebase

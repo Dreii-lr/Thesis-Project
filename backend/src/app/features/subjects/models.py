@@ -24,7 +24,7 @@ def utc_now() -> datetime:
 class Subject(SQLModel, table=True):
     __tablename__ = "subjects"
     __table_args__ = (
-        UniqueConstraint("category_id", "code", name="uq_category_subject_code"),
+        UniqueConstraint("category_id", "name", name="uq_category_subject_name"),
     )
 
     subject_id: str = Field(
@@ -38,10 +38,6 @@ class Subject(SQLModel, table=True):
         ondelete="CASCADE",
         index=True,
         nullable=False,
-    )
-    code: str = Field(
-        nullable=False,
-        index=True,
     )
     name: str = Field(
         nullable=False,

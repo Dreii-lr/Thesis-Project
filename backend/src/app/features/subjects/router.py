@@ -13,9 +13,10 @@ from starlette.responses import JSONResponse
 from app.core.dependencies import (
     get_current_active_user,
     get_subject_service,
-    require_teacher, require_admin,
+    require_admin_teacher,
 )
 from app.features.subjects.schemas import (
+    SubjectCopySchema,
     SubjectCreateSchema,
     SubjectUpdateSchema,
 )
@@ -29,16 +30,34 @@ router = APIRouter(prefix="/subjects", tags=["Subjects"])
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_subject(
     data: SubjectCreateSchema,
-    current_user: UserRead = Depends(require_admin),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: SubjectService = Depends(get_subject_service),
 ) -> JSONResponse:
     """
     Create a new subject linked to a specific user category.
-    Accepts optional image_url directly (e.g. for LS3 Math, LS6 Digital Citizenship).
     Restricted to Teachers and Admins.
     """
     response = await service.create_subject(data)
     response.status_code = status.HTTP_201_CREATED
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.post("/copy", status_code=status.HTTP_201_CREATED)
+async def copy_subjects(
+    data: SubjectCopySchema,
+    current_user: UserRead = Depends(require_admin_teacher),
+    service: SubjectService = Depends(get_subject_service),
+) -> JSONResponse:
+    """
+    Copy all subjects from a source category to a target category (e.g. Elementary to Secondary or vice-versa).
+    Automatically updates the category_id of each copied subject to the target category.
+    Idempotent: skips any subjects that already exist by name in the target category.
+    Restricted to Teachers and Admins.
+    """
+    response = await service.copy_subjects_between_categories(
+        source_category=data.source_category_id,
+        target_category=data.target_category_id,
+    )
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -82,11 +101,11 @@ async def get_subject_details(
 async def update_subject(
     subject_id: str,
     data: SubjectUpdateSchema,
-    current_user: UserRead = Depends(require_admin),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: SubjectService = Depends(get_subject_service),
 ) -> JSONResponse:
     """
-    Update subject information or modify image_url.
+    Update subject information.
     Restricted to Teachers and Admins.
     """
     response = await service.update_subject(subject_id, data)
@@ -97,7 +116,7 @@ async def update_subject(
 @router.delete("/{subject_id}", status_code=status.HTTP_200_OK)
 async def delete_subject(
     subject_id: str,
-    current_user: UserRead = Depends(require_admin),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: SubjectService = Depends(get_subject_service),
 ) -> JSONResponse:
     """

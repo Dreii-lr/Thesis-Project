@@ -23,6 +23,7 @@ interface ContentSidebarProps {
   onRenameLesson?: (lessonId: string, newTitle: string) => void;
   onRenameFile?: (lessonId: string, fileId: string, newTitle: string) => void;
   readOnly?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export default function ContentSidebar({
@@ -34,6 +35,7 @@ export default function ContentSidebar({
   onRenameLesson,
   onRenameFile,
   readOnly = false,
+  onToggleCollapse,
 }: ContentSidebarProps) {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>(
     lessons.reduce((acc, lesson) => ({ ...acc, [lesson.id]: true }), {})
@@ -112,8 +114,10 @@ export default function ContentSidebar({
         </div>
         <button
           type="button"
+          onClick={onToggleCollapse}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
-          aria-label="Document outline"
+          aria-label="Collapse document outline"
+          title="Collapse document outline"
         >
           <PanelLeftDashed size={16} />
         </button>

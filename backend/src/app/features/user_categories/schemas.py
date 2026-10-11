@@ -38,7 +38,7 @@ class UserCategoryWithSubjectsSchema(UserCategoryReadSchema):
 
 
 class ListUserCategoryResponseSchema(BaseModel):
-    categories: List[UserCategoryReadSchema]
+    categories: List[UserCategoryWithSubjectsSchema]
     total: int
     offset: int = 0
     limit: int = 100
