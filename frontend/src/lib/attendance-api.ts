@@ -46,3 +46,33 @@ export async function listAttendanceSessions(): Promise<AttendanceSessionListIte
 export function getStudentAttendance(id: string) {
   return authenticatedRequest<StudentAttendanceHistory>(`/attendance/students/${encodeURIComponent(id)}`);
 }
+
+export interface AttendanceSessionDetails {
+  session_id: string;
+  teacher_id: string;
+  session_date: string;
+  display_date: string;
+  level_code: string;
+  strand_code: string;
+  status: 'DRAFT' | 'COMPLETED';
+  total_count: number;
+  present_count: number;
+  absent_count: number;
+  excused_count: number;
+  attendance_rate: number;
+  created_at: string;
+  updated_at?: string | null;
+  records: {
+    record_id: string;
+    session_id: string;
+    student_id: string;
+    status: AttendanceStatus;
+    reason_of_absence?: string | null;
+    remarks?: string | null;
+    recorded_at: string;
+  }[];
+}
+
+export function getAttendanceSession(id: string): Promise<AttendanceSessionDetails> {
+  return authenticatedRequest<AttendanceSessionDetails>(`/attendance/sessions/${encodeURIComponent(id)}`);
+}

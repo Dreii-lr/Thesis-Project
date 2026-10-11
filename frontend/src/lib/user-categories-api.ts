@@ -1,4 +1,5 @@
 import { authenticatedRequest } from './auth-api';
+import type { SubjectRecord } from './subjects-api';
 
 export interface UserCategoryRecord {
   category_id: string;
@@ -22,4 +23,12 @@ export async function listUserCategories(): Promise<UserCategoryRecord[]> {
     if (categories.length >= result.total) return categories;
     if (!result.categories.length) throw new Error('Learning programs changed while loading. Please refresh.');
   }
+}
+
+export interface UserCategoryDetails extends UserCategoryRecord {
+  subjects: SubjectRecord[];
+}
+
+export function getUserCategory(id: string): Promise<UserCategoryDetails> {
+  return authenticatedRequest<UserCategoryDetails>(`/user-categories/${encodeURIComponent(id)}`);
 }

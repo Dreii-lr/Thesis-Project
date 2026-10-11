@@ -116,7 +116,7 @@ export interface Student {
   contact_details: ContactDetails;
   family_details: FamilyDetails;
 }
-export interface StudentCreatePayload {
+export interface StudentMappingPayload {
   email: string | null;
   first_name: string;
   last_name: string;
@@ -250,7 +250,7 @@ function profilePayload(payload: StudentUpdatePayload) {
   };
 }
 
-export async function createStudentInApi(payload: StudentCreatePayload): Promise<Student> {
+export async function mapStudentInApi(payload: StudentMappingPayload): Promise<Student> {
   const created = await authenticatedRequest<UserRecord>('/users/mapping', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...profilePayload(payload), email: payload.email || null, ...(payload.user_category ? { user_category: categoryValue(payload.user_category) } : {}) }),
@@ -272,4 +272,10 @@ export async function updateStudentInApi(id: string, payload: StudentUpdatePaylo
 
 export function enrollStudentInApi(id: string): Promise<void> {
   return authenticatedRequest<void>(`/users/${encodeURIComponent(id)}`, { method: 'POST' }, false);
+}
+
+export async function deactivateStudentInApi(id: string): Promise<Student> {
+  return normalizeStudentRecord(await authenticatedRequest<UserRecord>(
+    `/users/${encodeURIComponent(id)}/unenroll`, { method: 'PATCH' }
+  ));
 }

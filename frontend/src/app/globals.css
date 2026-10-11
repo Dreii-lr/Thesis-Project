@@ -40,6 +40,72 @@ textarea {
   color: #1e3a8a;
 }
 
+/* Role palettes cascade into existing utilities and shared components. */
+[data-portal-role="teacher"] {
+  --portal-background: #f5f9f6;
+  --portal-accent-50: #f2f8f4;
+  --portal-accent-100: #e1efe7;
+  --portal-accent-200: #c6e1d1;
+  --portal-accent-300: #9ac6ad;
+  --portal-accent-400: #6fa98a;
+  --portal-accent-500: #3f7c5b;
+  --portal-accent-600: #32694d;
+  --portal-accent-700: #28583f;
+  --portal-accent-800: #234936;
+  --portal-accent-900: #203e2f;
+  --portal-accent-950: #11271d;
+}
+
+[data-portal-role="admin"] {
+  --portal-background: #fbf6f5;
+  --portal-accent-50: #fcf5f4;
+  --portal-accent-100: #f7e5e2;
+  --portal-accent-200: #efcac4;
+  --portal-accent-300: #dfa59a;
+  --portal-accent-400: #c9786a;
+  --portal-accent-500: #b55748;
+  --portal-accent-600: #a4473a;
+  --portal-accent-700: #8e3d33;
+  --portal-accent-800: #76362e;
+  --portal-accent-900: #633129;
+  --portal-accent-950: #371914;
+}
+
+.portal-theme {
+  --color-blue-50: var(--portal-accent-50);
+  --color-blue-100: var(--portal-accent-100);
+  --color-blue-200: var(--portal-accent-200);
+  --color-blue-300: var(--portal-accent-300);
+  --color-blue-400: var(--portal-accent-400);
+  --color-blue-500: var(--portal-accent-500);
+  --color-blue-600: var(--portal-accent-600);
+  --color-blue-700: var(--portal-accent-700);
+  --color-blue-800: var(--portal-accent-800);
+  --color-blue-900: var(--portal-accent-900);
+  --color-blue-950: var(--portal-accent-950);
+  --color-indigo-50: var(--portal-accent-50);
+  --color-indigo-100: var(--portal-accent-100);
+  --color-indigo-200: var(--portal-accent-200);
+  --color-indigo-300: var(--portal-accent-300);
+  --color-indigo-400: var(--portal-accent-400);
+  --color-indigo-500: var(--portal-accent-500);
+  --color-indigo-600: var(--portal-accent-600);
+  --color-indigo-700: var(--portal-accent-700);
+  --color-indigo-800: var(--portal-accent-800);
+  --color-indigo-900: var(--portal-accent-900);
+  --color-indigo-950: var(--portal-accent-950);
+  accent-color: var(--portal-accent-600);
+}
+
+.portal-theme ::selection {
+  background: var(--portal-accent-100);
+  color: var(--portal-accent-900);
+}
+
+.portal-hero {
+  background: linear-gradient(135deg, var(--portal-accent-700), var(--portal-accent-500));
+}
+
 @keyframes als-login-float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }

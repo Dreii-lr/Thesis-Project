@@ -51,7 +51,7 @@ export default function StudentProfileView({ params }: { params: Promise<{ id: s
       
       {/* Top Breadcrumb Navigation */}
       <div className="mb-6">
-        <Link href="/teacher/students" className="inline-flex items-center text-sm text-gray-500 hover:text-[#4f46e5] transition-colors font-medium">
+        <Link href="/teacher/students" className="inline-flex items-center text-sm text-gray-500 hover:text-blue-600 transition-colors font-medium">
           <ChevronLeft size={16} className="mr-1" />
           Back to Directory
           <span className="mx-2 text-gray-300">/</span>
@@ -65,7 +65,7 @@ export default function StudentProfileView({ params }: { params: Promise<{ id: s
         <aside className="w-full lg:w-[320px] shrink-0 bg-white border border-gray-200 rounded-xl p-6 shadow-sm overflow-hidden">
           
           <div className="flex items-center gap-4 mb-8">
-            <div className="w-14 h-14 rounded-full bg-[#4f46e5] text-white flex items-center justify-center text-xl font-bold shadow-sm">
+            <div className="w-14 h-14 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl font-bold shadow-sm">
               {initials}
             </div>
             <div>
@@ -99,7 +99,7 @@ export default function StudentProfileView({ params }: { params: Promise<{ id: s
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">City</span><span className="font-medium text-gray-900">: {student.contact_details.municipality || '-'}</span></div>
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Province</span><span className="font-medium text-gray-900">: {student.contact_details.province || '-'}</span></div>
                 <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Contact No.</span><span className="font-medium text-gray-900">: {student.contact_details.contact_no || '-'}</span></div>
-                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Email</span><span className="font-medium text-[#4f46e5] truncate">: {student.email || '-'}</span></div>
+                <div className="grid grid-cols-[100px_1fr]"><span className="text-gray-500">Email</span><span className="font-medium text-blue-600 truncate">: {student.email || '-'}</span></div>
               </div>
             </section>
 
@@ -114,10 +114,10 @@ export default function StudentProfileView({ params }: { params: Promise<{ id: s
             
             {/* Direct link to edit this specific student */}
             <Link 
-              href={`/teacher/create-account/${student.id}`} 
+              href={`/teacher/create-account/${encodeURIComponent(student.id)}`}
               className="w-full flex items-center justify-center gap-2 py-2.5 mt-4 bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-100 hover:text-gray-900 transition-colors shadow-sm"
             >
-              <Edit size={14} /> Update Profile
+              <Edit size={14} /> {student.status === 'MAPPED' ? 'Review & create account' : 'Update Profile'}
             </Link>
           </div>
         </aside>
