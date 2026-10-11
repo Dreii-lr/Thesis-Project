@@ -268,7 +268,7 @@ class MapStudent(BaseModel):
 class UserCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    email: EmailStr
+    email: Optional[EmailStr]
     password: str | None = None
     first_name: str = Field(default="", )
     last_name: str = Field(default="", )
