@@ -219,9 +219,10 @@ async def test_teacher_create_and_update_assessment(client: AsyncClient):
 async def test_student_category_targeting(client: AsyncClient):
     """
     Junior High student sees junior-targeted assessments; Elementary student does NOT.
-    Both see universal (target_category=None) assessments.
+    Elementary student sees elementary-targeted assessments; Junior High student does NOT.
+    Creating an assessment with target_category=None raises 422 Unprocessable Entity.
     """
-    # 1. As Teacher, create 1 Junior-specific and 1 Universal assessment
+    # 1. As Teacher, create 1 Junior-specific and 1 Elementary-specific assessment
     app.dependency_overrides[get_current_active_user] = teacher_user
 
     try:
@@ -236,38 +237,53 @@ async def test_student_category_targeting(client: AsyncClient):
         assert res1.status_code == 201
         junior_id = res1.json()["data"]["resources"]["assessment_id"]
 
-        universal_task = {
-            "title": "General Orientation Activity",
-            "subject_code": "LS4",
+        elementary_task = {
+            "title": "Elementary Reading Exercise",
+            "subject_code": "LS1",
+            "target_category": "elementary",
+            "assessment_type": "ACTIVITY",
+            "status": "ACTIVE",
+        }
+        res2 = await client.post("/api/v1/assessments/", json=elementary_task)
+        assert res2.status_code == 201
+        elementary_id = res2.json()["data"]["resources"]["assessment_id"]
+
+        # Universal/unassigned assessment is rejected
+        invalid_task = {
+            "title": "Invalid Universal Activity",
+            "subject_code": "LS1",
             "target_category": None,
             "assessment_type": "ACTIVITY",
             "status": "ACTIVE",
         }
-        res2 = await client.post("/api/v1/assessments/", json=universal_task)
-        assert res2.status_code == 201
-        universal_id = res2.json()["data"]["resources"]["assessment_id"]
+        res_invalid = await client.post("/api/v1/assessments/", json=invalid_task)
+        assert res_invalid.status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
 
-    # 2. As Junior Student, list tasks -> should see BOTH
+    # 2. As Junior Student, list tasks -> should see ONLY Junior
     app.dependency_overrides[get_current_active_user] = student_junior_user
     try:
         j_res = await client.get("/api/v1/assessments/student/my-tasks")
         assert j_res.status_code == 200
         j_ids = [t["assessment_id"] for t in j_res.json()["data"]["resources"]]
         assert junior_id in j_ids
-        assert universal_id in j_ids
+        assert elementary_id not in j_ids
+
+        # Attempting to start elementary-targeted task raises 403 Forbidden
+        start_elem_res = await client.post(f"/api/v1/assessments/{elementary_id}/start")
+        assert start_elem_res.status_code == 403
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
 
-    # 3. As Elementary Student, list tasks -> should see ONLY universal
+    # 3. As Elementary Student, list tasks -> should see ONLY Elementary
     app.dependency_overrides[get_current_active_user] = student_elementary_user
     try:
         e_res = await client.get("/api/v1/assessments/student/my-tasks")
         assert e_res.status_code == 200
         e_ids = [t["assessment_id"] for t in e_res.json()["data"]["resources"]]
+        assert elementary_id in e_ids
         assert junior_id not in e_ids
-        assert universal_id in e_ids
 
         # Attempting to start junior-targeted task raises 403 Forbidden
         start_res = await client.post(f"/api/v1/assessments/{junior_id}/start")
@@ -390,7 +406,7 @@ async def test_subjective_activity_submission_and_manual_grading(client: AsyncCl
             "title": "Community Life Story Essay",
             "description": "Write a 500-word essay about your life journey in the ALS program.",
             "subject_code": "LS1",
-            "target_category": None,
+            "target_category": "junior",
             "assessment_type": "ACTIVITY",
             "status": "ACTIVE",
             "max_score": 50.0,

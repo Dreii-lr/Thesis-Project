@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Plus,
   Trash2,
@@ -18,6 +18,7 @@ import {
   TargetCategory,
   CategoryDataPayload,
 } from '@/src/lib/assessments-api';
+import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
 
 interface AssessmentFormProps {
   type: 'Quiz' | 'Exam';
@@ -43,8 +44,44 @@ export default function AssessmentForm({
   const minDate = datePart(today);
   const [title, setTitle] = useState(initialData?.title ?? '');
   const [description, setDescription] = useState(initialData?.description ?? '');
-  const [subjectCode, setSubjectCode] = useState(initialData?.subject_code ?? 'ALS-LS6-DIGITAL');
-  const [targetCategory, setTargetCategory] = useState<TargetCategory | null>(initialData ? initialData.target_category : 'SECONDARY');
+  const [subjectCode, setSubjectCode] = useState(initialData?.subject_code ?? '');
+  const [targetCategory, setTargetCategory] = useState<TargetCategory>(initialData?.target_category || 'SECONDARY');
+  const [subjects, setSubjects] = useState<SubjectRecord[]>([]);
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
+  const [subjectsError, setSubjectsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoadingSubjects(true);
+    setSubjectsError(null);
+
+    listSubjects(targetCategory)
+      .then((fetched) => {
+        if (!isMounted) return;
+        const activeSubjects = fetched.filter((s) => s.is_active);
+        setSubjects(activeSubjects);
+        if (activeSubjects.length > 0) {
+          const matchesExisting = activeSubjects.some(
+            (s) => s.code === subjectCode || s.name === subjectCode || s.subject_id === subjectCode
+          );
+          if (!matchesExisting) {
+            const firstCode = activeSubjects[0].code || activeSubjects[0].name;
+            setSubjectCode(firstCode);
+          }
+        }
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setSubjectsError(err instanceof Error ? err.message : 'Unable to load subjects.');
+      })
+      .finally(() => {
+        if (isMounted) setLoadingSubjects(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [targetCategory]);
 
   const [startDate, setStartDate] = useState(initialData?.start_date ? datePart(new Date(initialData.start_date)) : minDate);
   const [startTime, setStartTime] = useState(initialData?.start_date ? timePart(new Date(initialData.start_date)) : '08:00');
@@ -59,7 +96,24 @@ export default function AssessmentForm({
   const [activeCategories, setActiveCategories] = useState<CategoryType[]>(initialData?.categories_data.length ? initialData.categories_data.map(category => (category.type === 'True/False' ? 'True or False' : category.type) as CategoryType) : ['Multiple Choice']);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
-  const [mcItems, setMcItems] = useState(mc?.questions.map(q => ({ id: q.id, question: q.text ?? '', choices: { A: q.options?.[0] ?? '', B: q.options?.[1] ?? '', C: q.options?.[2] ?? '', D: q.options?.[3] ?? '' }, correctAnswer: (['A', 'B', 'C', 'D'].includes(q.correct_answer) ? q.correct_answer : 'A') as 'A' | 'B' | 'C' | 'D' })) ?? [
+  const [mcItems, setMcItems] = useState(mc?.questions.map(q => {
+    const choices = {
+      A: q.options?.[0] ?? '',
+      B: q.options?.[1] ?? '',
+      C: q.options?.[2] ?? '',
+      D: q.options?.[3] ?? '',
+    };
+    const matchedKey = (Object.keys(choices) as (keyof typeof choices)[]).find(
+      k => choices[k] && q.correct_answer && choices[k].trim().toLowerCase() === q.correct_answer.trim().toLowerCase()
+    );
+    const resolvedCorrect = matchedKey || (['A', 'B', 'C', 'D'].includes(q.correct_answer) ? q.correct_answer : 'A');
+    return {
+      id: q.id,
+      question: q.text ?? '',
+      choices,
+      correctAnswer: resolvedCorrect as 'A' | 'B' | 'C' | 'D',
+    };
+  }) ?? [
     {
       id: 'q_mc_1',
       question: '',
@@ -190,6 +244,7 @@ export default function AssessmentForm({
   const buildAndSave = (saveStatus: 'DRAFT' | 'SCHEDULED') => {
     if (saveStatus === 'SCHEDULED') {
       if (!title.trim()) return alert(`Please enter a ${type.toLowerCase()} title.`);
+      if (!subjectCode.trim()) return alert('Please select a subject.');
       if (!startDate || !startTime || !endDate || !endTime) {
         return alert('Please set the Start Date, Start Time, End Date, and End Time.');
       }
@@ -219,7 +274,7 @@ export default function AssessmentForm({
           id: String(item.id),
           text: item.question,
           options: [item.choices.A, item.choices.B, item.choices.C, item.choices.D],
-          correct_answer: item.correctAnswer,
+          correct_answer: item.choices[item.correctAnswer] || item.correctAnswer,
           premise: '',
           match: '',
         })),
@@ -340,34 +395,57 @@ export default function AssessmentForm({
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Subject Code
+              Target Class Category
             </label>
             <select
-              value={subjectCode}
-              onChange={(e) => setSubjectCode(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
+              value={targetCategory}
+              onChange={(e) => setTargetCategory(e.target.value as TargetCategory)}
+              required
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer"
             >
-              <option value="ALS-LS1-COMM">ALS-LS1-COMM (Communication Skills)</option>
-              <option value="ALS-LS2-SCI">ALS-LS2-SCI (Scientific & Critical Thinking)</option>
-              <option value="ALS-LS3-MATH">ALS-LS3-MATH (Mathematical & Problem Solving)</option>
-              <option value="ALS-LS6-DIGITAL">ALS-LS6-DIGITAL (Digital Citizenship)</option>
+              <option value="ELEMENTARY">Elementary</option>
+              <option value="SECONDARY">Junior High School</option>
+              <option value="BLP">Basic Literacy Program</option>
             </select>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Target Class Category
+              Subject Code
             </label>
             <select
-              value={targetCategory ?? ""}
-              onChange={(e) => setTargetCategory((e.target.value || null) as TargetCategory | null)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
+              value={subjectCode}
+              onChange={(e) => setSubjectCode(e.target.value)}
+              disabled={loadingSubjects}
+              required
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer disabled:opacity-60"
             >
-              <option value="">All Programs</option>
-              <option value="ELEMENTARY">Elementary</option>
-              <option value="SECONDARY">Junior High School</option>
-              <option value="BLP">Basic Literacy Program</option>
+              {loadingSubjects && <option value="">Loading subjects...</option>}
+              {!loadingSubjects && subjects.length === 0 && (
+                <option value="">No subjects found for this program</option>
+              )}
+              {!loadingSubjects &&
+                subjectCode &&
+                !subjects.some((s) => (s.code || s.name) === subjectCode) && (
+                  <option value={subjectCode}>{subjectCode} (Current)</option>
+                )}
+              {!loadingSubjects &&
+                subjects.map((s) => {
+                  const codeVal = s.code || s.name;
+                  const label =
+                    s.code && s.name && s.code !== s.name
+                      ? `${s.code} - ${s.name}`
+                      : s.name;
+                  return (
+                    <option key={s.subject_id} value={codeVal}>
+                      {label}
+                    </option>
+                  );
+                })}
             </select>
+            {subjectsError && (
+              <p className="mt-1 text-xs text-red-500">{subjectsError}</p>
+            )}
           </div>
         </div>
 

@@ -246,6 +246,70 @@ export default function StudentProfileView({
               </div>
             </section>
 
+            {/* Family Information Section */}
+            <section>
+              <h3 className="text-[11px] font-bold text-gray-900 uppercase tracking-wider mb-3">
+                Family Information
+              </h3>
+              <div className="space-y-2.5 text-sm">
+                <div className="grid grid-cols-[100px_1fr]">
+                  <span className="text-gray-500">Mother</span>
+                  <span className="font-medium text-gray-900 truncate">
+                    : {student.family_details.mother?.name || student.family_details.mother_name || "-"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-[100px_1fr]">
+                  <span className="text-gray-500">Mother Contact</span>
+                  <span className="font-medium text-gray-900">
+                    : {student.family_details.mother?.contact_no || "-"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-[100px_1fr]">
+                  <span className="text-gray-500">Father</span>
+                  <span className="font-medium text-gray-900 truncate">
+                    : {student.family_details.father?.name || student.family_details.father_name || "-"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-[100px_1fr]">
+                  <span className="text-gray-500">Father Contact</span>
+                  <span className="font-medium text-gray-900">
+                    : {student.family_details.father?.contact_no || "-"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-[100px_1fr]">
+                  <span className="text-gray-500">Guardian</span>
+                  <span className="font-medium text-gray-900 truncate">
+                    : {student.family_details.guardian?.name || student.family_details.guardian_name || "-"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-[100px_1fr]">
+                  <span className="text-gray-500">Guardian Contact</span>
+                  <span className="font-medium text-gray-900">
+                    : {student.family_details.guardian?.contact_no || student.family_details.contact_no || "-"}
+                  </span>
+                </div>
+                {student.family_details.siblings && student.family_details.siblings.length > 0 && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <span className="text-xs font-semibold text-gray-600 block mb-1.5">
+                      Siblings ({student.family_details.siblings.length})
+                    </span>
+                    <ul className="space-y-1.5 text-xs text-gray-700">
+                      {student.family_details.siblings.map((sibling, idx) => (
+                        <li key={idx} className="bg-gray-50 rounded p-1.5 border border-gray-100">
+                          <span className="font-medium block">{sibling.name || "Unnamed"}</span>
+                          {(sibling.last_grade_level_completed || sibling.occupation) && (
+                            <span className="text-gray-500 block text-[11px] mt-0.5">
+                              {[sibling.last_grade_level_completed, sibling.occupation].filter(Boolean).join(" · ")}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </section>
+
             {/* Direct link to edit this specific student */}
             <Link
               href={`/teacher/learner-accounts/${encodeURIComponent(student.id)}`}

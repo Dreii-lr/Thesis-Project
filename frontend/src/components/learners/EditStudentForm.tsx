@@ -3,13 +3,20 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import ApiState from '@/src/components/ui/ApiState';
-import { ArrowLeft, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { useStudents } from '@/src/context/StudentContext';
 import {
   fetchStudentByIdFromApi,
   type Student,
   type StudentUpdatePayload,
 } from '@/src/lib/students-api';
+
+interface SiblingRow {
+  id: string;
+  name: string;
+  last_grade_level_completed: string;
+  occupation: string;
+}
 
 export interface StudentFormActionProps {
   student: Student;
@@ -37,6 +44,51 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
   const [formVersion, setFormVersion] = useState(0);
   const [retry, setRetry] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [siblings, setSiblings] = useState<SiblingRow[]>([]);
+
+  useEffect(() => {
+    if (student?.family_details?.siblings) {
+      setSiblings(
+        student.family_details.siblings.map((s) => ({
+          id: crypto.randomUUID(),
+          name: s.name || '',
+          last_grade_level_completed: s.last_grade_level_completed || '',
+          occupation: s.occupation || '',
+        }))
+      );
+    } else {
+      setSiblings([]);
+    }
+  }, [student, formVersion]);
+
+  const addSibling = () => {
+    setSiblings((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        name: '',
+        last_grade_level_completed: '',
+        occupation: '',
+      },
+    ]);
+    setDirty(true);
+  };
+
+  const removeSibling = (id: string) => {
+    setSiblings((prev) => prev.filter((s) => s.id !== id));
+    setDirty(true);
+  };
+
+  const updateSibling = (
+    id: string,
+    field: keyof Omit<SiblingRow, 'id'>,
+    value: string
+  ) => {
+    setSiblings((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+    );
+    setDirty(true);
+  };
 
   useEffect(() => {
     let active = true;
@@ -96,6 +148,14 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
 
     const formData = new FormData(e.currentTarget);
 
+    const validSiblings = siblings
+      .filter((s) => s.name.trim() !== '')
+      .map((s) => ({
+        name: s.name.trim(),
+        last_grade_level_completed: s.last_grade_level_completed.trim() || null,
+        occupation: s.occupation.trim() || null,
+      }));
+
     const updatedPayload: StudentUpdatePayload = {
       first_name: ((formData.get('first_name') as string) || '').trim(),
       last_name: ((formData.get('last_name') as string) || '').trim(),
@@ -125,18 +185,23 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
       },
       family_details: {
         mother: {
-          ...student.family_details.mother,
-          name: ((formData.get('mother_name') as string) || '').trim(),
+          name: ((formData.get('mother_name') as string) || '').trim() || null,
+          contact_no:
+            ((formData.get('mother_contact_no') as string) || '').trim() || null,
         },
         father: {
-          ...student.family_details.father,
-          name: ((formData.get('father_name') as string) || '').trim(),
+          name: ((formData.get('father_name') as string) || '').trim() || null,
+          contact_no:
+            ((formData.get('father_contact_no') as string) || '').trim() || null,
         },
         guardian: {
-          name: ((formData.get('guardian_name') as string) || '').trim(),
-          contact_no: ((formData.get('family_contact_no') as string) || '').trim(),
+          name:
+            ((formData.get('guardian_name') as string) || '').trim() || null,
+          contact_no:
+            ((formData.get('guardian_contact_no') as string) || '').trim() ||
+            null,
         },
-        siblings: student.family_details.siblings,
+        siblings: validSiblings,
       },
     };
 
@@ -405,56 +470,204 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
           </section>
 
           {/* Family Details */}
-          <section>
-            <h2 className="text-[13px] font-bold text-gray-700 uppercase tracking-wider mb-5">
-              Family Details
+          <section className="space-y-6">
+            <h2 className="text-[13px] font-bold text-gray-700 uppercase tracking-wider">
+              Family & Guardian Details
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="mother_name" className="text-sm text-gray-600 font-medium">
-                  Mother Name
-                </label>
-                <input
-                  id="mother_name" name="mother_name"
-                  defaultValue={student.family_details.mother_name}
-                  type="text"
-                  className={inputClass}
-                />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Mother */}
+              <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-lg space-y-4">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Mother Information
+                </h3>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="mother_name" className="text-sm text-gray-600 font-medium">
+                    Mother's Name
+                  </label>
+                  <input
+                    id="mother_name"
+                    name="mother_name"
+                    defaultValue={student.family_details.mother?.name || student.family_details.mother_name}
+                    type="text"
+                    placeholder="Full name of mother"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="mother_contact_no" className="text-sm text-gray-600 font-medium">
+                    Contact Number
+                  </label>
+                  <input
+                    id="mother_contact_no"
+                    name="mother_contact_no"
+                    defaultValue={student.family_details.mother?.contact_no || ''}
+                    type="tel"
+                    placeholder="e.g., 09123456789"
+                    className={inputClass}
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="father_name" className="text-sm text-gray-600 font-medium">
-                  Father Name
-                </label>
-                <input
-                  id="father_name" name="father_name"
-                  defaultValue={student.family_details.father_name}
-                  type="text"
-                  className={inputClass}
-                />
+
+              {/* Father */}
+              <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-lg space-y-4">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Father Information
+                </h3>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="father_name" className="text-sm text-gray-600 font-medium">
+                    Father's Name
+                  </label>
+                  <input
+                    id="father_name"
+                    name="father_name"
+                    defaultValue={student.family_details.father?.name || student.family_details.father_name}
+                    type="text"
+                    placeholder="Full name of father"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="father_contact_no" className="text-sm text-gray-600 font-medium">
+                    Contact Number
+                  </label>
+                  <input
+                    id="father_contact_no"
+                    name="father_contact_no"
+                    defaultValue={student.family_details.father?.contact_no || ''}
+                    type="tel"
+                    placeholder="e.g., 09123456789"
+                    className={inputClass}
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="guardian_name" className="text-sm text-gray-600 font-medium">
-                  Guardian Name
-                </label>
-                <input
-                  id="guardian_name" name="guardian_name"
-                  defaultValue={student.family_details.guardian_name}
-                  type="text"
-                  className={inputClass}
-                />
+
+              {/* Guardian */}
+              <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-lg space-y-4">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Guardian Information
+                </h3>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="guardian_name" className="text-sm text-gray-600 font-medium">
+                    Guardian's Name
+                  </label>
+                  <input
+                    id="guardian_name"
+                    name="guardian_name"
+                    defaultValue={student.family_details.guardian?.name || student.family_details.guardian_name}
+                    type="text"
+                    placeholder="Full name of guardian"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="guardian_contact_no" className="text-sm text-gray-600 font-medium">
+                    Contact Number
+                  </label>
+                  <input
+                    id="guardian_contact_no"
+                    name="guardian_contact_no"
+                    defaultValue={student.family_details.guardian?.contact_no || student.family_details.contact_no || ''}
+                    type="tel"
+                    placeholder="e.g., 09123456789"
+                    className={inputClass}
+                  />
+                </div>
               </div>
-              
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="family_contact_no" className="text-sm text-gray-600 font-medium">
-                  Contact Number
-                </label>
-                <input
-                  id="family_contact_no" name="family_contact_no"
-                  defaultValue={student.family_details.contact_no}
-                  type="text"
-                  className={inputClass}
-                />
+            </div>
+
+            {/* Sibling Information */}
+            <div className="pt-4 border-t border-gray-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Sibling Information
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Record educational or work background of siblings
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addSibling}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold transition-colors self-start sm:self-auto"
+                >
+                  <Plus size={14} /> Add Sibling
+                </button>
               </div>
+
+              {siblings.length === 0 ? (
+                <div className="text-center py-6 px-4 border border-dashed border-slate-200 rounded-lg text-slate-500 text-xs">
+                  No siblings added. Click <span className="font-semibold text-purple-700">"Add Sibling"</span> if the learner has sibling details to record.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {siblings.map((sibling, index) => (
+                    <div
+                      key={sibling.id}
+                      className="p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col md:flex-row gap-4 items-start md:items-end animate-in fade-in duration-200"
+                    >
+                      <div className="flex-1 w-full">
+                        <label className="text-xs text-gray-600 font-medium block mb-1">
+                          Sibling #{index + 1} Name
+                        </label>
+                        <input
+                          type="text"
+                          value={sibling.name}
+                          onChange={(e) =>
+                            updateSibling(sibling.id, "name", e.target.value)
+                          }
+                          placeholder="Full name"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="flex-1 w-full">
+                        <label className="text-xs text-gray-600 font-medium block mb-1">
+                          Last Grade Completed
+                        </label>
+                        <input
+                          type="text"
+                          value={sibling.last_grade_level_completed}
+                          onChange={(e) =>
+                            updateSibling(
+                              sibling.id,
+                              "last_grade_level_completed",
+                              e.target.value
+                            )
+                          }
+                          placeholder="e.g., Grade 10"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="flex-1 w-full">
+                        <label className="text-xs text-gray-600 font-medium block mb-1">
+                          Occupation
+                        </label>
+                        <input
+                          type="text"
+                          value={sibling.occupation}
+                          onChange={(e) =>
+                            updateSibling(
+                              sibling.id,
+                              "occupation",
+                              e.target.value
+                            )
+                          }
+                          placeholder="e.g., Student / Employed"
+                          className={inputClass}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeSibling(sibling.id)}
+                        className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                        title="Remove sibling"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 

@@ -4,7 +4,8 @@ import Image from 'next/image';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, LogOut, User } from 'lucide-react';
-import { clearDemoSession, getDemoSession } from '@/src/components/auth/DemoAuthGuard';
+import { clearDemoSession } from '@/src/components/auth/DemoAuthGuard';
+import { useOptionalAuth } from '@/src/context/AuthContext';
 
 const PROFILE_PHOTO_KEY = 'als-student-profile-photo';
 const PROFILE_PHOTO_EVENT = 'als-student-profile-photo-updated';
@@ -22,15 +23,20 @@ function readProfilePhoto() {
   try { return localStorage.getItem(PROFILE_PHOTO_KEY); } catch { return null; }
 }
 
-function readIdentity() {
-  return getDemoSession()?.identity || 'ALS Learner';
-}
-
 export default function StudentProfileDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
-  const identity = useSyncExternalStore(subscribeProfile, readIdentity, () => 'ALS Learner');
+  const auth = useOptionalAuth();
+  const activeUser = auth?.user;
+
+  const identity = activeUser
+    ? activeUser.full_name ||
+      [activeUser.first_name, activeUser.last_name].filter(Boolean).join(' ').trim() ||
+      activeUser.email ||
+      String(activeUser.user_id || 'ALS Learner')
+    : 'ALS Learner';
+
   const profilePhoto = useSyncExternalStore(subscribeProfile, readProfilePhoto, () => null);
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -58,10 +64,14 @@ export default function StudentProfileDropdown() {
     setIsSigningOut(true);
     setSignOutError('');
     try {
-      await clearDemoSession();
+      if (auth) {
+        await auth.logout();
+      } else {
+        await clearDemoSession();
+        router.replace('/login');
+        router.refresh();
+      }
       setIsOpen(false);
-      router.replace('/login');
-      router.refresh();
     } catch {
       setSignOutError('Unable to sign out. Please try again.');
     } finally {

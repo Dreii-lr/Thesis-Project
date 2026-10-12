@@ -2,54 +2,21 @@
 
 import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { logoutUser } from "@/src/lib/auth-api";
+import { logoutUser, type DemoRole } from "@/src/lib/auth-api";
 import {
   AuthProvider,
   useOptionalAuth,
   type AuthContextType,
 } from "@/src/context/AuthContext";
 
-export type DemoRole = "student" | "teacher" | "admin";
+export type { DemoRole };
 
-const SESSION_KEY = "als-lms-demo-session";
-
-type DemoSession = {
-  role: DemoRole;
-  identity: string;
-  signedInAt: string;
-};
-
-export function saveDemoSession(role: DemoRole, identity: string) {
-  const session: DemoSession = {
-    role,
-    identity,
-    signedInAt: new Date().toISOString(),
-  };
-
-  try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  } catch {
-    /* Display cache only. */
-  }
-}
-
-export function getDemoSession(): DemoSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-
-    const session = JSON.parse(raw) as DemoSession;
-    if (!session?.role || !session?.identity) return null;
-    return session;
-  } catch {
-    return null;
-  }
-}
+const LEGACY_SESSION_KEY = "als-lms-demo-session";
 
 export async function clearDemoSession() {
   await logoutUser();
   try {
-    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(LEGACY_SESSION_KEY);
   } catch {
     /* The server session is already revoked. */
   }
@@ -72,9 +39,9 @@ function GuardContent({
 
     if (!user || error) {
       try {
-        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(LEGACY_SESSION_KEY);
       } catch {
-        /* Display cache only. */
+        /* Cleanup legacy storage if present. */
       }
       router.replace("/login");
       return;

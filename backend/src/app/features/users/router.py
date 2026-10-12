@@ -41,14 +41,16 @@ require_admin = require_roles(UserRole.ADMIN)
 #     response = await UserService.create_teacher(uow, data)
 #     return SharedUtils.SuccessfulResponse(response)
 #
-@router.post("/mapping",status_code=status.HTTP_201_CREATED)
-async def mapping_student(data: UserCreate = Depends(MapStudent.get_map_student_dependency),
-        # current_user: UserRead = Depends(require_teacher),
+@router.post("/mapping", status_code=status.HTTP_201_CREATED)
+async def mapping_student(
+        data: UserCreate = Depends(MapStudent.get_map_student_dependency),
+        current_user: UserRead = Depends(require_admin_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     Map a new student with normalized personal, contact, and family details.
     Supports both nested details payloads and flat frontend form submissions.
+    Accessible to both Admin and Teacher.
     """
     response = await UserService.map_student(uow, data)
     return SharedUtils.SuccessfulResponse(response)
@@ -56,13 +58,13 @@ async def mapping_student(data: UserCreate = Depends(MapStudent.get_map_student_
 
 @router.post("/{user_id}", status_code=status.HTTP_201_CREATED)
 async def create_user(
-        user_id : str,
-        # current_user: UserRead = Depends(require_teacher),
+        user_id: str,
+        current_user: UserRead = Depends(require_admin),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
-    Create a new user account with normalized personal, contact, and family details.
-    Supports both nested details payloads and flat frontend form submissions.
+    Create a new user account / enroll mapped student with Firebase credentials.
+    Strictly restricted to ADMIN role only.
     """
     response = await UserService.create_user(uow, user_id)
     response.status_code = status.HTTP_200_OK
@@ -72,15 +74,15 @@ async def create_user(
 @router.get("/", status_code=status.HTTP_200_OK)
 async def list_users(
         offset: int = Query(0, ge=0),
-        # current_user: UserRead = Depends(require_teacher),
         limit: int = Query(100, ge=1, le=500),
+        current_user: UserRead = Depends(require_admin_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     List user accounts with pagination.
+    Accessible to Admin and Teacher.
     """
     response = await UserService.list_users(uow, offset=offset, limit=limit)
-
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -124,10 +126,12 @@ async def change_password_by_id(
 @router.get("/{user_id}", status_code=status.HTTP_200_OK)
 async def get_user(
         user_id: str,
+        current_user: UserRead = Depends(require_admin_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     Retrieve full user details, including personal_details, contact_details, and family_details.
+    Accessible to Admin and Teacher.
     """
     response = await UserService.get_user_by_id(uow, user_id)
     return SharedUtils.SuccessfulResponse(response)
@@ -137,10 +141,12 @@ async def get_user(
 async def update_user(
         user_id: str,
         data: UserUpdate = Depends(UserUpdate.depends),
+        current_user: UserRead = Depends(require_admin_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     Update user information and related profile details.
+    Accessible to Admin and Teacher.
     """
     response = await UserService.update_user(uow, user_id, data)
     return SharedUtils.SuccessfulResponse(response)

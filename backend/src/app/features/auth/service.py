@@ -43,7 +43,6 @@ class AuthService:
             # Firebase's current password, disabled-account checks, or reset flow.
 
             user = await uow.users.get_by_student_id(data.student_id)
-            print(user)
             if not user:
                 raise DomainUnauthorizedDomainException(
                     "Your account is not registered in this application. Please contact your administrator.")

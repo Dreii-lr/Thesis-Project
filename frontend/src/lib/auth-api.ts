@@ -1,4 +1,5 @@
-import type { DemoRole } from '@/src/components/auth/DemoAuthGuard';
+export type DemoRole = 'student' | 'teacher' | 'admin';
+export type UserRole = DemoRole;
 
 // Keep session cookies on the frontend origin; Next.js proxies to BACKEND_URL.
 export const API_BASE_URL = '/api/v1';

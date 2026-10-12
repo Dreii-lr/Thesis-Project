@@ -15,7 +15,6 @@ from app.core.constants import constants
 # ── Engine ────────────────────────────────────────────────────────────────────
 engine = create_async_engine(
     constants.DATABASE_URL,
-    echo=constants.DEBUG,     # log all SQL in dev; disable in production
     future=True,
     pool_pre_ping=True,
     pool_size=10,

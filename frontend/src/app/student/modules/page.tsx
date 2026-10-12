@@ -13,6 +13,7 @@ import {
 import ModuleCard from "@/src/components/ui/ModuleCard";
 import {
   getMaterials,
+  normalizeMaterialStatus,
   type MaterialItem,
 } from "@/src/lib/document-processor-api";
 
@@ -26,8 +27,11 @@ export default function StudentModulesPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getMaterials({ pageSize: 100 });
-      setMaterials(data || []);
+      const data = await getMaterials({ pageSize: 100, status: "PUBLISHED" });
+      const published = (data || []).filter(
+        (m) => normalizeMaterialStatus(m.status) === "PUBLISHED"
+      );
+      setMaterials(published);
     } catch (err) {
       const msg =
         err instanceof Error
@@ -178,12 +182,12 @@ export default function StudentModulesPage() {
               <FolderOpen size={24} />
             </div>
             <h3 className="text-sm font-bold text-slate-800">
-              {searchQuery ? "No matching learning modules" : "No learning modules available"}
+              {searchQuery ? "No matching learning modules" : "No published learning modules"}
             </h3>
             <p className="mt-1 max-w-sm text-xs text-slate-500">
               {searchQuery
                 ? "Try searching with different keywords or clear your search."
-                : "Your teacher has not uploaded curriculum modules yet. Check back soon for new learning materials."}
+                : "Your teacher has not published any curriculum modules yet. Check back soon for new learning materials once published."}
             </p>
           </div>
         )}

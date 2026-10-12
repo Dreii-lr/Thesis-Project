@@ -35,6 +35,12 @@ import {
   formatTime,
   scheduledTasks,
 } from "@/src/lib/teacher-calendar";
+import {
+  getMaterials,
+  normalizeMaterialStatus,
+  matchMaterialToCategory,
+  type MaterialItem,
+} from "@/src/lib/document-processor-api";
 import ApiState from "@/src/components/ui/ApiState";
 
 export default function TeacherDashboard() {
@@ -57,6 +63,10 @@ export default function TeacherDashboard() {
   const [attendanceLoading, setAttendanceLoading] = useState(true);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [attendanceRetry, setAttendanceRetry] = useState(0);
+  const [materials, setMaterials] = useState<MaterialItem[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState(true);
+  const [materialsError, setMaterialsError] = useState<string | null>(null);
+  const [materialsRetry, setMaterialsRetry] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -101,9 +111,34 @@ export default function TeacherDashboard() {
     };
   }, [attendanceRetry]);
 
+  useEffect(() => {
+    let active = true;
+    setMaterialsLoading(true);
+    setMaterialsError(null);
+    getMaterials({ pageSize: 100 })
+      .then((items) => {
+        if (active) setMaterials(items || []);
+      })
+      .catch((err) => {
+        if (active)
+          setMaterialsError(
+            err instanceof Error ? err.message : "Unable to load materials."
+          );
+      })
+      .finally(() => {
+        if (active) setMaterialsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [materialsRetry]);
+
   const tasks = data?.tasks || [];
   const programs = data?.categories || [];
   const subjects = data?.subjects || [];
+  const publishedMaterials = materials.filter(
+    (m) => normalizeMaterialStatus(m.status) === "PUBLISHED"
+  );
   const validSubmissions = (data?.records || [])
     .map((record) => record.submission)
     .filter((submission) => submission.submitted_at);
@@ -169,6 +204,15 @@ export default function TeacherDashboard() {
               setAttendanceRetry((value) => value + 1);
             }}
           />
+          <ApiState
+            loading={false}
+            error={materialsError}
+            onRetry={() => {
+              setMaterialsLoading(true);
+              setMaterialsError(null);
+              setMaterialsRetry((value) => value + 1);
+            }}
+          />
           <section className="portal-hero relative overflow-hidden rounded-[28px] p-7 text-white shadow-xl shadow-blue-600/15 sm:p-8">
             <div className="absolute -right-12 -top-20 h-64 w-64 rounded-full bg-white/10" />
             <div className="relative flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
@@ -218,10 +262,14 @@ export default function TeacherDashboard() {
                 href: "/teacher/students",
               },
               {
-                label: "Published modules",
-                value: "Unavailable",
+                label: "Published materials",
+                value: materialsLoading
+                  ? "…"
+                  : materialsError
+                    ? "Unavailable"
+                    : publishedMaterials.length,
                 icon: BookOpen,
-                href: "/teacher/module-uploads",
+                href: "/teacher/lesson-content",
               },
               {
                 label: "Awaiting review",
@@ -294,7 +342,12 @@ export default function TeacherDashboard() {
                             !t.target_category || t.target_category === p.code,
                         ).length
                       }{" "}
-                      assessments · modules unavailable
+                      assessments ·{" "}
+                      {materialsLoading
+                        ? "…"
+                        : materialsError
+                          ? "materials unavailable"
+                          : `${publishedMaterials.filter((m) => matchMaterialToCategory(m, p)).length} published`}
                     </p>
                     <span className="mt-5 block text-sm font-semibold text-blue-600">
                       Open directory →

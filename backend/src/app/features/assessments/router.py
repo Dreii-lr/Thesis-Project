@@ -64,6 +64,7 @@ async def update_assessment(
 
 
 @router.get("/teacher/my-tasks", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
+@router.get("/teacher/list", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
 async def list_teacher_assessments(
     status_filter: Optional[TaskStatus] = Query(default=None, alias="status"),
     target_category: Optional[UserCategory] = Query(default=None),

@@ -17,6 +17,7 @@ import ModuleCard from "@/src/components/ui/ModuleCard";
 import {
   getMaterials,
   normalizeMaterialStatus,
+  matchMaterialToCategory,
   type MaterialItem,
 } from "@/src/lib/document-processor-api";
 import {
@@ -25,64 +26,6 @@ import {
   type UserCategorySubject,
   DEFAULT_USER_CATEGORIES,
 } from "@/src/lib/user-categories-api";
-
-function matchMaterialToCategory(
-  mat: MaterialItem,
-  cat: UserCategoryItem
-): boolean {
-  const code = (cat.code || "").toUpperCase();
-  const name = (cat.name || "").toLowerCase();
-
-  if (mat.als_program) {
-    const p = mat.als_program.toUpperCase();
-    if (p === code || p.includes(code)) return true;
-    if (
-      code === "SECONDARY" &&
-      (p.includes("JUNIOR") || p.includes("JHS") || p.includes("SEC"))
-    )
-      return true;
-    if (code === "BLP" && (p.includes("BLP") || p.includes("BASIC")))
-      return true;
-    if (code === "ELEMENTARY" && p.includes("ELEM")) return true;
-  }
-
-  const strand = (mat.learning_strand || "").toLowerCase();
-  const goal = (mat.main_learning_goal || "").toLowerCase();
-
-  if (code === "ELEMENTARY" && (strand.includes("elem") || goal.includes("elem")))
-    return true;
-  if (
-    code === "BLP" &&
-    (strand.includes("blp") ||
-      strand.includes("basic") ||
-      goal.includes("blp") ||
-      goal.includes("basic"))
-  )
-    return true;
-  if (
-    code === "SECONDARY" &&
-    (strand.includes("junior") ||
-      strand.includes("secondary") ||
-      strand.includes("jhs") ||
-      strand.includes("sec") ||
-      goal.includes("junior") ||
-      goal.includes("secondary"))
-  )
-    return true;
-
-  if (name && (strand.includes(name) || goal.includes(name))) return true;
-
-  // If category has subjects, match against category subjects
-  if (cat.subjects && cat.subjects.length > 0) {
-    const matchesSubject = cat.subjects.some((sub) => {
-      const subName = sub.name.toLowerCase();
-      return strand.includes(subName) || goal.includes(subName);
-    });
-    if (matchesSubject) return true;
-  }
-
-  return false;
-}
 
 function matchMaterialToSubject(
   mat: MaterialItem,

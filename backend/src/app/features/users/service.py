@@ -67,8 +67,6 @@ class UserService:
             if user_data:
                 raise DomainEntityAlreadyExistsException("This student is already exists.")
 
-
-
             next_value = await uow.sequence_id_generator.get_next_value()
             if not next_value:
                 await uow.sequence_id_generator.add()
@@ -295,13 +293,13 @@ class UserService:
             data = await uow.users.get_by_id(user_id)
 
             if not data:
-                raise DomainEntityNotFoundException
+                raise DomainEntityNotFoundException("This Mapped student is not exists.")
 
-            email_for_firebase = f"{data.student_id}@gmail.com"
+            email_for_firebase = f"{data.student_id}@gmail.com" if not data.email else data.email
             #if existing then it must not create user.
             existing = check_email_in_firebase(email_for_firebase)
             if existing:
-                raise DomainEntityAlreadyExistsException
+                raise DomainEntityAlreadyExistsException("This mapped student is already exists.")
 
             # otherwise insert create a user password
             # Determine raw password

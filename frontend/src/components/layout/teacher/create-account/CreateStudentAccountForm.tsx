@@ -1,106 +1,32 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Info, CheckCircle2 } from "lucide-react";
 import EditStudentForm, {
   type StudentFormActionProps,
 } from "@/src/components/learners/EditStudentForm";
-import { useStudents } from "@/src/context/StudentContext";
-import {
-  enrollStudentInApi,
-  fetchStudentByIdFromApi,
-} from "@/src/lib/students-api";
 
-function CreateStudentAccountAction({
-  student,
-  dirty,
-  isSaving,
-  onPendingChange,
-  onStudentChange,
-}: StudentFormActionProps) {
-  const { refreshStudents } = useStudents();
-  const pending = useRef(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [created, setCreated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleCreateAccount = async () => {
-    if (
-      pending.current ||
-      isSaving ||
-      dirty ||
-      created ||
-      student.status !== "MAPPED"
-    )
-      return;
-    if (!student.personal_details.birth_date) {
-      setError("Save a birth date before creating this student account.");
-      return;
-    }
-
-    pending.current = true;
-    setIsCreating(true);
-    onPendingChange(true);
-    setError(null);
-    try {
-      await enrollStudentInApi(student.id);
-      setCreated(true);
-      onStudentChange({ ...student, status: "ACTIVE" });
-      await refreshStudents();
-      try {
-        onStudentChange(await fetchStudentByIdFromApi(student.id));
-      } catch {
-        setError(
-          "The account was created, but its updated details could not be loaded. Refresh the page to check them.",
-        );
-      }
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to create this student account.",
-      );
-    } finally {
-      pending.current = false;
-      setIsCreating(false);
-      onPendingChange(false);
-    }
-  };
-
+function TeacherLearnerStatusAction({ student }: StudentFormActionProps) {
   return (
     <>
-      {student.status === "MAPPED" && !created && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
-          <p className="text-blue-700">
-            This learner is mapped. Save any changes before creating the
-            account.
-          </p>
-          {/* <button
-            type="button"
-            onClick={() => void handleCreateAccount()}
-            disabled={isCreating || isSaving || dirty}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isCreating && <Loader2 size={16} className="animate-spin" />}
-            {isCreating ? "Creating..." : "Create Learner Account"}
-          </button> */}
+      {student.status === "MAPPED" && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900 shadow-sm">
+          <Info size={20} className="shrink-0 text-amber-600 mt-0.5" />
+          <div>
+            <p className="font-semibold text-amber-800">Learner Mapped — Awaiting Admin Activation</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              This learner has been mapped. You can review and update their personal, contact, and family details below.
+              An administrator will review the record and create their official student login account.
+            </p>
+          </div>
         </div>
       )}
-      {created && (
-        <p
-          role="status"
-          className="mb-6 rounded-xl border border-green-100 bg-green-50 p-4 text-sm text-green-700"
-        >
-          Student account created successfully.
-        </p>
-      )}
-      {error && (
-        <p
-          role="alert"
-          className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-        >
-          {error}
-        </p>
+      {student.status === "ACTIVE" && (
+        <div className="mb-6 flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-800 shadow-sm">
+          <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+          <p className="font-medium">
+            This learner account is active and enrolled in the ALS learning portal.
+          </p>
+        </div>
       )}
     </>
   );
@@ -111,8 +37,9 @@ export default function CreateStudentAccountForm({ id }: { id: string }) {
     <EditStudentForm
       id={id}
       basePath="/teacher/learner-accounts"
-      heading="Student Account Details"
-      actions={CreateStudentAccountAction}
+      heading="Learner Details Review"
+      actions={TeacherLearnerStatusAction}
     />
   );
 }
+

@@ -3,7 +3,7 @@ import { authenticatedRequest } from './auth-api';
 export interface SubjectRecord {
   subject_id: string;
   category_id: string;
-  code: string;
+  code?: string;
   name: string;
   description?: string | null;
   image_url?: string | null;
@@ -19,17 +19,28 @@ interface ListSubjectsResponse {
   offset: number;
   limit: number;
 }
-export async function listSubjects(): Promise<SubjectRecord[]> {
+export async function listSubjects(categoryId?: string): Promise<SubjectRecord[]> {
   const subjects: SubjectRecord[] = [];
+  const query = categoryId ? `&category_id=${encodeURIComponent(categoryId)}` : '';
   for (let offset = 0; ; offset += 500) {
-    const result = await authenticatedRequest<ListSubjectsResponse>(`/subjects/?offset=${offset}&limit=500`);
+    const result = await authenticatedRequest<ListSubjectsResponse>(`/subjects/?offset=${offset}&limit=500${query}`);
     subjects.push(...result.subjects);
     if (subjects.length >= result.total) return subjects;
     if (!result.subjects.length) throw new Error('Subjects changed while loading. Please refresh.');
   }
 }
 export function subjectName(subjects: SubjectRecord[], code: string, category?: string | null): string {
-  return subjects.find(subject => subject.code === code && (!category || subject.category_code === category))?.name || code;
+  return (
+    subjects.find(
+      (subject) =>
+        (subject.code === code || subject.name === code || subject.subject_id === code) &&
+        (!category || subject.category_code === category)
+    )?.name ||
+    subjects.find(
+      (subject) => subject.code === code || subject.name === code || subject.subject_id === code
+    )?.name ||
+    code
+  );
 }
 
 export interface SubjectCreatePayload {

@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
 import { getCurrentUser } from './auth-api';
-import { getDemoSession } from '../components/auth/DemoAuthGuard';
 import type { WorkspaceModule, LibraryModule } from '../data/mockTeacher';
 import { CATEGORY_LABELS, type TargetCategory } from '../data/mockAssessment';
 
@@ -235,15 +234,12 @@ export function toLibraryModule(
  */
 async function resolveEffectiveUserId(providedUserId?: string | null): Promise<string | undefined> {
   if (providedUserId) return providedUserId;
-  const demoSession = getDemoSession();
-  if (demoSession?.identity) {
-    try {
-      const user = await getCurrentUser();
-      if (user?.user_id) return user.user_id;
-    } catch {
-      // Fallback to demo identity
-    }
-    return demoSession.identity;
+  try {
+    const user = await getCurrentUser();
+    if (user?.user_id) return String(user.user_id);
+    if (user?.id) return String(user.id);
+  } catch {
+    // Unauthenticated or network error; proceed without header
   }
   return undefined;
 }
@@ -604,6 +600,66 @@ export function normalizeMaterialStatus(
   if (clean === 'PUBLISHED') return 'PUBLISHED';
   if (clean === 'ARCHIVED') return 'ARCHIVED';
   return 'DRAFT';
+}
+
+/**
+ * Matches a material item to a category by program code, name, learning strand, or subjects.
+ */
+export function matchMaterialToCategory(
+  mat: MaterialItem,
+  cat: { code?: string; name?: string; subjects?: { name: string }[] }
+): boolean {
+  const code = (cat.code || "").toUpperCase();
+  const name = (cat.name || "").toLowerCase();
+
+  if (mat.als_program) {
+    const p = mat.als_program.toUpperCase();
+    if (p === code || p.includes(code)) return true;
+    if (
+      code === "SECONDARY" &&
+      (p.includes("JUNIOR") || p.includes("JHS") || p.includes("SEC"))
+    )
+      return true;
+    if (code === "BLP" && (p.includes("BLP") || p.includes("BASIC")))
+      return true;
+    if (code === "ELEMENTARY" && p.includes("ELEM")) return true;
+  }
+
+  const strand = (mat.learning_strand || "").toLowerCase();
+  const goal = (mat.main_learning_goal || "").toLowerCase();
+
+  if (code === "ELEMENTARY" && (strand.includes("elem") || goal.includes("elem")))
+    return true;
+  if (
+    code === "BLP" &&
+    (strand.includes("blp") ||
+      strand.includes("basic") ||
+      goal.includes("blp") ||
+      goal.includes("basic"))
+  )
+    return true;
+  if (
+    code === "SECONDARY" &&
+    (strand.includes("junior") ||
+      strand.includes("secondary") ||
+      strand.includes("jhs") ||
+      strand.includes("sec") ||
+      goal.includes("junior") ||
+      goal.includes("secondary"))
+  )
+    return true;
+
+  if (name && (strand.includes(name) || goal.includes(name))) return true;
+
+  if (cat.subjects && cat.subjects.length > 0) {
+    const matchesSubject = cat.subjects.some((sub) => {
+      const subName = sub.name.toLowerCase();
+      return strand.includes(subName) || goal.includes(subName);
+    });
+    if (matchesSubject) return true;
+  }
+
+  return false;
 }
 
 /**

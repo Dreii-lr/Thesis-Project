@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.features.assessments.models import (
     SubmissionStatus,
@@ -67,7 +67,7 @@ class AssessmentCreateSchema(BaseModel):
     title: str
     description: Optional[str] = None
     subject_code: str
-    target_category: Optional[UserCategory] = None  # None = Universal for all students
+    target_category: UserCategory  # Mandatory specific ALS program (ELEMENTARY, SECONDARY, BLP)
     assessment_type: TaskType
     status: TaskStatus = TaskStatus.DRAFT
     start_date: Optional[datetime] = None
@@ -79,7 +79,19 @@ class AssessmentCreateSchema(BaseModel):
     categories_data: Optional[List[CategoryConfigSchema]] = None
     materials: Optional[List[AssessmentMaterialInput]] = None
 
-
+    @field_validator("target_category", mode="before")
+    @classmethod
+    def validate_target_category(cls, value: Any) -> UserCategory:
+        if value is None or str(value).strip() == "" or str(value).lower() in ("all", "universal"):
+            raise ValueError("An assessment must be specifically assigned to ELEMENTARY, SECONDARY, or BLP.")
+        val_str = str(value).strip().upper()
+        if val_str in ("JUNIOR", "JUNIOR_HIGH_SCHOOL", "SECONDARY"):
+            return UserCategory.SECONDARY
+        if val_str == "ELEMENTARY":
+            return UserCategory.ELEMENTARY
+        if val_str in ("BLP", "BASIC_LITERACY", "BASIC_LITERACY_PROGRAM"):
+            return UserCategory.BLP
+        raise ValueError(f"Invalid target category '{value}'. Allowed: ELEMENTARY, SECONDARY, BLP.")
 
 
 class AssessmentUpdateSchema(BaseModel):
@@ -94,6 +106,22 @@ class AssessmentUpdateSchema(BaseModel):
     duration_minutes: Optional[int] = None
     max_score: Optional[float] = None
     categories_data: Optional[List[CategoryConfigSchema]] = None
+
+    @field_validator("target_category", mode="before")
+    @classmethod
+    def validate_target_category_update(cls, value: Any) -> Optional[UserCategory]:
+        if value is None:
+            return None
+        if str(value).strip() == "" or str(value).lower() in ("all", "universal"):
+            raise ValueError("An assessment must be specifically assigned to ELEMENTARY, SECONDARY, or BLP.")
+        val_str = str(value).strip().upper()
+        if val_str in ("JUNIOR", "JUNIOR_HIGH_SCHOOL", "SECONDARY"):
+            return UserCategory.SECONDARY
+        if val_str == "ELEMENTARY":
+            return UserCategory.ELEMENTARY
+        if val_str in ("BLP", "BASIC_LITERACY", "BASIC_LITERACY_PROGRAM"):
+            return UserCategory.BLP
+        raise ValueError(f"Invalid target category '{value}'. Allowed: ELEMENTARY, SECONDARY, BLP.")
 
 
 class AssessmentDetailResponse(BaseModel):

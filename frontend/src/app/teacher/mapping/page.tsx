@@ -1,5 +1,5 @@
-import LearnerDirectory from '@/src/components/learners/LearnerDirectory';
+import { redirect } from 'next/navigation';
 
 export default function MappingPage() {
-  return <LearnerDirectory mode="mapping" />;
+  redirect('/teacher/learner-accounts');
 }

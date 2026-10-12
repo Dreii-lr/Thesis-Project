@@ -230,11 +230,41 @@ class AssessmentService:
         #             maxScore=a.max_score,
         #         )
         #     )
-        print(assessments)
+        details = []
+        for a in assessments:
+            cat_data = a.questions.categories_data if a.questions else []
+            materials_read = [
+                AssessmentMaterialRead.model_validate(m) for m in (a.materials or [])
+            ]
+            sub_count = len(a.submissions) if a.submissions else 0
+            details.append(
+                AssessmentDetailResponse(
+                    assessment_id=a.assessment_id,
+                    teacher_id=a.teacher_id,
+                    title=a.title,
+                    description=a.description,
+                    subject_code=a.subject_code,
+                    target_category=a.target_category,
+                    assessment_type=a.assessment_type,
+                    status=a.status,
+                    start_date=a.start_date,
+                    end_date=a.end_date,
+                    grace_period_minutes=a.grace_period_minutes,
+                    duration_minutes=a.duration_minutes,
+                    max_score=a.max_score,
+                    is_ai_generated=a.is_ai_generated,
+                    categories_data=cat_data,
+                    materials=materials_read,
+                    submissions_count=sub_count,
+                    created_at=a.created_at,
+                    updated_at=a.updated_at,
+                ).model_dump(mode="json")
+            )
+
         return SuccessfulResponseSchema(
             message="Assessments retrieved successfully.",
             message_status="SUCCESS_FETCHED",
-            data=AdditionalData(resources=[item.model_dump(mode="json") for item in assessments]),
+            data=AdditionalData(resources=details),
         )
 
     async def list_student_tasks(
@@ -298,8 +328,8 @@ class AssessmentService:
         if assessment.status != TaskStatus.ACTIVE:
             raise DomainValidationDomainException("This assessment is not currently active.")
 
-        # Validate Category Targeting
-        if assessment.target_category and assessment.target_category != student_user.user_category:
+        # Validate Category Targeting: assessment must strictly match learner's program
+        if assessment.target_category != student_user.user_category:
             raise DomainForbiddenDomainException("This assessment is not assigned to your learner category.")
 
         # Check existing submission

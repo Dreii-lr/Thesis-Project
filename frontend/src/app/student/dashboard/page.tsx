@@ -13,7 +13,7 @@ import {
   Play,
   Trophy,
 } from 'lucide-react';
-import { getDemoSession } from '@/src/components/auth/DemoAuthGuard';
+import { useOptionalAuth } from '@/src/context/AuthContext';
 
 const modules = [
   {
@@ -46,12 +46,14 @@ const upcoming = [
 ];
 
 export default function StudentDashboardPage() {
-  const [identity, setIdentity] = useState('Learner');
-
-  useEffect(() => {
-    const session = getDemoSession();
-    if (session?.identity) setIdentity(session.identity);
-  }, []);
+  const auth = useOptionalAuth();
+  const user = auth?.user;
+  const identity = user
+    ? user.full_name ||
+      [user.first_name, user.last_name].filter(Boolean).join(' ').trim() ||
+      user.email ||
+      String(user.user_id || 'Learner')
+    : 'Learner';
 
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

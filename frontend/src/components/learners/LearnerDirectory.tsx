@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ArrowRight, Plus, RefreshCw, Search } from "lucide-react";
 import { useStudents } from "@/src/context/StudentContext";
 import ApiState from "@/src/components/ui/ApiState";
@@ -14,6 +15,8 @@ export default function LearnerDirectory({
 }: {
   mode: "admin" | "accounts" | "mapping";
 }) {
+  const pathname = usePathname();
+  const isAdmin = pathname.startsWith("/admin");
   const { students, isLoading, error, refreshStudents } = useStudents();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState(mode === "accounts" ? "MAPPED" : "");
@@ -50,14 +53,18 @@ export default function LearnerDirectory({
             {mapping
               ? "Learner Mapping"
               : accounts
-                ? "Learner Accounts"
+                ? isAdmin
+                  ? "Learner Account Activation"
+                  : "Learner Accounts"
                 : "Students"}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             {mapping
-              ? "Map learners and update their details for teacher account creation."
+              ? "Map learners and update their enrollment details."
               : accounts
-                ? "Review learners mapped by an admin and create their accounts by enrolling them."
+                ? isAdmin
+                  ? "Review mapped learners and activate their official student login accounts."
+                  : "View mapped and active learners and review their enrollment details."
                 : "View learner profiles, account status, and attendance records."}
           </p>
         </div>
@@ -73,9 +80,9 @@ export default function LearnerDirectory({
           </button>
           <Link
             href={
-              accounts
-                ? "/teacher/learner-accounts/mapping"
-                : "/admin/mapping/add-student"
+              isAdmin
+                ? "/admin/mapping/add-student"
+                : "/teacher/learner-accounts/mapping"
             }
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
@@ -183,19 +190,38 @@ export default function LearnerDirectory({
                       </span>
                     </td>
                     <td className="px-5 py-4">
-                      <Link
-                        href={`${mapping ? "/admin/mapping" : accounts ? "/teacher/learner-accounts" : "/admin/students"}/${encodeURIComponent(student.id)}`}
-                        className="inline-flex items-center gap-2 rounded-md p-2 font-medium text-blue-600 hover:bg-blue-50"
-                      >
-                        {mapping
-                          ? "Update details"
-                          : accounts
-                            ? student.status === "MAPPED"
-                              ? "Review & Edit details"
-                              : "Edit details"
-                            : "View profile"}{" "}
-                        <ArrowRight size={14} />
-                      </Link>
+                      {(() => {
+                        let targetPath = "";
+                        let actionLabel = "";
+                        if (isAdmin) {
+                          if (mapping) {
+                            targetPath = `/admin/mapping/${encodeURIComponent(student.id)}`;
+                            actionLabel = student.status === "MAPPED" ? "Review & Create Account" : "Update details";
+                          } else if (accounts) {
+                            targetPath = `/admin/create-account/${encodeURIComponent(student.id)}`;
+                            actionLabel = student.status === "MAPPED" ? "Review & Create Account" : "View details";
+                          } else {
+                            targetPath = `/admin/students/${encodeURIComponent(student.id)}`;
+                            actionLabel = "View profile";
+                          }
+                        } else {
+                          if (mode === "admin") {
+                            targetPath = `/teacher/students/${encodeURIComponent(student.id)}`;
+                            actionLabel = "View profile";
+                          } else {
+                            targetPath = `/teacher/learner-accounts/${encodeURIComponent(student.id)}`;
+                            actionLabel = student.status === "MAPPED" ? "Review details" : "Edit details";
+                          }
+                        }
+                        return (
+                          <Link
+                            href={targetPath}
+                            className="inline-flex items-center gap-2 rounded-md p-2 font-medium text-blue-600 hover:bg-blue-50"
+                          >
+                            {actionLabel} <ArrowRight size={14} />
+                          </Link>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}

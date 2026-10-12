@@ -3,21 +3,28 @@
 import Image from 'next/image';
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { Camera, ImagePlus, Trash2, UserRound } from 'lucide-react';
-import { getDemoSession } from '@/src/components/auth/DemoAuthGuard';
+import { useOptionalAuth } from '@/src/context/AuthContext';
 
 const PROFILE_PHOTO_KEY = 'als-student-profile-photo';
 const PROFILE_PHOTO_EVENT = 'als-student-profile-photo-updated';
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
 
 export default function StudentProfilePage() {
-  const [identity, setIdentity] = useState('ALS Learner');
+  const auth = useOptionalAuth();
+  const user = auth?.user;
+
+  const identity = user
+    ? user.full_name ||
+      [user.first_name, user.last_name].filter(Boolean).join(' ').trim() ||
+      user.email ||
+      String(user.user_id || 'ALS Learner')
+    : 'ALS Learner';
+
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const session = getDemoSession();
-    if (session?.identity) setIdentity(session.identity);
     setProfilePhoto(localStorage.getItem(PROFILE_PHOTO_KEY));
   }, []);
 

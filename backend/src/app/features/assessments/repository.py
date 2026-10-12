@@ -62,11 +62,12 @@ class AssessmentRepository:
         target_category: Optional[UserCategory] = None,
         offset: int = 0,
         limit: int = 50,
-    ) -> List[AssessmentDetailResponse]:
+    ) -> List[Assessment]:
         stmt = (
             select(Assessment)
             .where(Assessment.teacher_id == teacher_id)
             .options(
+                selectinload(Assessment.questions),
                 selectinload(Assessment.submissions),
                 selectinload(Assessment.materials),
             )
@@ -78,7 +79,7 @@ class AssessmentRepository:
 
         stmt = stmt.order_by(Assessment.created_at.desc()).offset(offset).limit(limit)
         result = await self._session.execute(stmt)
-        data = result.scalars().all()
+        data = list(result.scalars().all())
         return data
 
     async def list_assessments_for_student(
@@ -86,14 +87,15 @@ class AssessmentRepository:
         student_category: Optional[UserCategory],
     ) -> List[Assessment]:
         """
-        Retrieves active assessments targeted to the student's category or marked universal (target_category IS NULL).
+        Retrieves active or scheduled assessments targeted strictly to the student's specific ALS category.
+        Universal assignment (target_category IS NULL) is excluded.
         """
+        if not student_category:
+            return []
+
         conditions = [
-            Assessment.status == TaskStatus.ACTIVE,
-            or_(
-                Assessment.target_category.is_(None),
-                Assessment.target_category == student_category,
-            ),
+            Assessment.status.in_([TaskStatus.ACTIVE, TaskStatus.SCHEDULED]),
+            Assessment.target_category == student_category,
         ]
         stmt = (
             select(Assessment)

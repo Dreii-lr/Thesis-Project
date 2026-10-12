@@ -14,7 +14,7 @@ export interface CategoryDataPayload {
 export interface MaterialPayload { file_name: string; file_url: string; file_type: string; file_size_bytes: number }
 export interface AssessmentPayload {
   assessment_id?: string; title: string; description: string | null; subject_code: string;
-  target_category: TargetCategory | null; assessment_type: TaskType; status: TaskStatus;
+  target_category: TargetCategory; assessment_type: TaskType; status: TaskStatus;
   start_date: string | null; end_date: string | null; grace_period_minutes: number;
   duration_minutes: number | null; max_score: number; is_ai_generated: boolean;
   categories_data: CategoryDataPayload[]; materials: MaterialPayload[]; submissions_count?: number;
@@ -25,13 +25,10 @@ function request<T>(path: string, init?: RequestInit): Promise<T> {
   return authenticatedRequest<T>(`/assessments${path}`, init);
 }
 export function getAssessment(id: string) { return request<AssessmentPayload>(`/${encodeURIComponent(id)}`); }
-export async function listAssessments() {
-  const rows = await listAssessmentRecords();
-  const tasks: AssessmentPayload[] = [];
-  for (let index = 0; index < rows.length; index += 8) {
-    tasks.push(...await Promise.all(rows.slice(index, index + 8).map(task => getAssessment(task.assessment_id))));
-  }
-  return tasks;
+export async function listAssessments(): Promise<AssessmentPayload[]> {
+  const page = await request<AssessmentPayload[]>('/teacher/my-tasks?offset=0&limit=100');
+  if (!Array.isArray(page)) throw new Error('Unexpected assessment list response.');
+  return page;
 }
 export function createAssessment(task: AssessmentPayload) {
   const { title, description, subject_code, target_category, assessment_type, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score, is_ai_generated, categories_data, materials } = task;
@@ -108,4 +105,39 @@ export async function listTeacherSubmissions(tasks: AssessmentRow[]): Promise<Te
     records.push(...batches.flat());
   }
   return records;
+}
+
+export interface StudentTask {
+  assessment_id: string;
+  title: string;
+  description: string | null;
+  subject_code: string;
+  assessment_type: TaskType;
+  start_date: string | null;
+  end_date: string | null;
+  grace_period_minutes: number;
+  duration_minutes: number | null;
+  max_score: number;
+  submission_status: 'IN_PROGRESS' | 'SUBMITTED' | 'GRADED' | null;
+  final_score: number | null;
+  is_available: boolean;
+}
+
+export function listStudentTasks(): Promise<StudentTask[]> {
+  return request<StudentTask[]>('/student/my-tasks');
+}
+
+export function gradeSubmission(
+  assessmentId: string,
+  submissionId: string,
+  payload: { manual_score: number; feedback?: string }
+): Promise<SubmissionDetail> {
+  return request<SubmissionDetail>(
+    `/${encodeURIComponent(assessmentId)}/submissions/${encodeURIComponent(submissionId)}/grade`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }
+  );
 }

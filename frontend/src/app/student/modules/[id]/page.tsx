@@ -21,6 +21,7 @@ import {
 import {
   getMaterialById,
   getLessonsByMaterial,
+  normalizeMaterialStatus,
   type MaterialItem,
   type MaterialTopic,
   type GeneratedLessonItem,
@@ -60,6 +61,17 @@ export default function StudentModuleDetailPage({
     try {
       // 1. Fetch material record with structured topics
       const mat = await getMaterialById(materialId);
+
+      // Verify that this material is published by the teacher
+      const materialStatus = normalizeMaterialStatus(mat?.status);
+      if (materialStatus !== "PUBLISHED") {
+        setError(
+          "This learning module is not published yet. Please check back once your teacher has published the lesson."
+        );
+        setMaterial(null);
+        return;
+      }
+
       setMaterial(mat);
 
       // 2. Fetch generated lessons for this material from database
@@ -198,14 +210,21 @@ export default function StudentModuleDetailPage({
   }
 
   if (error || !material) {
+    const isUnpublished = error?.includes("not published");
     return (
       <div className="flex h-[calc(100vh-72px)] w-full items-center justify-center bg-slate-50 p-6">
         <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-inset ring-red-100">
+          <div
+            className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ring-inset ${
+              isUnpublished
+                ? "bg-amber-50 text-amber-600 ring-amber-100"
+                : "bg-red-50 text-red-600 ring-red-100"
+            }`}
+          >
             <AlertCircle size={24} />
           </div>
           <h2 className="text-base font-bold text-slate-900">
-            Learning Module Not Found
+            {isUnpublished ? "Module Not Published Yet" : "Learning Module Not Found"}
           </h2>
           <p className="mt-1 text-xs text-slate-500">
             {error ||
@@ -218,12 +237,14 @@ export default function StudentModuleDetailPage({
             >
               <ArrowLeft size={13} /> Back to My Learning
             </Link>
-            <button
-              onClick={loadMaterialData}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-            >
-              Retry
-            </button>
+            {!isUnpublished && (
+              <button
+                onClick={loadMaterialData}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                Retry
+              </button>
+            )}
           </div>
         </div>
       </div>

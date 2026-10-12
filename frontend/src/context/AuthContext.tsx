@@ -9,7 +9,6 @@ import {
 } from '@/src/lib/auth-api';
 import {
   clearDemoSession,
-  saveDemoSession,
   type DemoRole,
 } from '@/src/components/auth/DemoAuthGuard';
 
@@ -40,9 +39,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const resolvedRole = normalizeUserRole(currentUser);
         setUser(currentUser);
         setRole(resolvedRole);
-        if (resolvedRole) {
-          saveDemoSession(resolvedRole, currentUser.email || String(currentUser.user_id || ''));
-        }
         return currentUser;
       } else {
         setUser(null);

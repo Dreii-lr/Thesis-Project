@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useState, useSyncExternalStore } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -16,9 +16,6 @@ import {
 } from "lucide-react";
 
 import {
-  saveDemoSession,
-} from "@/src/components/auth/DemoAuthGuard";
-import {
   loginAndFetchUser,
   normalizeUserRole,
   requestAccountRecovery,
@@ -26,29 +23,10 @@ import {
 
 type RecoveryState = "idle" | "success";
 
-function subscribeRememberedIdentity(callback: () => void) {
-  window.addEventListener("storage", callback);
-  return () => window.removeEventListener("storage", callback);
-}
-
-function readRememberedIdentity() {
-  try {
-    return localStorage.getItem("als-lms-demo-remember") || "";
-  } catch {
-    return "";
-  }
-}
-
 export default function LoginPage() {
   const router = useRouter();
 
-  const rememberedIdentity = useSyncExternalStore(
-    subscribeRememberedIdentity,
-    readRememberedIdentity,
-    () => "",
-  );
-  const [identityInput, setIdentity] = useState<string | null>(null);
-  const identity = identityInput ?? rememberedIdentity;
+  const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -81,8 +59,6 @@ export default function LoginPage() {
       const user = await loginAndFetchUser(identity.trim(), password);
       const resolvedRole = normalizeUserRole(user);
       if (!resolvedRole) throw new Error("This account has no supported role.");
-
-      saveDemoSession(resolvedRole, user.email || identity.trim());
 
       router.replace(`/${resolvedRole}/dashboard`);
     } catch (err) {
