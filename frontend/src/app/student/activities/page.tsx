@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   ClipboardList,
   Calendar,
@@ -11,8 +12,12 @@ import {
   ListTodo,
   GraduationCap,
   ArrowRight,
+  Layers3,
+  BookOpen,
+  Clock3,
 } from 'lucide-react';
 import { listStudentTasks, StudentTask, TaskType } from '@/src/lib/assessments-api';
+import { demoQuizzes } from '@/src/data/studentAssessmentDemo'; //this is the changes by prince
 
 export default function StudentActivitiesPage() {
   const [tasks, setTasks] = useState<StudentTask[]>([]);
@@ -93,29 +98,39 @@ export default function StudentActivitiesPage() {
           </p>
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex flex-wrap gap-2">
-          {['ALL', 'ACTIVITY', 'QUIZ', 'EXAM'].map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => setFilterType(type)}
-              className={`rounded-xl px-3.5 py-2 text-xs font-semibold transition-all ${
-                filterType === type
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {type === 'ALL'
-                ? 'All Tasks'
-                : type === 'ACTIVITY'
-                ? 'Activities'
-                : type === 'QUIZ'
-                ? 'Quizzes'
-                : 'Exams'}
-            </button>
-          ))}
+        {/* --- ADDED: Flashcards Button & Filter Pills --- */}
+        <div className="flex flex-col items-end gap-4">
+          <Link 
+            href="/student/flashcards" 
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-600 shadow-sm hover:bg-blue-50 transition-colors"
+          >
+            <Layers3 size={16} /> Flashcards
+          </Link>
+          
+          <div className="flex flex-wrap gap-2">
+            {['ALL', 'ACTIVITY', 'QUIZ', 'EXAM'].map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setFilterType(type)}
+                className={`rounded-xl px-3.5 py-2 text-xs font-semibold transition-all ${
+                  filterType === type
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {type === 'ALL'
+                  ? 'All Tasks'
+                  : type === 'ACTIVITY'
+                  ? 'Activities'
+                  : type === 'QUIZ'
+                  ? 'Quizzes'
+                  : 'Exams'}
+              </button>
+            ))}
+          </div>
         </div>
+        {/* --------------------------------------------------------- */}
       </div>
 
       {/* Loading State */}
@@ -278,6 +293,51 @@ export default function StudentActivitiesPage() {
           })}
         </div>
       )}
+
+      {/* --- ADDED: Static Demo Quizzes Section --- */}
+      <div className="mt-10 border-t border-slate-200 pt-8">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold">Demo Quizzes</h2>
+          <p className="mt-1 text-sm text-slate-500">Select a demo quiz to practice and read the instructions before you begin.</p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {demoQuizzes.map((q) => (
+            <article key={q.id} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                  <BookOpen size={22} />
+                </span>
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                  DEMO QUIZ
+                </span>
+              </div>
+              <p className="mt-4 text-xs font-bold uppercase tracking-wider text-blue-600">
+                {q.subject}
+              </p>
+              <h3 className="mt-1 text-lg font-bold">{q.title}</h3>
+              <p className="mt-2 flex-1 text-sm leading-6 text-slate-500">{q.description}</p>
+              <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
+                <span className="flex items-center gap-1">
+                  <ClipboardList size={14} />
+                  {q.questions.length} questions
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock3 size={14} />
+                  {q.minutes} min
+                </span>
+                <span>{q.attempts} attempts</span>
+              </div>
+              <Link
+                href={`/student/activities/quiz/${q.id}`}
+                className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                View demo quiz <ArrowRight size={16} />
+              </Link>
+            </article>
+          ))}
+        </div>
+      </div>
+      {/* --------------------------------------------------------- */}
     </div>
   );
 }

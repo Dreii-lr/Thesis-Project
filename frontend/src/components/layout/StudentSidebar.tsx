@@ -11,6 +11,7 @@ import {
   BarChart3,
   CalendarCheck2,
   BadgeCheck,
+  Layers3,
   CalendarDays,
 } from 'lucide-react';
 
@@ -18,6 +19,7 @@ const navItems = [
   { name: 'Dashboard', icon: LayoutDashboard, href: '/student/dashboard' },
   { name: 'My Learning', icon: BookOpen, href: '/student/modules' },
   { name: 'Activities', icon: ClipboardList, href: '/student/activities' },
+  { name: 'Flashcards', icon: Layers3, href: '/student/flashcards' },
   { name: 'Calendar', icon: CalendarDays, href: '/student/calendar' },
   { name: 'Progress', icon: BarChart3, href: '/student/progress' },
   { name: 'Attendance', icon: CalendarCheck2, href: '/student/attendance' },
