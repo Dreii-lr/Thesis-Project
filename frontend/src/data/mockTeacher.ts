@@ -151,6 +151,10 @@ export interface WorkspaceAttendance extends Omit<
   'records'
 > {
   session_id: string;
+  category_code?: string;
+  subject_code?: string;
+  present_count?: number;
+  total_count?: number;
   records: (Omit<AttendanceRecordInput, 'status'> & {
     status: AttendanceRecordInput['status'] | null;
   })[];
@@ -171,8 +175,8 @@ export function toAttendancePayload(
   return {
     session_date: session.session_date,
     display_date: session.display_date,
-    level_code: session.level_code,
-    strand_code: session.strand_code,
+    level_code: session.level_code || session.category_code || '',
+    strand_code: session.strand_code || session.subject_code || '',
     status: session.status,
     records: session.records.map((record) => {
       if (!record.status)
@@ -187,42 +191,7 @@ export function toAttendancePayload(
   };
 }
 
-export const initialAttendance: WorkspaceAttendance[] = programs.flatMap(
-  (program, index) =>
-    ['2026-10-06', '2026-10-05', '2026-10-02'].map((date, day) => ({
-      session_id:
-        day === 0 ? 'session-' + index : 'session-' + index + '-' + day,
-      session_date: date,
-      display_date: formatAttendanceDate(date),
-      level_code: program,
-      strand_code:
-        program === 'basic_literacy' ? 'ALS-BLP-101' : subjects[day].code,
-      status: 'COMPLETED',
-      records: mockStudents
-        .filter((student) => student.user_category === program)
-        .map((student, studentIndex) => ({
-          student_id: student.id,
-          status:
-            studentIndex === 1 && day === 0
-              ? 'Absent'
-              : studentIndex === 0 && day === 1
-                ? 'Excused'
-                : 'Present',
-          reason_of_absence:
-            studentIndex === 1 && day === 0
-              ? 'Not feeling well'
-              : studentIndex === 0 && day === 1
-                ? 'Family appointment'
-                : '',
-          remarks:
-            studentIndex === 1 && day === 0
-              ? 'Follow up on missed lesson.'
-              : studentIndex === 0 && day === 1
-                ? 'Guardian informed the teacher.'
-                : '',
-        })),
-    })),
-);
+export const initialAttendance: WorkspaceAttendance[] = [];
 
 export const mockAttendancePayloads: AttendancePayload[] =
   initialAttendance.map(toAttendancePayload);

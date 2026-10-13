@@ -3,8 +3,8 @@ schemas.py — Pydantic schemas for attendance request/response contracts.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+from datetime import date, datetime
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.features.attendance.models import AttendanceStatus, RecordStatus
@@ -42,12 +42,30 @@ class AttendanceRecordRead(BaseModel):
 
 
 class AttendanceSessionCreate(BaseModel):
-    session_date: str  # YYYY-MM-DD
+    session_date: date | str  # YYYY-MM-DD
+    category_code: str = ""
+    subject_code: str = ""
+    level_code: str | None = None
+    strand_code: str | None = None
     display_date: str | None = None
-    level_code: str
-    strand_code: str
     status: RecordStatus = RecordStatus.COMPLETED
     records: list[AttendanceRecordInput] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_field_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            cat = data.get("category_code") or data.get("level_code") or ""
+            subj = data.get("subject_code") or data.get("strand_code") or ""
+            data["category_code"] = cat
+            data["subject_code"] = subj
+            s_date = data.get("session_date")
+            if isinstance(s_date, str):
+                try:
+                    data["session_date"] = datetime.strptime(s_date, "%Y-%m-%d").date()
+                except Exception:
+                    pass
+        return data
 
 
 class AttendanceSessionRead(BaseModel):
@@ -55,31 +73,55 @@ class AttendanceSessionRead(BaseModel):
 
     session_id: str
     teacher_id: str
-    session_date: str
-    display_date: str
-    level_code: str
-    strand_code: str
+    session_date: date | str
+    category_code: str
+    subject_code: str
     status: RecordStatus
-    total_count: int
-    present_count: int
-    absent_count: int
-    excused_count: int
-    attendance_rate: float
     records: list[AttendanceRecordRead] = []
     created_at: datetime
     updated_at: datetime | None = None
 
+    # Legacy field aliases
+    level_code: str | None = None
+    strand_code: str | None = None
+    display_date: str | None = None
+    total_count: int | None = None
+    present_count: int | None = None
+    absent_count: int | None = None
+    excused_count: int | None = None
+    attendance_rate: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_computed_aliases(cls, data: Any) -> Any:
+        if hasattr(data, "category_code"):
+            # ORM instance or SQLModel
+            return data
+        if isinstance(data, dict):
+            if "category_code" in data and not data.get("level_code"):
+                data["level_code"] = data["category_code"]
+            if "subject_code" in data and not data.get("strand_code"):
+                data["strand_code"] = data["subject_code"]
+        return data
+
 
 class AttendanceSessionListItem(BaseModel):
-    """Matches the exact shape of frontend AttendanceSession interface in mockTeacher.ts."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
-    rawDate: str
-    displayDate: str
-    level: str
-    subject: str
+    session_date: date | str
+    category_code: str
+    subject_code: str
     status: RecordStatus
-    presentCount: int
-    totalCount: int
+    records: list[AttendanceRecordRead] = []
+
+    # Transitional fields for frontend convenience
+    rawDate: str | None = None
+    displayDate: str | None = None
+    level: str | None = None
+    subject: str | None = None
+    presentCount: int | None = None
+    totalCount: int | None = None
 
 
 class ListAttendanceSessionsResponse(BaseModel):
@@ -90,7 +132,6 @@ class ListAttendanceSessionsResponse(BaseModel):
 
 
 class StudentAttendanceItem(BaseModel):
-    """Matches the exact shape of frontend StudentAttendance interface in mockStudents.ts, with ERD reason_of_absence."""
     id: str
     date: str
     subject: str
@@ -107,3 +148,16 @@ class StudentAttendanceHistoryResponse(BaseModel):
     excused_days: int
     attendance_rate: int
     records: list[StudentAttendanceItem]
+
+
+class AttendanceProgramMetric(BaseModel):
+    category_id: Optional[str] = None
+    category_code: str
+    category_name: str
+    learners_count: int
+    total_sessions: int
+    completed_sessions: int
+
+
+class AttendanceSummaryMetricsResponse(BaseModel):
+    metrics: list[AttendanceProgramMetric]

@@ -18,6 +18,7 @@ export interface AssessmentPayload {
   start_date: string | null; end_date: string | null; grace_period_minutes: number;
   duration_minutes: number | null; max_score: number; is_ai_generated: boolean;
   categories_data: CategoryDataPayload[]; materials: MaterialPayload[]; submissions_count?: number;
+  can_edit?: boolean; lock_reason?: string | null;
 }
 export type AssessmentUpdate = Partial<Omit<AssessmentPayload, 'assessment_id' | 'assessment_type' | 'materials' | 'is_ai_generated' | 'submissions_count'>>;
 
@@ -58,6 +59,9 @@ export interface AssessmentRow {
   duration_minutes?: number | null;
   max_score: number;
   is_ai_generated: boolean;
+  submissions_count?: number;
+  can_edit?: boolean;
+  lock_reason?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
@@ -126,6 +130,17 @@ export interface StudentTask {
 export function listStudentTasks(): Promise<StudentTask[]> {
   return request<StudentTask[]>('/student/my-tasks');
 }
+
+export interface StudentActivityMetrics {
+  submitted_count: number;
+  pending_count: number;
+  total_assigned: number;
+}
+
+export function getStudentActivityMetrics(): Promise<StudentActivityMetrics> {
+  return request<StudentActivityMetrics>('/student/activity-metrics');
+}
+
 
 export function gradeSubmission(
   assessmentId: string,

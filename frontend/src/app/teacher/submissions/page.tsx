@@ -10,6 +10,7 @@ import {
   type Submission,
 } from '@/src/data/mockTeacher';
 import { useTeacher } from '@/src/context/TeacherContext';
+import { gradeSubmission } from '@/src/lib/assessments-api';
 
 const fieldClass =
   'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500';
@@ -75,6 +76,14 @@ export default function SubmissionsPage() {
       )
     )
       return;
+    try {
+      if (selected.assessment_id && selected.submission_id) {
+        gradeSubmission(selected.assessment_id, selected.submission_id, {
+          manual_score: value,
+          feedback,
+        }).catch(() => {});
+      }
+    } catch {}
     setSelected(null);
     setMessage('Grade and feedback saved.');
   };
@@ -154,20 +163,46 @@ export default function SubmissionsPage() {
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
             <div>
               <h3 className="mb-3 font-bold">Submitted work</h3>
-              {Object.entries(selected.answers_payload).map(([key, value]) => {
+              {Object.entries(
+                (selected.answers_payload as any)?.answers || selected.answers_payload || {}
+              ).map(([key, value]) => {
+                const category = selectedTask.categories_data.find((c) =>
+                  c.questions.some((q) => q.id === key)
+                );
                 const question = selectedTask.categories_data
                   .flatMap((c) => c.questions)
                   .find((q) => q.id === key);
+                const isEssay = category?.type === 'Essay';
+
                 return (
-                  <div key={key} className="mb-3 rounded-xl bg-slate-50 p-4">
-                    <p className="text-sm font-semibold">
+                  <div key={key} className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        {category?.type || 'Question'}
+                      </span>
+                      {isEssay && (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
+                          Essay · Manual Review ({category.points_per_item} pts)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-slate-900">
                       {question?.text ||
                         question?.premise ||
                         'Written response'}
                     </p>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                      {value}
-                    </p>
+                    {isEssay && question?.premise && (
+                      <div className="mt-2 rounded-lg bg-amber-50/70 border border-amber-200 p-2.5 text-xs text-amber-900">
+                        <span className="font-bold">Rubric / Answer Guidelines: </span>
+                        {question.premise}
+                      </div>
+                    )}
+                    <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3">
+                      <p className="text-xs font-medium text-slate-400 mb-1">Learner Response:</p>
+                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                        {String(value || '(No answer provided)')}
+                      </p>
+                    </div>
                   </div>
                 );
               })}

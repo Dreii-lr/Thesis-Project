@@ -44,6 +44,7 @@ interface TeacherContextType {
 const TeacherContext = createContext<TeacherContextType | undefined>(undefined);
 
 function loadSaved<T>(key: string, fallback: T[]): T[] {
+  if (key === 'als_attendance_v1') return [];
   try {
     const saved = localStorage.getItem(key);
     const parsed: unknown = saved ? JSON.parse(saved) : null;
@@ -93,9 +94,7 @@ export function TeacherProvider({ children }: { children: ReactNode }) {
   const [submissions, updateSubmissions] = useState(() =>
     loadSaved('als_submissions_v1', initialSubmissions),
   );
-  const [attendance, updateAttendance] = useState(() =>
-    loadSaved('als_attendance_v1', initialAttendance),
-  );
+  const [attendance, updateAttendance] = useState<WorkspaceAttendance[]>(() => []);
   const [modules, updateModules] = useState(() =>
     loadSaved('als_modules_v1', initialModules),
   );

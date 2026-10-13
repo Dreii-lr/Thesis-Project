@@ -6,34 +6,96 @@ import {
   CATEGORY_LABELS,
   type TargetCategory,
 } from '@/src/data/mockAssessment';
-import { dateKey, subjects } from '@/src/data/mockTeacher';
+import { dateKey } from '@/src/data/mockTeacher';
+import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
 
 interface NewRecordModalProps {
-  program: TargetCategory;
+  program: TargetCategory | string;
+  categoryId?: string;
+  categoryName?: string;
+  preloadedSubjects?: SubjectRecord[];
   onClose: () => void;
   onStartRecording: (date: string, subject: string) => void;
 }
 
 export default function NewRecordModal({
   program,
+  categoryId,
+  categoryName,
+  preloadedSubjects = [],
   onClose,
   onStartRecording,
 }: NewRecordModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [date, setDate] = useState(() => dateKey(new Date()));
-  const [subject, setSubject] = useState(
-    program === 'basic_literacy' ? 'ALS-BLP-101' : subjects[0].code,
-  );
+  const [availableSubjects, setAvailableSubjects] = useState<
+    { code: string; name: string }[]
+  >(() => {
+    if (preloadedSubjects.length > 0) {
+      return preloadedSubjects
+        .filter((s) => s.is_active)
+        .map((s) => ({
+          code: s.code || s.name,
+          name: s.code && s.name && s.code !== s.name ? `${s.code} - ${s.name}` : s.name,
+        }));
+    }
+    return [];
+  });
+  const [subject, setSubject] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     dialogRef.current?.showModal();
-  }, []);
+
+    if (preloadedSubjects.length > 0) {
+      const mapped = preloadedSubjects
+        .filter((s) => s.is_active)
+        .map((s) => ({
+          code: s.code || s.name,
+          name: s.code && s.name && s.code !== s.name ? `${s.code} - ${s.name}` : s.name,
+        }));
+      if (mapped.length > 0) {
+        setAvailableSubjects(mapped);
+        return;
+      }
+    }
+
+    let isMounted = true;
+    const targetCategoryParam =
+      categoryId ||
+      (program.toUpperCase() === 'SECONDARY' || program === 'junior'
+        ? 'SECONDARY'
+        : program.toUpperCase() === 'ELEMENTARY' || program === 'elementary'
+          ? 'ELEMENTARY'
+          : 'BLP');
+
+    listSubjects(targetCategoryParam)
+      .then((records) => {
+        if (!isMounted) return;
+        const active = records.filter((s) => s.is_active);
+        const mapped = active.map((s) => ({
+          code: s.code || s.name,
+          name: s.code && s.name && s.code !== s.name ? `${s.code} - ${s.name}` : s.name,
+        }));
+        setAvailableSubjects(mapped);
+      })
+      .catch(() => {
+        if (isMounted) setAvailableSubjects([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [program, categoryId, preloadedSubjects]);
 
   const handleStart = (event: React.FormEvent) => {
     event.preventDefault();
     if (!date || date > dateKey(new Date())) {
       setError('Choose today or an earlier date.');
+      return;
+    }
+    if (!subject) {
+      setError('Please select a subject.');
       return;
     }
     onStartRecording(date, subject);
@@ -60,7 +122,7 @@ export default function NewRecordModal({
       </div>
       <form onSubmit={handleStart} className="space-y-5 p-6">
         <p className="rounded-xl bg-blue-50 p-3 text-sm font-semibold text-blue-700">
-          {CATEGORY_LABELS[program]}
+          {categoryName || CATEGORY_LABELS[program as TargetCategory] || program}
         </p>
         <label className="block text-sm font-semibold">
           Session date
@@ -77,13 +139,20 @@ export default function NewRecordModal({
         <label className="block text-sm font-semibold">
           Subject
           <select
+            required
             value={subject}
-            onChange={(event) => setSubject(event.target.value)}
+            onChange={(event) => {
+              setSubject(event.target.value);
+              setError('');
+            }}
             className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {subjects.map((subject) => (
-              <option key={subject.code} value={subject.code}>
-                {subject.name}
+            <option value="" disabled>
+              {availableSubjects.length > 0 ? 'Select Subject' : 'No subjects available'}
+            </option>
+            {availableSubjects.map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.name}
               </option>
             ))}
           </select>

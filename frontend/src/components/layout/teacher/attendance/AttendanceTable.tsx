@@ -23,7 +23,10 @@ export default function AttendanceTable({
     <div className="divide-y divide-slate-100">
       {records.map((record) => {
         const student = students.find(
-          (student) => student.id === record.student_id,
+          (student) =>
+            student.id === record.student_id ||
+            student.student_id === record.student_id ||
+            (student as any).user_id === record.student_id,
         );
         const name = student
           ? `${student.last_name}, ${student.first_name}`
@@ -36,7 +39,7 @@ export default function AttendanceTable({
             <div>
               <p className="text-sm font-bold text-slate-900">{name}</p>
               <p className="mt-1 text-xs text-slate-500">{record.student_id}</p>
-              {student && (
+              {student && student.personal_details?.lrn_number && (
                 <p className="mt-1 text-xs text-slate-400">
                   LRN: {student.personal_details.lrn_number}
                 </p>

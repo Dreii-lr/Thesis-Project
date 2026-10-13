@@ -1,16 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Pencil } from 'lucide-react';
 import { CATEGORY_LABELS } from '@/src/data/mockAssessment';
 import { subjectName, type WorkspaceAttendance } from '@/src/data/mockTeacher';
-import { useTeacher } from '@/src/context/TeacherContext';
+import { StudentContext } from '@/src/context/StudentContext';
 import AttendanceTable from './AttendanceTable';
 import AttendanceFooter from './AttendanceFooter';
 
 interface TakeAttendanceViewProps {
   session: WorkspaceAttendance;
-  onSave: (session: WorkspaceAttendance) => boolean;
+  onSave: (session: WorkspaceAttendance) => boolean | Promise<boolean>;
   onBack: () => void;
 }
 
@@ -19,12 +19,20 @@ export default function TakeAttendanceView({
   onSave,
   onBack,
 }: TakeAttendanceViewProps) {
-  const { students } = useTeacher();
+  const studentCtx = useContext(StudentContext);
+  const liveStudents = studentCtx?.students || [];
+
+  const students = useMemo(() => {
+    return liveStudents.filter(
+      (s) => !((s as any).role) || (s as any).role === 'STUDENT',
+    );
+  }, [liveStudents]);
   const [savedSession, setSavedSession] = useState(session);
   const [records, setRecords] = useState(() =>
     structuredClone(session.records),
   );
   const [isEditing, setIsEditing] = useState(session.status === 'DRAFT');
+  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const hasChanges =
     JSON.stringify(records) !== JSON.stringify(savedSession.records);
@@ -50,7 +58,7 @@ export default function TakeAttendanceView({
     setError('');
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!records.length || records.some((record) => !record.status)) {
       setError(
         'Please mark Present, Absent, or Excused for every learner before saving.',
@@ -62,15 +70,28 @@ export default function TakeAttendanceView({
       status: 'COMPLETED',
       records,
     };
-    if (!onSave(updated)) {
-      setError(
-        'Attendance was not saved. Your changes are still here; please try again.',
-      );
-      return;
-    }
-    setSavedSession(structuredClone(updated));
-    setIsEditing(false);
+    setIsSaving(true);
     setError('');
+    try {
+      const success = await onSave(updated);
+      if (!success) {
+        setError(
+          'Attendance was not saved. Your changes are still here; please try again.',
+        );
+        return;
+      }
+      setSavedSession(structuredClone(updated));
+      setIsEditing(false);
+      setError('');
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to save attendance session.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleBack = () => {

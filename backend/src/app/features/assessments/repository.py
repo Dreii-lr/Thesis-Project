@@ -15,6 +15,7 @@ from app.features.assessments.models import (
     AssessmentSubmission,
     SubmissionStatus,
     TaskStatus,
+    TaskType,
 )
 from app.features.assessments.schemas import AssessmentDetailResponse
 from app.features.users.models import UserCategory
@@ -152,3 +153,54 @@ class AssessmentRepository:
         )
         result = await self._session.execute(stmt)
         return result.scalar() or 0
+
+    async def get_student_activity_metrics(
+        self,
+        student_id: str,
+        student_category: Optional[UserCategory],
+    ) -> dict:
+        if not student_category:
+            return {"submitted_count": 0, "pending_count": 0, "total_assigned": 0}
+
+        # 1. Active or scheduled activities assigned to student's category
+        stmt_assigned = select(Assessment.assessment_id).where(
+            Assessment.status.in_([TaskStatus.ACTIVE, TaskStatus.SCHEDULED]),
+            Assessment.target_category == student_category,
+            Assessment.assessment_type == TaskType.ACTIVITY,
+        )
+        res_assigned = await self._session.execute(stmt_assigned)
+        assigned_ids = list(res_assigned.scalars().all())
+        total_assigned = len(assigned_ids)
+
+        # 2. Total activities submitted by this student (all-time)
+        stmt_submitted = (
+            select(func.count(AssessmentSubmission.submission_id))
+            .join(Assessment, AssessmentSubmission.assessment_id == Assessment.assessment_id)
+            .where(
+                AssessmentSubmission.student_id == student_id,
+                Assessment.assessment_type == TaskType.ACTIVITY,
+                AssessmentSubmission.status.in_([SubmissionStatus.SUBMITTED, SubmissionStatus.GRADED]),
+            )
+        )
+        res_submitted = await self._session.execute(stmt_submitted)
+        submitted_count = res_submitted.scalar() or 0
+
+        # 3. Pending activities (currently active/scheduled assigned activities not yet submitted)
+        if assigned_ids:
+            stmt_active_sub = select(func.count(AssessmentSubmission.submission_id)).where(
+                AssessmentSubmission.student_id == student_id,
+                AssessmentSubmission.assessment_id.in_(assigned_ids),
+                AssessmentSubmission.status.in_([SubmissionStatus.SUBMITTED, SubmissionStatus.GRADED]),
+            )
+            res_active_sub = await self._session.execute(stmt_active_sub)
+            active_submitted_count = res_active_sub.scalar() or 0
+            pending_count = max(0, total_assigned - active_submitted_count)
+        else:
+            pending_count = 0
+
+        return {
+            "submitted_count": submitted_count,
+            "pending_count": pending_count,
+            "total_assigned": total_assigned,
+        }
+

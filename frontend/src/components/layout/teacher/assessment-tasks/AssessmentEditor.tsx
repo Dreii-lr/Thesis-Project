@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Lock } from 'lucide-react';
 import ActivityForm from './ActivityForm';
 import AssessmentForm from './AssessmentForm';
 import AIGenerator from './AIGenerator';
@@ -21,12 +21,21 @@ function EditorContent({ type, editId, ai }: { type: TaskType; editId: string | 
   const [saving, setSaving] = useState(false);
   const [retry, setRetry] = useState(0);
   const inFlight = useRef(false);
+
+  const isLocked = Boolean(
+    editId &&
+      initialData &&
+      (initialData.can_edit === false ||
+        initialData.status === 'COMPLETED' ||
+        (initialData.submissions_count ?? 0) > 0)
+  );
+
   useEffect(() => {
     let active = true;
     if (editId) getAssessment(editId).then(task => {
       if (task.assessment_type !== type) throw new Error('This assessment belongs to a different editor. Open it from the dashboard.');
       const categories = task.categories_data ?? [];
-      const supported = ['Multiple Choice', 'True/False', 'True or False', 'Matching Type'];
+      const supported = ['Multiple Choice', 'True/False', 'True or False', 'Matching Type', 'Essay'];
       const types = categories.map(category => category.type === 'True or False' ? 'True/False' : category.type);
       if (type !== 'ACTIVITY' && (categories.some(category => !supported.includes(category.type)) || new Set(types).size !== types.length)) throw new Error('This assessment uses question categories that this editor cannot safely edit yet.');
       if (active) setInitialData(task);
@@ -36,7 +45,7 @@ function EditorContent({ type, editId, ai }: { type: TaskType; editId: string | 
   }, [editId, type, retry]);
 
   async function save(task: AssessmentPayload) {
-    if (inFlight.current) return;
+    if (inFlight.current || isLocked) return;
     inFlight.current = true;
     setSaving(true);
     setError('');
@@ -52,12 +61,23 @@ function EditorContent({ type, editId, ai }: { type: TaskType; editId: string | 
   }
   return <div className="w-full p-4 sm:p-6 lg:p-8 font-sans"><div className="mx-auto max-w-[1480px] space-y-6">
     <button disabled={saving} onClick={() => router.push('/teacher/assessment-tasks')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm"><ArrowLeft size={16} /> Back to assessments</button>
+    {isLocked && (
+      <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+        <div>
+          <p className="font-semibold">Read-Only Assessment</p>
+          <p className="text-amber-700">
+            {initialData?.lock_reason || 'This assessment cannot be edited because it is completed or has student attempts/submissions.'}
+          </p>
+        </div>
+      </div>
+    )}
     {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}{editId && !initialData && <button className="ml-4 underline" onClick={() => { setLoading(true); setError(''); setRetry(value => value + 1); }}>Retry</button>}</div>}
-    {loading ? <p role="status">Loading assessment...</p> : (!editId || initialData) && <fieldset disabled={saving} className="min-w-0 space-y-4 disabled:opacity-70">
+    {loading ? <p role="status">Loading assessment...</p> : (!editId || initialData) && <fieldset disabled={saving} className="min-w-0 space-y-4">
       {saving && <p role="status">Saving assessment...</p>}
       {!editId && ai ? <AIGenerator /> : type === 'ACTIVITY'
-        ? <ActivityForm key={editId ?? 'new'} initialData={initialData} onSave={save} onCancel={() => router.push('/teacher/assessment-tasks')} />
-        : <AssessmentForm key={editId ?? 'new'} type={type === 'EXAM' ? 'Exam' : 'Quiz'} initialData={initialData} onSave={save} onCancel={() => router.push('/teacher/assessment-tasks')} />}
+        ? <ActivityForm key={editId ?? 'new'} initialData={initialData} isLocked={isLocked} onSave={save} onCancel={() => router.push('/teacher/assessment-tasks')} />
+        : <AssessmentForm key={editId ?? 'new'} type={type === 'EXAM' ? 'Exam' : 'Quiz'} initialData={initialData} isLocked={isLocked} onSave={save} onCancel={() => router.push('/teacher/assessment-tasks')} />}
     </fieldset>}
   </div></div>;
 }

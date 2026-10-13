@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   FileText,
   Save,
+  Lock,
 } from 'lucide-react';
 import {
   AssessmentPayload,
@@ -18,10 +19,12 @@ import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
 
 export default function ActivityForm({
   initialData,
+  isLocked = false,
   onSave,
   onCancel,
 }: {
   initialData?: AssessmentPayload | null;
+  isLocked?: boolean;
   onSave: (task: AssessmentPayload) => void;
   onCancel: () => void;
 }) {
@@ -81,6 +84,7 @@ export default function ActivityForm({
 
 
   const buildAndSave = async (saveStatus: 'DRAFT' | 'SCHEDULED') => {
+    if (isLocked) return;
     if (saveStatus === 'SCHEDULED') {
       if (!title.trim()) return alert('Please enter an activity title.');
       if (!subjectCode.trim()) return alert('Please select a subject.');
@@ -135,177 +139,186 @@ export default function ActivityForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 font-sans">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
-        <div className="border-b border-slate-100 pb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              {initialData ? 'Edit Activity' : 'Activity Configuration'}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Set up the activity title, class program, instructions, and
-              submission deadline.
-            </p>
-          </div>
-          {initialData && (
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              Editing Mode ({initialData.status})
-            </span>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Activity Title
-            </label>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Final Project Proposal"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Target Class Category
-            </label>
-            <select
-              value={targetCategory}
-              onChange={(e) =>
-                setTargetCategory(e.target.value as TargetCategory)
-              }
-              required
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer"
-            >
-              <option value="ELEMENTARY">Elementary</option>
-              <option value="SECONDARY">Junior High School</option>
-              <option value="BLP">Basic Literacy Program</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Subject Code
-            </label>
-            <select
-              value={subjectCode}
-              onChange={(e) => setSubjectCode(e.target.value)}
-              disabled={loadingSubjects}
-              required
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer disabled:opacity-60"
-            >
-              {loadingSubjects && <option value="">Loading subjects...</option>}
-              {!loadingSubjects && subjects.length === 0 && (
-                <option value="">No subjects found for this program</option>
-              )}
-              {!loadingSubjects &&
-                subjectCode &&
-                !subjects.some((s) => (s.code || s.name) === subjectCode) && (
-                  <option value={subjectCode}>{subjectCode} (Current)</option>
-                )}
-              {!loadingSubjects &&
-                subjects.map((s) => {
-                  const codeVal = s.code || s.name;
-                  const label =
-                    s.code && s.name && s.code !== s.name
-                      ? `${s.code} - ${s.name}`
-                      : s.name;
-                  return (
-                    <option key={s.subject_id} value={codeVal}>
-                      {label}
-                    </option>
-                  );
-                })}
-            </select>
-            {subjectsError && (
-              <p className="mt-1 text-xs text-red-500">{subjectsError}</p>
+      <fieldset disabled={isLocked} className="space-y-6 disabled:cursor-not-allowed">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div className="border-b border-slate-100 pb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                {initialData ? 'Edit Activity' : 'Activity Configuration'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Set up the activity title, class program, instructions, and
+                submission deadline.
+              </p>
+            </div>
+            {initialData && (
+              <span
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                  isLocked
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-blue-50 text-blue-700'
+                }`}
+              >
+                {isLocked && <Lock size={12} />}
+                {isLocked ? `Read-Only (${initialData.status})` : `Editing Mode (${initialData.status})`}
+              </span>
             )}
           </div>
-        </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-            Instructions / Description
-          </label>
-          <textarea
-            rows={4}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the activity requirements and steps for the students..."
-            className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none resize-none"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 pt-3 border-t border-slate-100">
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Calendar size={13} className="text-rose-600" /> Deadline Date
-            </label>
-            <input
-              type="date"
-              required
-              min={minDate}
-              value={deadlineDate}
-              onChange={(e) => setDeadlineDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Clock size={13} className="text-rose-600" /> Deadline Time
-            </label>
-            <input
-              type="time"
-              required
-              min={deadlineDate === minDate ? minTime : undefined}
-              value={deadlineTime}
-              onChange={(e) => setDeadlineTime(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Award size={13} className="text-blue-600" /> Max Score
-            </label>
-            <div className="relative flex items-center">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Activity Title
+              </label>
               <input
-                type="number"
-                min={1}
-                max={1000}
+                type="text"
                 required
-                value={maxScore}
-                onChange={(e) =>
-                  setMaxScore(Math.max(1, Number(e.target.value) || 1))
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white pl-3.5 pr-12 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g., Final Project Proposal"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
-              <span className="absolute right-3.5 text-xs font-medium text-slate-400">
-                pts
-              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Target Class Category
+              </label>
+              <select
+                value={targetCategory}
+                onChange={(e) =>
+                  setTargetCategory(e.target.value as TargetCategory)
+                }
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              >
+                <option value="ELEMENTARY">Elementary</option>
+                <option value="SECONDARY">Junior High School</option>
+                <option value="BLP">Basic Literacy Program</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Subject Code
+              </label>
+              <select
+                value={subjectCode}
+                onChange={(e) => setSubjectCode(e.target.value)}
+                disabled={loadingSubjects}
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer disabled:opacity-60 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              >
+                {loadingSubjects && <option value="">Loading subjects...</option>}
+                {!loadingSubjects && subjects.length === 0 && (
+                  <option value="">No subjects found for this program</option>
+                )}
+                {!loadingSubjects &&
+                  subjectCode &&
+                  !subjects.some((s) => (s.code || s.name) === subjectCode) && (
+                    <option value={subjectCode}>{subjectCode} (Current)</option>
+                  )}
+                {!loadingSubjects &&
+                  subjects.map((s) => {
+                    const codeVal = s.code || s.name;
+                    const label =
+                      s.code && s.name && s.code !== s.name
+                        ? `${s.code} - ${s.name}`
+                        : s.name;
+                    return (
+                      <option key={s.subject_id} value={codeVal}>
+                        {label}
+                      </option>
+                    );
+                  })}
+              </select>
+              {subjectsError && (
+                <p className="mt-1 text-xs text-red-500">{subjectsError}</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Instructions / Description
+            </label>
+            <textarea
+              rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the activity requirements and steps for the students..."
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none resize-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 pt-3 border-t border-slate-100">
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Calendar size={13} className="text-rose-600" /> Deadline Date
+              </label>
+              <input
+                type="date"
+                required
+                min={minDate}
+                value={deadlineDate}
+                onChange={(e) => setDeadlineDate(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Clock size={13} className="text-rose-600" /> Deadline Time
+              </label>
+              <input
+                type="time"
+                required
+                min={deadlineDate === minDate ? minTime : undefined}
+                value={deadlineTime}
+                onChange={(e) => setDeadlineTime(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Award size={13} className="text-blue-600" /> Max Score
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  required
+                  value={maxScore}
+                  onChange={(e) =>
+                    setMaxScore(Math.max(1, Number(e.target.value) || 1))
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white pl-3.5 pr-12 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                />
+                <span className="absolute right-3.5 text-xs font-medium text-slate-400">
+                  pts
+                </span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Reference Materials Card */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-        <div>
-          <h3 className="text-base font-bold text-slate-900">
-            Reference Materials
-          </h3>
-          <p className="text-xs text-slate-500">
-            Existing worksheets and reference materials appear here.
-          </p>
+        {/* Reference Materials Card */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">
+              Reference Materials
+            </h3>
+            <p className="text-xs text-slate-500">
+              Existing worksheets and reference materials appear here.
+            </p>
+          </div>
+
+          <p className="text-xs text-slate-500">File uploads are not available yet. Include reference links in the instructions.</p>
+          {existingMaterials.map((material, index) => <div key={index} className="flex items-center gap-2 text-sm text-slate-600"><FileText size={15} />{material.file_name}</div>)}
         </div>
-
-        <p className="text-xs text-slate-500">File uploads are not available yet. Include reference links in the instructions.</p>
-        {existingMaterials.map((material, index) => <div key={index} className="flex items-center gap-2 text-sm text-slate-600"><FileText size={15} />{material.file_name}</div>)}
-      </div>
+      </fieldset>
 
       {/* Form Actions */}
       <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
@@ -318,14 +331,16 @@ export default function ActivityForm({
         </button>
         <button
           type="button"
+          disabled={isLocked}
           onClick={() => buildAndSave('DRAFT')}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-xs font-semibold text-slate-800 shadow-2xs hover:bg-slate-50"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-xs font-semibold text-slate-800 shadow-2xs hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
         >
           <Save size={15} /> Save as Draft
         </button>
         <button
           type="submit"
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
+          disabled={isLocked}
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
         >
           <CheckCircle2 size={15} />{' '}
           {initialData ? 'Update Activity' : 'Save Activity'}

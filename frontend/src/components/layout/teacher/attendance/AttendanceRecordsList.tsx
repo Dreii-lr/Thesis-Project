@@ -2,18 +2,14 @@
 
 import { useState } from 'react';
 import { Plus, Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
-import {
-  CATEGORY_LABELS,
-  type TargetCategory,
-} from '@/src/data/mockAssessment';
-import {
-  subjects,
-  subjectName,
-  type WorkspaceAttendance,
-} from '@/src/data/mockTeacher';
+import { CATEGORY_LABELS, type TargetCategory } from '@/src/data/mockAssessment';
+import { type WorkspaceAttendance } from '@/src/data/mockTeacher';
+import type { SubjectRecord } from '@/src/lib/subjects-api';
 
 interface AttendanceRecordsListProps {
   program: TargetCategory;
+  categoryName?: string;
+  categorySubjects?: SubjectRecord[];
   sessions: WorkspaceAttendance[];
   onNewRecord: () => void;
   onViewRecord: (session: WorkspaceAttendance) => void;
@@ -21,6 +17,8 @@ interface AttendanceRecordsListProps {
 
 export default function AttendanceRecordsList({
   program,
+  categoryName,
+  categorySubjects = [],
   sessions,
   onNewRecord,
   onViewRecord,
@@ -33,15 +31,17 @@ export default function AttendanceRecordsList({
     .filter(
       (session) =>
         (selectedSubject === 'all' ||
-          session.strand_code === selectedSubject) &&
-        `${session.session_date} ${session.display_date}`
+          (session.strand_code || session.subject_code) === selectedSubject) &&
+        `${session.session_date} ${session.display_date || ''}`
           .toLowerCase()
           .includes(searchDate.toLowerCase().trim()),
     )
     .sort(
       (a, b) =>
         b.session_date.localeCompare(a.session_date) ||
-        a.strand_code.localeCompare(b.strand_code),
+        (a.strand_code || a.subject_code || '').localeCompare(
+          b.strand_code || b.subject_code || '',
+        ),
     );
   const totalPages = Math.max(
     1,
@@ -53,12 +53,29 @@ export default function AttendanceRecordsList({
     page * itemsPerPage,
   );
 
+  const availableSubjects = categorySubjects.map((s) => ({
+    code: s.code || s.name,
+    name: s.code && s.name && s.code !== s.name ? `${s.code} - ${s.name}` : s.name,
+  }));
+
+  const getSubjectTitle = (code: string) => {
+    const found = categorySubjects.find(
+      (s) => s.code === code || s.name === code || s.subject_id === code,
+    );
+    if (found) {
+      return found.code && found.name && found.code !== found.name
+        ? `${found.code} - ${found.name}`
+        : found.name;
+    }
+    return code;
+  };
+
   return (
     <>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-blue-600">
-            {CATEGORY_LABELS[program]}
+            {categoryName || CATEGORY_LABELS[program] || program}
           </p>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
             Attendance history
@@ -87,8 +104,8 @@ export default function AttendanceRecordsList({
               }}
               className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="all">All subjects</option>
-              {subjects.map((subject) => (
+              <option value="all">Select Subjects</option>
+              {availableSubjects.map((subject) => (
                 <option key={subject.code} value={subject.code}>
                   {subject.name}
                 </option>
@@ -132,15 +149,17 @@ export default function AttendanceRecordsList({
                     </time>
                   </td>
                   <td className="px-5 py-5 text-slate-600">
-                    {subjectName(session.strand_code)}
+                    {getSubjectTitle(session.strand_code || session.subject_code || '')}
                   </td>
                   <td className="px-5 py-5 text-slate-600">
-                    {
-                      session.records.filter(
-                        (record) => record.status === 'Present',
-                      ).length
-                    }
-                    /{session.records.length} present
+                    {session.present_count ??
+                      (session.records
+                        ? session.records.filter(
+                            (record) => record.status === 'Present',
+                          ).length
+                        : 0)}
+                    /
+                    {session.total_count ?? (session.records?.length ?? 0)} present
                   </td>
                   <td className="px-5 py-5">
                     <span

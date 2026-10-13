@@ -18,7 +18,7 @@ from app.shared.utils import SharedUtils
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 
 # Role dependency: only teachers (employees) and admins can manage attendance sessions
-require_teacher = require_roles(UserRole.TEACHER, UserRole.ADMIN)
+require_teacher = require_roles(UserRole.TEACHER, UserRole.EMPLOYEE, UserRole.ADMIN)
 
 
 @router.post("/sessions", status_code=status.HTTP_200_OK, tags=["Secured"])
@@ -35,6 +35,20 @@ async def record_attendance_session(
     # Align with ERD: attendance_sessions.teacher_id references users.user_id
     teacher_id = current_user.user_id or current_user.teacher_id
     response = await AttendanceService.record_session(uow, teacher_id, data)
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.get("/summary-metrics", status_code=status.HTTP_200_OK, tags=["Secured"])
+async def get_attendance_summary_metrics(
+    current_user: UserRead = Depends(require_teacher),
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Get aggregated counts for learners, attendance records (total sessions),
+    and completed sessions across learning program categories.
+    Protected: Only authenticated teachers (EMPLOYEE) and admins.
+    """
+    response = await AttendanceService.get_summary_metrics(uow)
     return SharedUtils.SuccessfulResponse(response)
 
 

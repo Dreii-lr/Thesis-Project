@@ -1,12 +1,12 @@
 """
 models.py — Attendance tables definition for sessions and individual learner records.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from enum import Enum
 from typing import List, Optional
 import uuid
 
-from sqlalchemy import Column, DateTime, func, UniqueConstraint
+from sqlalchemy import Column, DateTime, func, UniqueConstraint, Date
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -42,7 +42,6 @@ class AttendanceRecord(SQLModel, table=True):
         index=True,
         nullable=False,
     )
-    # student_id: Foreign key referencing users.user_id (ERD alignment: users.user_id (1) ────< (N) attendance_records.student_id)
     student_id: str = Field(index=True, nullable=False)
     status: AttendanceStatus = Field(nullable=False)
     remarks: Optional[str] = Field(default=None, nullable=True)
@@ -78,15 +77,10 @@ class AttendanceSession(SQLModel, table=True):
         nullable=False,
     )
     teacher_id: str = Field(index=True, nullable=False,foreign_key="users.teacher_id")
-    level_code: str = Field(index=True, nullable=False)
-    strand_code: str = Field(index=True, nullable=False)
-    session_date: str = Field(index=True, nullable=False)  # ISO string: YYYY-MM-DD
-    display_date: str = Field(nullable=False)             # E.g. "Today, Sept 24, 2026"
+    category_code: str = Field(index=True, nullable=False)
+    subject_code: str = Field(index=True, nullable=False)
+    session_date: date = Field( sa_column=Column(Date,index=True, nullable=False) )  # ISO string: YYYY-MM-DD
     status: RecordStatus = Field(default=RecordStatus.COMPLETED, nullable=False)
-    total_count: int = Field(default=0, nullable=False)
-    present_count: int = Field(default=0, nullable=False)
-    absent_count: int = Field(default=0, nullable=False)
-    excused_count: int = Field(default=0, nullable=False)
 
     created_at: datetime = Field(
         default_factory=utc_now,

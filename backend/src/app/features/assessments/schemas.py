@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.features.assessments.models import (
     SubmissionStatus,
@@ -30,7 +30,7 @@ class QuestionItemSchema(BaseModel):
 
 class CategoryConfigSchema(BaseModel):
     category_id: str = Field(default_factory=lambda : str(uuid.uuid4()))
-    type: str  # "Multiple Choice" | "True/False" | "Matching Type"
+    type: str  # "Multiple Choice" | "True/False" | "Matching Type" | "Essay"
     pool_size: int = Field(default=1, ge=1)
     required_count: int = Field(default=1, ge=1)
     points_per_item: float = Field(default=1.0, ge=0.0)
@@ -40,6 +40,20 @@ class CategoryConfigSchema(BaseModel):
         description="Extra Column B decoy terms for Matching Type to prevent elimination guessing",
     )
     questions: List[QuestionItemSchema] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_matching_distractors(self) -> "CategoryConfigSchema":
+        if self.type == "Matching Type":
+            num_items = len(self.questions)
+            max_distractors = num_items // 5
+            cleaned_distractors = [d.strip() for d in (self.distractors or []) if d and d.strip()]
+            if len(cleaned_distractors) > max_distractors:
+                raise ValueError(
+                    f"For Matching Type, exactly 1 distractor is allowed for every 5 items. "
+                    f"With {num_items} items, at most {max_distractors} distractor(s) are allowed."
+                )
+            self.distractors = cleaned_distractors
+        return self
 
 
 class AssessmentMaterialInput(BaseModel):
@@ -145,6 +159,8 @@ class AssessmentDetailResponse(BaseModel):
     materials: List[AssessmentMaterialRead] = Field(default_factory=list)
     questions: dict | None = None
     submissions_count: int = 0
+    can_edit: bool = True
+    lock_reason: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -163,6 +179,9 @@ class AssessmentListItem(BaseModel):
     needsGrading: int = 0
     status: TaskStatus
     maxScore: float = 100.0
+    can_edit: bool = True
+    lock_reason: Optional[str] = None
+
 
 
 
@@ -246,3 +265,10 @@ class SubmissionDetailResponse(BaseModel):
     time_spent_seconds: int
     answers_payload: Optional[dict] = None
     attachments_payload: Optional[List[dict]] = None
+
+
+class StudentActivityMetrics(BaseModel):
+    submitted_count: int
+    pending_count: int
+    total_assigned: int
+

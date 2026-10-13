@@ -15,23 +15,17 @@ from app.features.attendance.models import (
     RecordStatus,
 )
 from app.features.attendance.schemas import (
+    AttendanceProgramMetric,
     AttendanceRecordRead,
     AttendanceSessionCreate,
     AttendanceSessionListItem,
     AttendanceSessionRead,
+    AttendanceSummaryMetricsResponse,
     ListAttendanceSessionsResponse,
     StudentAttendanceHistoryResponse,
     StudentAttendanceItem,
 )
 from app.shared.schema import AdditionalData, SuccessfulResponseSchema
-
-
-def format_display_date(date_str: str) -> str:
-    try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-        return dt.strftime("%a, %b %d, %Y")
-    except Exception:
-        return date_str
 
 
 class AttendanceService:
@@ -42,31 +36,27 @@ class AttendanceService:
         teacher_id: str,
         data: AttendanceSessionCreate,
     ) -> SuccessfulResponseSchema:
-        present_count = sum(1 for r in data.records if r.status == AttendanceStatus.PRESENT)
-        absent_count = sum(1 for r in data.records if r.status == AttendanceStatus.ABSENT)
-        excused_count = sum(1 for r in data.records if r.status == AttendanceStatus.EXCUSED)
-        total_count = len(data.records)
+        session_date = data.session_date
+        if isinstance(session_date, str):
+            try:
+                session_date = datetime.strptime(session_date, "%Y-%m-%d").date()
+            except Exception:
+                pass
 
-        display_date = data.display_date or format_display_date(data.session_date)
+        category_code = data.category_code or getattr(data, "level_code", "") or ""
+        subject_code = data.subject_code or getattr(data, "strand_code", "") or ""
 
-        # Check if an existing session exists for this teacher, date, level, and strand
+        # Check if an existing session exists for this teacher, date, category, and subject
         existing_session = await uow.attendance.get_session_by_criteria(
             teacher_id=teacher_id,
-            session_date=data.session_date,
-            level_code=data.level_code,
-            strand_code=data.strand_code,
+            session_date=session_date,
+            category_code=category_code,
+            subject_code=subject_code,
         )
 
         if existing_session:
-            # Update existing session
-            existing_session.display_date = display_date
             existing_session.status = data.status
-            existing_session.present_count = present_count
-            existing_session.absent_count = absent_count
-            existing_session.excused_count = excused_count
-            existing_session.total_count = total_count
             existing_session.updated_at = datetime.now()
-
             session = existing_session
             session_id = existing_session.session_id
             await uow.attendance.delete_records_for_session(session_id)
@@ -75,15 +65,10 @@ class AttendanceService:
             session = AttendanceSession(
                 session_id=session_id,
                 teacher_id=teacher_id,
-                session_date=data.session_date,
-                display_date=display_date,
-                level_code=data.level_code,
-                strand_code=data.strand_code,
+                session_date=session_date,
+                category_code=category_code,
+                subject_code=subject_code,
                 status=data.status,
-                total_count=total_count,
-                present_count=present_count,
-                absent_count=absent_count,
-                excused_count=excused_count,
             )
             await uow.attendance.create_session(session)
 
@@ -99,35 +84,28 @@ class AttendanceService:
             for r in data.records
         ]
         await uow.attendance.add_records(records)
-        await uow.commit()
 
-        # Build response schema
-        rate = (present_count / total_count * 100.0) if total_count > 0 else 0.0
+        # Build response schema (counts omitted as frontend computes them)
+        records_read = [
+            AttendanceRecordRead(
+                record_id=rec.record_id,
+                session_id=rec.session_id,
+                student_id=rec.student_id,
+                status=rec.status,
+                reason_of_absence=rec.remarks,
+                remarks=rec.remarks,
+                recorded_at=rec.recorded_at,
+            )
+            for rec in records
+        ]
         session_read = AttendanceSessionRead(
             session_id=session.session_id,
             teacher_id=session.teacher_id,
             session_date=session.session_date,
-            display_date=session.display_date,
-            level_code=session.level_code,
-            strand_code=session.strand_code,
+            category_code=session.category_code,
+            subject_code=session.subject_code,
             status=session.status,
-            total_count=total_count,
-            present_count=present_count,
-            absent_count=absent_count,
-            excused_count=excused_count,
-            attendance_rate=round(rate, 1),
-            records=[
-                AttendanceRecordRead(
-                    record_id=rec.record_id,
-                    session_id=rec.session_id,
-                    student_id=rec.student_id,
-                    status=rec.status,
-                    reason_of_absence=rec.remarks,
-                    remarks=rec.remarks,
-                    recorded_at=rec.recorded_at,
-                )
-                for rec in records
-            ],
+            records=records_read,
             created_at=session.created_at,
             updated_at=session.updated_at,
         )
@@ -160,13 +138,22 @@ class AttendanceService:
         items = [
             AttendanceSessionListItem(
                 id=s.session_id,
-                rawDate=s.session_date,
-                displayDate=s.display_date,
-                level=s.level_code,
-                subject=s.strand_code,
+                session_date=s.session_date,
+                category_code=s.category_code,
+                subject_code=s.subject_code,
                 status=s.status,
-                presentCount=s.present_count,
-                totalCount=s.total_count,
+                records=[
+                    AttendanceRecordRead(
+                        record_id=r.record_id,
+                        session_id=r.session_id,
+                        student_id=r.student_id,
+                        status=r.status,
+                        reason_of_absence=r.remarks,
+                        remarks=r.remarks,
+                        recorded_at=r.recorded_at,
+                    )
+                    for r in (s.records or [])
+                ],
             )
             for s in sessions
         ]
@@ -191,20 +178,13 @@ class AttendanceService:
         if not session:
             raise DomainEntityNotFoundException(f"Attendance session '{session_id}' not found.")
 
-        rate = (session.present_count / session.total_count * 100.0) if session.total_count > 0 else 0.0
         session_read = AttendanceSessionRead(
             session_id=session.session_id,
             teacher_id=session.teacher_id,
             session_date=session.session_date,
-            display_date=session.display_date,
-            level_code=session.level_code,
-            strand_code=session.strand_code,
+            category_code=session.category_code,
+            subject_code=session.subject_code,
             status=session.status,
-            total_count=session.total_count,
-            present_count=session.present_count,
-            absent_count=session.absent_count,
-            excused_count=session.excused_count,
-            attendance_rate=round(rate, 1),
             records=[
                 AttendanceRecordRead(
                     record_id=r.record_id,
@@ -215,7 +195,7 @@ class AttendanceService:
                     remarks=r.remarks,
                     recorded_at=r.recorded_at,
                 )
-                for r in session.records
+                for r in (session.records or [])
             ],
             created_at=session.created_at,
             updated_at=session.updated_at,
@@ -261,8 +241,8 @@ class AttendanceService:
             items.append(
                 StudentAttendanceItem(
                     id=record.record_id,
-                    date=session.display_date,
-                    subject=session.strand_code,
+                    date=str(session.session_date),
+                    subject=session.subject_code,
                     status=record.status,
                     reason_of_absence=record.remarks,
                     remarks=record.remarks,
@@ -286,4 +266,45 @@ class AttendanceService:
             message_status="SUCCESS_RETRIEVED",
             status_code=200,
             data=AdditionalData(resources=history.model_dump(mode="json")),
+        )
+
+    @staticmethod
+    async def get_summary_metrics(uow: AbstractUnitOfWork) -> SuccessfulResponseSchema:
+        db_categories, _ = await uow.user_categories.list()
+        if db_categories:
+            categories_input = [
+                {
+                    "category_id": c.category_id,
+                    "code": c.code,
+                    "name": c.name,
+                }
+                for c in db_categories
+            ]
+        else:
+            categories_input = [
+                {"category_id": None, "code": "ELEMENTARY", "name": "Elementary"},
+                {"category_id": None, "code": "SECONDARY", "name": "Secondary"},
+                {"category_id": None, "code": "BLP", "name": "Basic Literacy Program"},
+            ]
+
+        metrics_data = await uow.attendance.get_summary_metrics(categories_input)
+        metrics = [
+            AttendanceProgramMetric(
+                category_id=m["category_id"],
+                category_code=m["category_code"],
+                category_name=m["category_name"],
+                learners_count=m["learners_count"],
+                total_sessions=m["total_sessions"],
+                completed_sessions=m["completed_sessions"],
+            )
+            for m in metrics_data
+        ]
+
+        response_payload = AttendanceSummaryMetricsResponse(metrics=metrics)
+
+        return SuccessfulResponseSchema(
+            message="Successfully retrieved attendance summary metrics.",
+            message_status="SUCCESS_RETRIEVED",
+            status_code=200,
+            data=AdditionalData(resources=response_payload.model_dump(mode="json")),
         )

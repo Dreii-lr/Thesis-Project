@@ -11,7 +11,9 @@ import {
   ListTodo,
   CheckSquare,
   ListChecks,
+  PenTool,
   Save,
+  Lock,
 } from 'lucide-react';
 import {
   AssessmentPayload,
@@ -23,18 +25,20 @@ import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
 interface AssessmentFormProps {
   type: 'Quiz' | 'Exam';
   initialData?: AssessmentPayload | null;
+  isLocked?: boolean;
   onSave: (task: AssessmentPayload) => void;
   onCancel: () => void;
 }
 
-type CategoryType = 'Multiple Choice' | 'True or False' | 'Matching Type';
+type CategoryType = 'Multiple Choice' | 'True or False' | 'Matching Type' | 'Essay';
 
 const CHOICE_LETTERS = ['A', 'B', 'C', 'D'] as const;
-const ALL_CATEGORIES: CategoryType[] = ['Multiple Choice', 'True or False', 'Matching Type'];
+const ALL_CATEGORIES: CategoryType[] = ['Multiple Choice', 'True or False', 'Matching Type', 'Essay'];
 
 export default function AssessmentForm({
   type,
   initialData,
+  isLocked = false,
   onSave,
   onCancel,
 }: AssessmentFormProps) {
@@ -93,6 +97,7 @@ export default function AssessmentForm({
   const mc = initialData?.categories_data.find(category => category.type === 'Multiple Choice');
   const tf = initialData?.categories_data.find(category => ['True/False', 'True or False'].includes(category.type));
   const mt = initialData?.categories_data.find(category => category.type === 'Matching Type');
+  const es = initialData?.categories_data.find(category => category.type === 'Essay');
   const [activeCategories, setActiveCategories] = useState<CategoryType[]>(initialData?.categories_data.length ? initialData.categories_data.map(category => (category.type === 'True/False' ? 'True or False' : category.type) as CategoryType) : ['Multiple Choice']);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
@@ -143,6 +148,20 @@ export default function AssessmentForm({
   const [matchingPointsEach, setMatchingPointsEach] = useState<number>(mt?.points_per_item ?? 2);
   const [distractors, setDistractors] = useState<string[]>(mt?.distractors ?? []);
   const [newDistractor, setNewDistractor] = useState('');
+
+  const [essayItems, setEssayItems] = useState(es?.questions.map(q => ({
+    id: q.id,
+    question: q.text ?? '',
+    rubric: q.premise ?? '',
+  })) ?? [
+    {
+      id: 'q_es_1',
+      question: '',
+      rubric: '',
+    },
+  ]);
+  const [essayRequiredDelivery, setEssayRequiredDelivery] = useState<number>(es?.required_count ?? 1);
+  const [essayPointsEach, setEssayPointsEach] = useState<number>(es?.points_per_item ?? 5);
 
 
 
@@ -212,6 +231,32 @@ export default function AssessmentForm({
     });
   };
 
+  const maxAllowedDistractors = Math.floor(matchingPairs.length / 5);
+
+  const handleAddEssayItem = () => {
+    setEssayItems((prev) => {
+      const updated = [
+        ...prev,
+        {
+          id: `q_es_${Date.now()}`,
+          question: '',
+          rubric: '',
+        },
+      ];
+      setEssayRequiredDelivery(updated.length);
+      return updated;
+    });
+  };
+
+  const handleRemoveEssayItem = (id: string) => {
+    if (essayItems.length <= 1) return;
+    setEssayItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      setEssayRequiredDelivery((req) => Math.min(req, updated.length));
+      return updated;
+    });
+  };
+
   const handleAddMatchingPair = () => {
     setMatchingPairs((prev) => {
       const updated = [...prev, { id: `q_mt_${Date.now()}`, premise: '', match: '' }];
@@ -225,12 +270,18 @@ export default function AssessmentForm({
     setMatchingPairs((prev) => {
       const updated = prev.filter((pair) => pair.id !== id);
       setMatchingRequiredDelivery((req) => Math.min(req, updated.length));
+      const maxAllowed = Math.floor(updated.length / 5);
+      setDistractors((d) => (d.length > maxAllowed ? d.slice(0, maxAllowed) : d));
       return updated;
     });
   };
 
   const handleAddDistractor = () => {
     if (!newDistractor.trim()) return;
+    if (distractors.length >= maxAllowedDistractors) {
+      alert(`Matching type allows at most 1 distractor per 5 items (Current limit: ${maxAllowedDistractors}). Add more matching pairs to unlock additional distractors.`);
+      return;
+    }
     setDistractors((prev) => [...prev, newDistractor.trim()]);
     setNewDistractor('');
   };
@@ -239,9 +290,11 @@ export default function AssessmentForm({
     setDistractors((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const essayCategoryTotal = essayRequiredDelivery * essayPointsEach;
   const matchingCategoryTotal = matchingRequiredDelivery * matchingPointsEach;
 
   const buildAndSave = (saveStatus: 'DRAFT' | 'SCHEDULED') => {
+    if (isLocked) return;
     if (saveStatus === 'SCHEDULED') {
       if (!title.trim()) return alert(`Please enter a ${type.toLowerCase()} title.`);
       if (!subjectCode.trim()) return alert('Please select a subject.');
@@ -302,6 +355,10 @@ export default function AssessmentForm({
     }
 
     if (activeCategories.includes('Matching Type')) {
+      const maxAllowed = Math.floor(matchingPairs.length / 5);
+      if (distractors.length > maxAllowed) {
+        return alert(`Matching type has ${distractors.length} distractors, but only ${maxAllowed} is allowed for ${matchingPairs.length} items (1 per 5 items).`);
+      }
       categoriesData.push({
         category_id: mt?.category_id ?? 'cat_mt_1',
         type: 'Matching Type',
@@ -321,9 +378,39 @@ export default function AssessmentForm({
       });
     }
 
+    if (activeCategories.includes('Essay')) {
+      categoriesData.push({
+        category_id: es?.category_id ?? 'cat_es_1',
+        type: 'Essay',
+        pool_size: essayItems.length,
+        required_count: essayRequiredDelivery,
+        points_per_item: essayPointsEach,
+        is_expanded: true,
+        distractors: [],
+        questions: essayItems.map((item) => ({
+          id: String(item.id),
+          text: item.question,
+          options: [],
+          correct_answer: '',
+          premise: item.rubric,
+          match: '',
+        })),
+      });
+    }
+
     for (const category of categoriesData) {
       if (!Number.isInteger(category.required_count) || category.required_count < 1 || category.required_count > category.questions.length || !Number.isFinite(category.points_per_item) || category.points_per_item < 0) return alert('Check the number of questions and points for each category.');
-      if (saveStatus !== 'DRAFT' && category.questions.some(q => category.type === 'Matching Type' ? !q.premise.trim() || !q.match.trim() : !q.text.trim() || (category.type === 'Multiple Choice' && q.options.some(option => !option.trim())))) return alert('Complete all questions and answers before publishing.');
+      if (saveStatus !== 'DRAFT') {
+        if (category.type === 'Matching Type') {
+          if (category.questions.some(q => !q.premise.trim() || !q.match.trim())) return alert('Complete all premises and matches before publishing.');
+        } else if (category.type === 'Multiple Choice') {
+          if (category.questions.some(q => !q.text.trim() || q.options.some(opt => !opt.trim()))) return alert('Complete all questions and choices before publishing.');
+        } else if (category.type === 'Essay') {
+          if (category.questions.some(q => !q.text.trim())) return alert('Complete all essay prompts before publishing.');
+        } else {
+          if (category.questions.some(q => !q.text.trim())) return alert('Complete all statements before publishing.');
+        }
+      }
     }
     const totalMaxScore = categoriesData.reduce(
       (sum, c) => sum + c.required_count * c.points_per_item,
@@ -361,186 +448,194 @@ export default function AssessmentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
-        <div className="border-b border-slate-100 pb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              {initialData ? `Edit ${type}` : `${type} Configuration`}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Set up the title, class program, start/end schedule, and grace period.
-            </p>
-          </div>
-          {initialData && (
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              Editing Mode ({initialData.status})
-            </span>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              {type} Title
-            </label>
-            <input
-              type="text"
-              required
-              placeholder={`Enter ${type.toLowerCase()} title...`}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Target Class Category
-            </label>
-            <select
-              value={targetCategory}
-              onChange={(e) => setTargetCategory(e.target.value as TargetCategory)}
-              required
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer"
-            >
-              <option value="ELEMENTARY">Elementary</option>
-              <option value="SECONDARY">Junior High School</option>
-              <option value="BLP">Basic Literacy Program</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Subject Code
-            </label>
-            <select
-              value={subjectCode}
-              onChange={(e) => setSubjectCode(e.target.value)}
-              disabled={loadingSubjects}
-              required
-              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer disabled:opacity-60"
-            >
-              {loadingSubjects && <option value="">Loading subjects...</option>}
-              {!loadingSubjects && subjects.length === 0 && (
-                <option value="">No subjects found for this program</option>
-              )}
-              {!loadingSubjects &&
-                subjectCode &&
-                !subjects.some((s) => (s.code || s.name) === subjectCode) && (
-                  <option value={subjectCode}>{subjectCode} (Current)</option>
-                )}
-              {!loadingSubjects &&
-                subjects.map((s) => {
-                  const codeVal = s.code || s.name;
-                  const label =
-                    s.code && s.name && s.code !== s.name
-                      ? `${s.code} - ${s.name}`
-                      : s.name;
-                  return (
-                    <option key={s.subject_id} value={codeVal}>
-                      {label}
-                    </option>
-                  );
-                })}
-            </select>
-            {subjectsError && (
-              <p className="mt-1 text-xs text-red-500">{subjectsError}</p>
+      <fieldset disabled={isLocked} className="space-y-6 disabled:cursor-not-allowed">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div className="border-b border-slate-100 pb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                {initialData ? `Edit ${type}` : `${type} Configuration`}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Set up the title, class program, start/end schedule, and grace period.
+              </p>
+            </div>
+            {initialData && (
+              <span
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+                  isLocked
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-blue-50 text-blue-700'
+                }`}
+              >
+                {isLocked && <Lock size={12} />}
+                {isLocked ? `Read-Only (${initialData.status})` : `Editing Mode (${initialData.status})`}
+              </span>
             )}
           </div>
-        </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-            Instructions / Description
-          </label>
-          <textarea
-            rows={2}
-            placeholder="Write general instructions for the students..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 pt-3 border-t border-slate-100">
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Calendar size={13} className="text-blue-600" /> Start Date
-            </label>
-            <input
-              type="date"
-              required
-              min={initialData ? undefined : minDate}
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Clock size={13} className="text-blue-600" /> Start Time
-            </label>
-            <input
-              type="time"
-              required
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Calendar size={13} className="text-rose-600" /> End Date
-            </label>
-            <input
-              type="date"
-              required
-              min={startDate || minDate}
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Clock size={13} className="text-rose-600" /> End Time
-            </label>
-            <input
-              type="time"
-              required
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Time Limit (minutes, optional)</label>
-            <input type="number" min={1} value={duration} onChange={event => setDuration(event.target.value === '' ? '' : Number(event.target.value))} placeholder="No time limit" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-              <Timer size={13} className="text-amber-600" /> Grace Period (To Start)
-            </label>
-            <div className="relative flex items-center">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                {type} Title
+              </label>
               <input
-                type="number"
-                min={0}
-                max={180}
-                value={gracePeriod}
-                onChange={(e) => setGracePeriod(Math.max(0, Number(e.target.value)))}
-                className="w-full rounded-xl border border-slate-200 bg-white pl-3 pr-14 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
+                type="text"
+                required
+                placeholder={`Enter ${type.toLowerCase()} title...`}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
-              <span className="absolute right-3 text-xs font-medium text-slate-400">
-                mins
-              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Target Class Category
+              </label>
+              <select
+                value={targetCategory}
+                onChange={(e) => setTargetCategory(e.target.value as TargetCategory)}
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              >
+                <option value="ELEMENTARY">Elementary</option>
+                <option value="SECONDARY">Junior High School</option>
+                <option value="BLP">Basic Literacy Program</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Subject Code
+              </label>
+              <select
+                value={subjectCode}
+                onChange={(e) => setSubjectCode(e.target.value)}
+                disabled={loadingSubjects}
+                required
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none cursor-pointer disabled:opacity-60 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              >
+                {loadingSubjects && <option value="">Loading subjects...</option>}
+                {!loadingSubjects && subjects.length === 0 && (
+                  <option value="">No subjects found for this program</option>
+                )}
+                {!loadingSubjects &&
+                  subjectCode &&
+                  !subjects.some((s) => (s.code || s.name) === subjectCode) && (
+                    <option value={subjectCode}>{subjectCode} (Current)</option>
+                  )}
+                {!loadingSubjects &&
+                  subjects.map((s) => {
+                    const codeVal = s.code || s.name;
+                    const label =
+                      s.code && s.name && s.code !== s.name
+                        ? `${s.code} - ${s.name}`
+                        : s.name;
+                    return (
+                      <option key={s.subject_id} value={codeVal}>
+                        {label}
+                      </option>
+                    );
+                  })}
+              </select>
+              {subjectsError && (
+                <p className="mt-1 text-xs text-red-500">{subjectsError}</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Instructions / Description
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Write general instructions for the students..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 pt-3 border-t border-slate-100">
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Calendar size={13} className="text-blue-600" /> Start Date
+              </label>
+              <input
+                type="date"
+                required
+                min={initialData ? undefined : minDate}
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Clock size={13} className="text-blue-600" /> Start Time
+              </label>
+              <input
+                type="time"
+                required
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Calendar size={13} className="text-rose-600" /> End Date
+              </label>
+              <input
+                type="date"
+                required
+                min={startDate || minDate}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Clock size={13} className="text-rose-600" /> End Time
+              </label>
+              <input
+                type="time"
+                required
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Time Limit (minutes, optional)</label>
+              <input type="number" min={1} value={duration} onChange={event => setDuration(event.target.value === '' ? '' : Number(event.target.value))} placeholder="No time limit" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed" />
+            </div>
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
+                <Timer size={13} className="text-amber-600" /> Grace Period (To Start)
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type="number"
+                  min={0}
+                  max={180}
+                  value={gracePeriod}
+                  onChange={(e) => setGracePeriod(Math.max(0, Number(e.target.value)))}
+                  className="w-full rounded-xl border border-slate-200 bg-white pl-3 pr-14 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                />
+                <span className="absolute right-3 text-xs font-medium text-slate-400">
+                  mins
+                </span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
       {/* DYNAMIC QUESTION CATEGORIES */}
       {activeCategories.map((category) => {
@@ -557,25 +652,27 @@ export default function AssessmentForm({
                     Click letter A, B, C, or D to set the correct answer.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleAddMcItem}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
-                  >
-                    <Plus size={14} /> Add Question
-                  </button>
-                  {activeCategories.length > 1 && (
+                {!isLocked && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleRemoveCategory('Multiple Choice')}
-                      className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                      title="Remove Multiple Choice Category"
+                      onClick={handleAddMcItem}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
                     >
-                      <Trash2 size={15} />
+                      <Plus size={14} /> Add Question
                     </button>
-                  )}
-                </div>
+                    {activeCategories.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCategory('Multiple Choice')}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        title="Remove Multiple Choice Category"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
@@ -626,7 +723,7 @@ export default function AssessmentForm({
                       <span className="inline-block rounded-full bg-slate-800 px-3 py-0.5 text-xs font-semibold text-white">
                         Question {idx + 1}
                       </span>
-                      {mcItems.length > 1 && (
+                      {!isLocked && mcItems.length > 1 && (
                         <button
                           type="button"
                           onClick={() => handleRemoveMcItem(item.id)}
@@ -719,25 +816,27 @@ export default function AssessmentForm({
                     Enter a statement and select whether the correct answer is True or False.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleAddTfItem}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
-                  >
-                    <Plus size={14} /> Add Question
-                  </button>
-                  {activeCategories.length > 1 && (
+                {!isLocked && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleRemoveCategory('True or False')}
-                      className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                      title="Remove True or False Category"
+                      onClick={handleAddTfItem}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
                     >
-                      <Trash2 size={15} />
+                      <Plus size={14} /> Add Question
                     </button>
-                  )}
-                </div>
+                    {activeCategories.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCategory('True or False')}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        title="Remove True or False Category"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
@@ -788,7 +887,7 @@ export default function AssessmentForm({
                       <span className="inline-block rounded-full bg-slate-800 px-3 py-0.5 text-xs font-semibold text-white">
                         Question {idx + 1}
                       </span>
-                      {tfItems.length > 1 && (
+                      {!isLocked && tfItems.length > 1 && (
                         <button
                           type="button"
                           onClick={() => handleRemoveTfItem(item.id)}
@@ -852,25 +951,27 @@ export default function AssessmentForm({
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-slate-950">Matching Type</h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleAddMatchingPair}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <Plus size={14} /> Add Pair
-                  </button>
-                  {activeCategories.length > 1 && (
+                {!isLocked && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleRemoveCategory('Matching Type')}
-                      className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                      title="Remove Matching Type Category"
+                      onClick={handleAddMatchingPair}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
-                      <Trash2 size={15} />
+                      <Plus size={14} /> Add Pair
                     </button>
-                  )}
-                </div>
+                    {activeCategories.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCategory('Matching Type')}
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        title="Remove Matching Type Category"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
@@ -973,7 +1074,7 @@ export default function AssessmentForm({
                           }}
                           className="w-full rounded-lg border-[1.5px] border-[#2e8555] px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none"
                         />
-                        {matchingPairs.length > 1 && (
+                        {!isLocked && matchingPairs.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveMatchingPair(pair.id)}
@@ -990,10 +1091,18 @@ export default function AssessmentForm({
               </div>
 
               <div className="rounded-xl border border-[#f5d996] overflow-hidden">
-                <div className="bg-[#fdedc9] px-4 py-3 text-xs font-bold text-slate-950">
-                  Extra Distractors / Decoy Options (Column B Word Bank)
+                <div className="bg-[#fdedc9] px-4 py-3 flex items-center justify-between">
+                  <div className="text-xs font-bold text-slate-950">
+                    Extra Distractors / Decoy Options (Column B Word Bank)
+                  </div>
+                  <span className="rounded-full bg-amber-100/80 px-2.5 py-0.5 text-[11px] font-semibold text-amber-900 border border-amber-300">
+                    {distractors.length} / {maxAllowedDistractors} max distractor{maxAllowedDistractors === 1 ? '' : 's'} (1 per 5 items)
+                  </span>
                 </div>
                 <div className="bg-white p-4 space-y-3.5">
+                  <p className="text-xs text-slate-500">
+                    Rule: Exactly 1 distractor is allowed for every 5 matching items ({matchingPairs.length} item{matchingPairs.length === 1 ? '' : 's'} authored = max {maxAllowedDistractors} distractor{maxAllowedDistractors === 1 ? '' : 's'}).
+                  </p>
                   {distractors.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {distractors.map((distractor, idx) => (
@@ -1002,41 +1111,195 @@ export default function AssessmentForm({
                           className="inline-flex items-center gap-2 rounded-full bg-[#fae2ad] px-3.5 py-1.5 text-xs font-medium text-slate-950"
                         >
                           {distractor}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveDistractor(idx)}
-                            className="text-slate-800 hover:text-black font-bold leading-none"
-                          >
-                            ×
-                          </button>
+                          {!isLocked && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDistractor(idx)}
+                              className="text-slate-800 hover:text-black font-bold leading-none"
+                            >
+                              ×
+                            </button>
+                          )}
                         </span>
                       ))}
                     </div>
                   )}
 
-                  <div className="flex flex-col sm:flex-row gap-2.5">
-                    <input
-                      type="text"
-                      placeholder="Add Distractor"
-                      value={newDistractor}
-                      onChange={(e) => setNewDistractor(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddDistractor();
+                  {!isLocked && (
+                    <div className="flex flex-col sm:flex-row gap-2.5">
+                      <input
+                        type="text"
+                        placeholder={
+                          maxAllowedDistractors === 0
+                            ? 'Need at least 5 items for 1 distractor'
+                            : distractors.length >= maxAllowedDistractors
+                            ? `Max limit of ${maxAllowedDistractors} distractor(s) reached`
+                            : 'Add Distractor'
                         }
-                      }}
-                      className="flex-1 rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
-                    />
+                        disabled={distractors.length >= maxAllowedDistractors}
+                        value={newDistractor}
+                        onChange={(e) => setNewDistractor(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddDistractor();
+                          }
+                        }}
+                        className="flex-1 rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddDistractor}
+                        disabled={distractors.length >= maxAllowedDistractors || !newDistractor.trim()}
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-xs font-bold text-slate-900 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                      >
+                        + Add Distractor
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (category === 'Essay') {
+          return (
+            <div
+              key="Essay"
+              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">Essay</h3>
+                    <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 border border-amber-200">
+                      Teacher Checked
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Authored essay questions will be manually reviewed and graded by the teacher upon student submission.
+                  </p>
+                </div>
+                {!isLocked && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={handleAddDistractor}
-                      className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-xs font-bold text-slate-900 hover:bg-slate-50"
+                      onClick={handleAddEssayItem}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
                     >
-                      + Add Distractor
+                      <Plus size={14} /> Add Question
                     </button>
+                    {activeCategories.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCategory('Essay')}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        title="Remove Essay Category"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
+                <div className="rounded-xl bg-[#e3f5ec] px-4 py-3">
+                  <div className="text-xs font-medium text-slate-800">Items Authored</div>
+                  <div className="mt-0.5 text-lg font-bold text-slate-950">{essayItems.length}</div>
+                </div>
+
+                <div className="rounded-xl bg-[#e3f5ec] px-4 py-3">
+                  <div className="text-xs font-medium text-slate-800">Required Delivery</div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={essayItems.length}
+                    value={essayRequiredDelivery}
+                    onChange={(e) =>
+                      setEssayRequiredDelivery(
+                        Math.min(essayItems.length, Math.max(1, Number(e.target.value) || 1))
+                      )
+                    }
+                    className="mt-0.5 w-full bg-transparent text-lg font-bold text-slate-950 focus:outline-none"
+                  />
+                </div>
+
+                <div className="rounded-xl bg-[#e3f5ec] px-4 py-3">
+                  <div className="text-xs font-medium text-slate-800">Points Each</div>
+                  <input
+                    type="number"
+                    min={1}
+                    value={essayPointsEach}
+                    onChange={(e) => setEssayPointsEach(Math.max(1, Number(e.target.value) || 1))}
+                    className="mt-0.5 w-full bg-transparent text-lg font-bold text-slate-950 focus:outline-none"
+                  />
+                </div>
+
+                <div className="rounded-xl bg-[#e3f5ec] px-4 py-3">
+                  <div className="text-xs font-medium text-slate-800">Category Total</div>
+                  <div className="mt-0.5 text-lg font-bold text-slate-950">
+                    {essayCategoryTotal} pts.
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-4">
+                {essayItems.map((item, idx) => (
+                  <div key={item.id} className="rounded-xl border border-slate-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-block rounded-full bg-slate-800 px-3 py-0.5 text-xs font-semibold text-white">
+                        Question {idx + 1}
+                      </span>
+                      {!isLocked && essayItems.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEssayItem(item.id)}
+                          className="text-slate-400 hover:text-rose-600"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Question Prompt <span className="text-rose-500">*</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Enter essay prompt or discussion question..."
+                        value={item.question}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEssayItems((prev) =>
+                            prev.map((q, i) => (i === idx ? { ...q, question: val } : q))
+                          );
+                        }}
+                        className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none resize-y"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Grading Rubric / Answer Key Notes <span className="text-slate-400 font-normal">(Optional guidance for teacher when reviewing)</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="e.g. Full credit: explains all 3 key concepts clearly. Partial credit: explains only 1-2 concepts."
+                        value={item.rubric}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEssayItems((prev) =>
+                            prev.map((q, i) => (i === idx ? { ...q, rubric: val } : q))
+                          );
+                        }}
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3.5 py-2 text-xs text-slate-800 focus:border-blue-600 focus:bg-white focus:outline-none resize-y"
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           );
@@ -1053,7 +1316,7 @@ export default function AssessmentForm({
               <div className="text-xs font-bold uppercase tracking-wider text-slate-400 px-2">
                 Select Question Category to Add
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                 {remainingCategories.map((cat) => (
                   <button
                     key={cat}
@@ -1064,6 +1327,7 @@ export default function AssessmentForm({
                     {cat === 'Multiple Choice' && <ListTodo size={16} className="text-blue-600" />}
                     {cat === 'True or False' && <CheckSquare size={16} className="text-blue-600" />}
                     {cat === 'Matching Type' && <ListChecks size={16} className="text-blue-600" />}
+                    {cat === 'Essay' && <PenTool size={16} className="text-blue-600" />}
                     {cat}
                   </button>
                 ))}
@@ -1078,7 +1342,7 @@ export default function AssessmentForm({
                 </button>
               </div>
             </div>
-          ) : (
+          ) : !isLocked ? (
             <button
               type="button"
               onClick={() => setShowCategoryPicker(true)}
@@ -1086,9 +1350,10 @@ export default function AssessmentForm({
             >
               <Plus size={16} /> Add Question Category
             </button>
-          )}
+          ) : null}
         </div>
       )}
+      </fieldset>
 
       {/* Form Actions */}
       <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
@@ -1101,14 +1366,16 @@ export default function AssessmentForm({
         </button>
         <button
           type="button"
+          disabled={isLocked}
           onClick={() => buildAndSave('DRAFT')}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-xs font-semibold text-slate-800 shadow-2xs hover:bg-slate-50"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-xs font-semibold text-slate-800 shadow-2xs hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
         >
           <Save size={15} /> Save as Draft
         </button>
         <button
           type="submit"
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
+          disabled={isLocked}
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
         >
           <CheckCircle2 size={15} /> {initialData ? `Update ${type}` : `Save ${type}`}
         </button>

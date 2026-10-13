@@ -177,6 +177,20 @@ async def list_student_tasks(
     return SharedUtils.SuccessfulResponse(response)
 
 
+@router.get("/student/activity-metrics", status_code=status.HTTP_200_OK, tags=["Student Assessments"])
+async def get_student_activity_metrics(
+    current_user: UserRead = Depends(require_student),
+    service: AssessmentService = Depends(get_assessment_service),
+) -> JSONResponse:
+    """
+    Retrieve aggregate submission and pending counts for student activities.
+    """
+    response = await service.get_student_activity_metrics(current_user)
+    response.status_code = status.HTTP_200_OK
+    return SharedUtils.SuccessfulResponse(response)
+
+
+
 @router.post("/{assessment_id}/start", status_code=status.HTTP_200_OK, tags=["Student Assessments"])
 async def start_student_attempt(
     assessment_id: str,

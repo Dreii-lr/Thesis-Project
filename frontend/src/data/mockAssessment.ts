@@ -3,7 +3,7 @@ export type TargetCategory = 'elementary' | 'junior' | 'basic_literacy';
 export type AssessmentType = 'QUIZ' | 'EXAM' | 'ACTIVITY';
 export type AssessmentStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'COMPLETED';
 export type QuestionCategoryType =
-  'Multiple Choice' | 'True or False' | 'Matching Type';
+  'Multiple Choice' | 'True or False' | 'Matching Type' | 'Essay';
 
 export interface QuestionPayload {
   id: string;

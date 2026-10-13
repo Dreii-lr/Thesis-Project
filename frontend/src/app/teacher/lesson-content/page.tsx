@@ -29,7 +29,7 @@ import {
 
 function matchMaterialToSubject(
   mat: MaterialItem,
-  subject: UserCategorySubject
+  subject: UserCategorySubject,
 ): boolean {
   const sName = subject.name.toLowerCase();
   const strand = (mat.learning_strand || "").toLowerCase();
@@ -39,7 +39,7 @@ function matchMaterialToSubject(
 
 function LessonContentDirectory() {
   const [categories, setCategories] = useState<UserCategoryItem[]>(
-    DEFAULT_USER_CATEGORIES
+    DEFAULT_USER_CATEGORIES,
   );
   const [loadingCategories, setLoadingCategories] = useState(true);
 
@@ -47,8 +47,12 @@ function LessonContentDirectory() {
   const [loadingMaterials, setLoadingMaterials] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "PUBLISHED" | "DRAFT">("ALL");
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(
+    null,
+  );
+  const [statusFilter, setStatusFilter] = useState<
+    "ALL" | "PUBLISHED" | "DRAFT"
+  >("ALL");
 
   const searchParams = useSearchParams();
   const requested = searchParams.get("program");
@@ -104,7 +108,7 @@ function LessonContentDirectory() {
       (requested?.toLowerCase() === "junior" &&
         c.code.toLowerCase() === "secondary") ||
       (requested?.toLowerCase() === "basic_literacy" &&
-        c.code.toLowerCase() === "blp")
+        c.code.toLowerCase() === "blp"),
   );
 
   const handleRefreshAll = () => {
@@ -119,14 +123,12 @@ function LessonContentDirectory() {
 
   // Active subject for filtering
   const activeSubject = activeCategory?.subjects?.find(
-    (s) => s.subject_id === selectedSubjectId
+    (s) => s.subject_id === selectedSubjectId,
   );
 
   // Final filtered list based on subject selection
   const displayedMaterials = activeSubject
-    ? categoryMaterials.filter((m) =>
-        matchMaterialToSubject(m, activeSubject)
-      )
+    ? categoryMaterials.filter((m) => matchMaterialToSubject(m, activeSubject))
     : categoryMaterials;
 
   // Filtered by status (All, Published, Draft)
@@ -178,11 +180,14 @@ function LessonContentDirectory() {
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 disabled:opacity-50"
               title="Refresh materials and categories"
             >
-              <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
+              <RefreshCw
+                size={13}
+                className={isLoading ? "animate-spin" : ""}
+              />
               Refresh
             </button>
 
-            <Link
+            {/* <Link
               href={
                 activeCategory
                   ? `/teacher/module-uploads?program=${activeCategory.code.toLowerCase()}`
@@ -192,7 +197,7 @@ function LessonContentDirectory() {
             >
               <Plus size={14} />
               Upload Module
-            </Link>
+            </Link> */}
           </div>
         </div>
 
@@ -217,14 +222,15 @@ function LessonContentDirectory() {
                 Program Directories
               </h2>
               <p className="text-xs text-slate-500">
-                Select an ALS program level to view its subjects and curriculum materials.
+                Select an ALS program level to view its subjects and curriculum
+                materials.
               </p>
             </div>
 
             <div className="grid gap-5 md:grid-cols-3">
               {categories.map((cat, i) => {
                 const programMaterialCount = materials.filter((m) =>
-                  matchMaterialToCategory(m, cat)
+                  matchMaterialToCategory(m, cat),
                 ).length;
 
                 return (
@@ -307,7 +313,7 @@ function LessonContentDirectory() {
 
                   {activeCategory.subjects.map((sub) => {
                     const count = categoryMaterials.filter((m) =>
-                      matchMaterialToSubject(m, sub)
+                      matchMaterialToSubject(m, sub),
                     ).length;
                     const isSelected = selectedSubjectId === sub.subject_id;
 
@@ -317,7 +323,7 @@ function LessonContentDirectory() {
                         type="button"
                         onClick={() =>
                           setSelectedSubjectId(
-                            isSelected ? null : sub.subject_id
+                            isSelected ? null : sub.subject_id,
                           )
                         }
                         className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
@@ -353,7 +359,8 @@ function LessonContentDirectory() {
                     {activeSubject ? ` · ${activeSubject.name}` : ""})
                   </h2>
                   <p className="mt-0.5 text-[12px] text-slate-500">
-                    Open a material to review topics, edit content, and publish lessons.
+                    Open a material to review topics, edit content, and publish
+                    lessons.
                   </p>
                 </div>
 
@@ -383,7 +390,8 @@ function LessonContentDirectory() {
                       Published (
                       {
                         displayedMaterials.filter(
-                          (m) => normalizeMaterialStatus(m.status) === "PUBLISHED"
+                          (m) =>
+                            normalizeMaterialStatus(m.status) === "PUBLISHED",
                         ).length
                       }
                       )
@@ -400,7 +408,7 @@ function LessonContentDirectory() {
                       Draft (
                       {
                         displayedMaterials.filter(
-                          (m) => normalizeMaterialStatus(m.status) === "DRAFT"
+                          (m) => normalizeMaterialStatus(m.status) === "DRAFT",
                         ).length
                       }
                       )
@@ -410,7 +418,10 @@ function LessonContentDirectory() {
                   <span className="self-start rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 sm:self-auto">
                     {loadingMaterials ? (
                       <span className="flex items-center gap-1.5">
-                        <Loader2 size={11} className="animate-spin text-blue-600" />
+                        <Loader2
+                          size={11}
+                          className="animate-spin text-blue-600"
+                        />
                         Loading…
                       </span>
                     ) : (
@@ -424,7 +435,10 @@ function LessonContentDirectory() {
 
               {loadingMaterials ? (
                 <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-                  <Loader2 size={24} className="animate-spin text-blue-600 mb-2" />
+                  <Loader2
+                    size={24}
+                    className="animate-spin text-blue-600 mb-2"
+                  />
                   <p className="text-sm">
                     Retrieving curriculum materials from server…
                   </p>
@@ -433,7 +447,8 @@ function LessonContentDirectory() {
                 filteredByStatus.length > 0 ? (
                   <div className="grid grid-cols-1 gap-4 p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                     {filteredByStatus.map((material) => {
-                      const topicsCount = material.structured_records?.length || 0;
+                      const topicsCount =
+                        material.structured_records?.length || 0;
                       const title =
                         material.learning_strand ||
                         material.main_learning_goal ||
@@ -461,7 +476,8 @@ function LessonContentDirectory() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                     <p className="text-sm font-semibold text-slate-700">
-                      No {statusFilter.toLowerCase()} materials in this category.
+                      No {statusFilter.toLowerCase()} materials in this
+                      category.
                     </p>
                     <button
                       type="button"
@@ -482,14 +498,16 @@ function LessonContentDirectory() {
                     {activeSubject ? ` (${activeSubject.name})` : ""}
                   </h3>
                   <p className="mt-1 max-w-sm text-xs text-slate-500">
-                    Upload and parse an ALS module file for {activeCategory.name} to extract structured curriculum topics and generate lessons.
+                    Upload and parse an ALS module file for{" "}
+                    {activeCategory.name} to extract structured curriculum
+                    topics and generate lessons.
                   </p>
-                  <Link
+                  {/* <Link
                     href={`/teacher/module-uploads?program=${activeCategory.code.toLowerCase()}`}
                     className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700"
                   >
                     Upload Module for {activeCategory.name} →
-                  </Link>
+                  </Link> */}
                 </div>
               )}
             </section>

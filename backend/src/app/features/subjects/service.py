@@ -107,6 +107,16 @@ class SubjectService:
             cat = await self.uow.user_categories.get_by_id(category_id)
             if not cat:
                 cat = await self.uow.user_categories.get_by_code(category_id)
+            if not cat:
+                clean = category_id.strip().upper()
+                if clean in ("JUNIOR", "JHS", "SECONDARY"):
+                    cat = await self.uow.user_categories.get_by_code("SECONDARY")
+                elif clean in ("ELEM", "ELEMENTARY"):
+                    cat = await self.uow.user_categories.get_by_code("ELEMENTARY")
+                elif clean in ("BASIC_LITERACY", "BLP"):
+                    cat = await self.uow.user_categories.get_by_code("BLP")
+            if not cat:
+                cat = await self.uow.user_categories.get_by_name(category_id)
             if cat:
                 target_cat_id = cat.category_id
             else:

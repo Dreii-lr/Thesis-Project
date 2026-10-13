@@ -126,6 +126,23 @@ class AssessmentService:
             data=AdditionalData(resources=detail.model_dump(mode="json")),
         )
 
+    def _compute_lock_status(self, assessment: Assessment) -> tuple[bool, Optional[str]]:
+        has_submissions = len(assessment.submissions) > 0 if assessment.submissions else False
+        is_completed = assessment.status == TaskStatus.COMPLETED
+        if not is_completed and assessment.end_date:
+            grace_cutoff = assessment.end_date.timestamp() + (assessment.grace_period_minutes * 60)
+            if utc_now().timestamp() > grace_cutoff:
+                is_completed = True
+
+        can_edit = not (is_completed or has_submissions)
+        lock_reason = None
+        if is_completed:
+            lock_reason = "This assessment is completed and can no longer be edited."
+        elif has_submissions:
+            lock_reason = "Students are currently taking or have already submitted this assessment. Editing is locked."
+
+        return can_edit, lock_reason
+
     async def update_assessment(
         self,
         assessment_id: str,
@@ -139,9 +156,31 @@ class AssessmentService:
         if assessment.teacher_id != teacher_id:
             raise DomainForbiddenDomainException("You are not authorized to update this assessment.")
 
+        # Guard: check if assessment is completed or students are taking it
+        can_edit, lock_reason = self._compute_lock_status(assessment)
+        if not can_edit:
+            # Check if this is an allowed status-only transition to COMPLETED (e.g. closing an assessment early)
+            is_closing_to_completed = (
+                data.status == TaskStatus.COMPLETED and
+                data.title is None and
+                data.description is None and
+                data.subject_code is None and
+                data.target_category is None and
+                data.start_date is None and
+                data.end_date is None and
+                data.max_score is None and
+                data.categories_data is None and
+                data.duration_minutes is None
+            )
+            if not is_closing_to_completed:
+                raise DomainValidationDomainException(
+                    lock_reason or "This assessment is locked and cannot be edited."
+                )
+
         # Update scalar fields if provided
         for field, val in data.model_dump(exclude_unset=True, exclude={"categories_data"}).items():
             setattr(assessment, field, val)
+
 
         # In-Place Questions & Categories update
         if data.categories_data is not None:
@@ -237,6 +276,7 @@ class AssessmentService:
                 AssessmentMaterialRead.model_validate(m) for m in (a.materials or [])
             ]
             sub_count = len(a.submissions) if a.submissions else 0
+            can_edit, lock_reason = self._compute_lock_status(a)
             details.append(
                 AssessmentDetailResponse(
                     assessment_id=a.assessment_id,
@@ -256,6 +296,8 @@ class AssessmentService:
                     categories_data=cat_data,
                     materials=materials_read,
                     submissions_count=sub_count,
+                    can_edit=can_edit,
+                    lock_reason=lock_reason,
                     created_at=a.created_at,
                     updated_at=a.updated_at,
                 ).model_dump(mode="json")
@@ -385,7 +427,8 @@ class AssessmentService:
                 matching_pool = []
                 if c_type == "Matching Type":
                     matches = [q.get("match", "") for q in sampled if q.get("match")]
-                    extra_distractors = [d for d in cat.get("distractors", []) if d]
+                    max_delivery_distractors = len(sampled) // 5
+                    extra_distractors = [d for d in cat.get("distractors", []) if d][:max_delivery_distractors]
                     combined = list(dict.fromkeys(matches + extra_distractors))
                     random.shuffle(combined)
                     matching_pool = combined
@@ -405,7 +448,7 @@ class AssessmentService:
                         "points_per_item": points,
                         "text": q.get("text"),
                         "options": options_copy,
-                        "premise": q.get("premise"),
+                        "premise": None if str(c_type).lower() == "essay" else q.get("premise"),
                         "match": None,  # Hide match answer!
                         "matching_pool": matching_pool if c_type == "Matching Type" else None,
                     }
@@ -761,6 +804,20 @@ class AssessmentService:
             data=AdditionalData(resources=result.model_dump(mode="json")),
         )
 
+    async def get_student_activity_metrics(
+        self,
+        student_user: UserRead,
+    ) -> SuccessfulResponseSchema:
+        metrics = await self.uow.assessments.get_student_activity_metrics(
+            student_id=student_user.user_id,
+            student_category=student_user.user_category,
+        )
+        return SuccessfulResponseSchema(
+            message="Student activity metrics retrieved successfully.",
+            message_status="SUCCESS_FETCHED",
+            data=AdditionalData(resources=metrics),
+        )
+
     async def _build_detail_response(
         self,
         assessment_id: str,
@@ -775,6 +832,7 @@ class AssessmentService:
             AssessmentMaterialRead.model_validate(m) for m in (assessment.materials or [])
         ]
         sub_count = len(assessment.submissions) if assessment.submissions else 0
+        can_edit, lock_reason = self._compute_lock_status(assessment)
 
         return AssessmentDetailResponse(
             assessment_id=assessment.assessment_id,
@@ -794,6 +852,8 @@ class AssessmentService:
             categories_data=cat_data,
             materials=materials_read,
             submissions_count=sub_count,
+            can_edit=can_edit,
+            lock_reason=lock_reason,
             created_at=assessment.created_at,
             updated_at=assessment.updated_at,
         )
