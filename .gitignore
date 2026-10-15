@@ -17,7 +17,6 @@ __pycache__/
 **/*.py[cod]
 *.py[cod]
 **/*.pyc
-*.pyc
 **/*.pyo
 *.pyo
 *$py.class
@@ -72,10 +71,3 @@ Thumbs.db
 
 AGENTS.md
 # Environment & Secrets
-.env
-.env.*
-*.env
-!.env.example
-*.pem
-*.key
-*.cert

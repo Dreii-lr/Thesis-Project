@@ -94,6 +94,11 @@ class Assessment(SQLModel, table=True):
         back_populates="assessment",
         sa_relationship_kwargs={"cascade": "all, delete-orphan", "lazy": "selectin"},
     )
+    # 1:1 Relationship with AssessmentCohortAnalysis
+    cohort_analysis: Optional["AssessmentCohortAnalysis"] = Relationship(
+        back_populates="assessment",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan", "uselist": False, "lazy": "selectin"},
+    )
 
 
 class AssessmentQuestions(SQLModel, table=True):
@@ -178,3 +183,32 @@ class AssessmentSubmission(SQLModel, table=True):
     updated_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
 
     assessment: Optional[Assessment] = Relationship(back_populates="submissions")
+
+
+class AssessmentCohortAnalysis(SQLModel, table=True):
+    __tablename__ = "assessment_cohort_analytics"
+
+    analysis_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True
+    )
+    assessment_id: str = Field(
+        foreign_key="assessments.assessment_id",
+        ondelete="CASCADE",
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    total_submissions: int = Field(default=0, nullable=False)
+    class_average: float = Field(default=0.0, nullable=False)
+    passing_rate: float = Field(default=0.0, nullable=False)
+    analysis_payload: dict = Field(
+        default_factory=dict,
+        sa_column=Column(JSON_TYPE, nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),
+    )
+    updated_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
+
+    assessment: Optional[Assessment] = Relationship(back_populates="cohort_analysis")

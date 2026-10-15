@@ -38,6 +38,12 @@ class Constants(BaseSettings):
     # Must use postgresql+asyncpg:// scheme for the async engine
     DATABASE_URL: str
 
+    # ── Document Processing Microservice ──────────────────────────
+    DOCS_PROCESSING_SERVICE_URL: str = Field(
+        default="http://localhost:9090",
+        description="Base URL for document-processing microservice",
+    )
+
     # ── Firebase ──────────────────────────────────────────────────
     FIREBASE_TYPE: str
     FIREBASE_PROJECT_ID: str
