@@ -5,16 +5,18 @@ import { usePathname } from 'next/navigation';
 import { Bell, ChevronRight, Home, PanelLeft, Search } from 'lucide-react';
 import Link from 'next/link';
 import StudentProfileDropdown from './StudentProfileDropdown';
+import { useStudentSubjects } from '@/src/context/StudentSubjectsContext';
 
 export default function StudentHeader() {
   const { toggleSidebar } = useSidebar();
   const pathname = usePathname();
+  const { subjects } = useStudentSubjects();
 
   const pathSegments = pathname?.split('/').filter(Boolean) || [];
   const breadcrumbSegments = pathSegments.filter((segment) => segment !== 'student');
 
   const formatSegment = (segment: string) =>
-    segment
+    segment === 'subjects' || segment === 'activities' ? 'My Subjects' : subjects.find(subject => subject.subject_id === segment)?.name || segment
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');

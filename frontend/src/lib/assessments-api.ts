@@ -1,4 +1,4 @@
-import { authenticatedRequest } from './auth-api';
+import { authenticatedRequest, clearCurrentUserCache, getCurrentUser, SessionError } from './auth-api';
 
 export type TargetCategory = 'ELEMENTARY' | 'SECONDARY' | 'BLP';
 export const CATEGORY_LABELS = { ELEMENTARY: 'Elementary', SECONDARY: 'Junior High School', BLP: 'Basic Literacy Program' };
@@ -25,18 +25,37 @@ export type AssessmentUpdate = Partial<Omit<AssessmentPayload, 'assessment_id' |
 function request<T>(path: string, init?: RequestInit): Promise<T> {
   return authenticatedRequest<T>(`/assessments${path}`, init);
 }
-export function getAssessment(id: string) { return request<AssessmentPayload>(`/${encodeURIComponent(id)}`); }
+
+async function teacherRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    if (!(error instanceof SessionError) || error.status !== 403 || !/Operation not permitted for your role/i.test(error.message)) throw error;
+    // Cookies can change in another tab while this page still shows the previous account.
+    clearCurrentUserCache();
+    let user;
+    try { user = await getCurrentUser(true, true); }
+    catch { throw new SessionError('The server denied teacher access, and your current session could not be verified. Please sign out and sign in with your teacher account.', 403); }
+    const role = String(user?.role || user?.user_type || '').trim().toUpperCase();
+    if (role === 'TEACHER') {
+      throw new SessionError('Your current session is TEACHER, but the server rejected this teacher request. The running backend permissions need to be checked.', 403);
+    }
+    throw new SessionError(`Quiz and exam configuration requires a TEACHER account. Your current session is ${role || 'not signed in'}. Please sign out and sign in with your teacher account.${role === 'EMPLOYEE' ? ' EMPLOYEE and TEACHER are separate roles in this system.' : ''}`, 403);
+  }
+}
+
+export function getAssessment(id: string) { return teacherRequest<AssessmentPayload>(`/${encodeURIComponent(id)}`); }
 export async function listAssessments(): Promise<AssessmentPayload[]> {
-  const page = await request<AssessmentPayload[]>('/teacher/my-tasks?offset=0&limit=100');
+  const page = await teacherRequest<AssessmentPayload[]>('/teacher/my-tasks?offset=0&limit=100');
   if (!Array.isArray(page)) throw new Error('Unexpected assessment list response.');
   return page;
 }
 export function createAssessment(task: AssessmentPayload) {
   const { title, description, subject_code, target_category, assessment_type, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score, is_ai_generated, categories_data, materials } = task;
-  return request<AssessmentPayload>('/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, description, subject_code, target_category, assessment_type, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score, is_ai_generated, categories_data, materials }) });
+  return teacherRequest<AssessmentPayload>('/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, description, subject_code, target_category, assessment_type, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score, is_ai_generated, categories_data, materials }) });
 }
 export function updateAssessment(id: string, task: AssessmentUpdate) {
-  return request<AssessmentPayload>(`/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
+  return teacherRequest<AssessmentPayload>(`/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
 }
 export function toAssessmentUpdatePayload(task: AssessmentPayload): AssessmentUpdate {
   const { title, description, subject_code, target_category, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score } = task;
@@ -90,14 +109,14 @@ export interface TeacherSubmission {
 export async function listAssessmentRecords(): Promise<AssessmentRow[]> {
   const tasks: AssessmentRow[] = [];
   for (let offset = 0; ; offset += 100) {
-    const page = await request<AssessmentRow[]>(`/teacher/my-tasks?offset=${offset}&limit=100`);
+    const page = await teacherRequest<AssessmentRow[]>(`/teacher/my-tasks?offset=${offset}&limit=100`);
     if (!Array.isArray(page) || page.some(task => !task.assessment_id)) throw new Error('Unexpected assessment list response.');
     tasks.push(...page);
     if (page.length < 100) return tasks;
   }
 }
 export function listAssessmentSubmissions(id: string) {
-  return request<SubmissionDetail[]>(`/${encodeURIComponent(id)}/submissions`);
+  return teacherRequest<SubmissionDetail[]>(`/${encodeURIComponent(id)}/submissions`);
 }
 export async function listTeacherSubmissions(tasks: AssessmentRow[]): Promise<TeacherSubmission[]> {
   const records: TeacherSubmission[] = [];
@@ -131,6 +150,46 @@ export function listStudentTasks(): Promise<StudentTask[]> {
   return request<StudentTask[]>('/student/my-tasks');
 }
 
+export interface StudentQuestion {
+  id: string;
+  category_id: string;
+  category_type: string;
+  points_per_item: number;
+  text?: string | null;
+  options?: string[] | null;
+  premise?: string | null;
+  matching_pool?: string[] | null;
+}
+
+export interface StudentDelivery {
+  assessment_id: string;
+  title: string;
+  description?: string | null;
+  assessment_type: TaskType;
+  duration_minutes: number | null;
+  max_score: number;
+  submission_id: string;
+  started_at: string;
+  questions: StudentQuestion[];
+}
+
+export function startStudentAssessment(id: string) {
+  return request<StudentDelivery>(`/${encodeURIComponent(id)}/start`, { method: 'POST' });
+}
+
+export function submitStudentAssessment(id: string, payload: {
+  answers: { question_id: string; student_answer: string }[];
+  time_spent_seconds: number;
+}) {
+  return request<SubmissionDetail>(`/${encodeURIComponent(id)}/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+}
+
+export function getStudentAssessmentResult(id: string) {
+  return request<SubmissionDetail>(`/${encodeURIComponent(id)}/my-result`);
+}
+
 export interface StudentActivityMetrics {
   submitted_count: number;
   pending_count: number;
@@ -147,7 +206,7 @@ export function gradeSubmission(
   submissionId: string,
   payload: { manual_score: number; feedback?: string }
 ): Promise<SubmissionDetail> {
-  return request<SubmissionDetail>(
+  return teacherRequest<SubmissionDetail>(
     `/${encodeURIComponent(assessmentId)}/submissions/${encodeURIComponent(submissionId)}/grade`,
     {
       method: 'POST',

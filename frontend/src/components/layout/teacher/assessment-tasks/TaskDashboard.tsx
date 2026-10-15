@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Calendar, Pencil, Send, BookOpen, Eye, Lock } from "lucide-react";
 import {
@@ -11,6 +11,7 @@ import {
   updateAssessment,
 } from "@/src/lib/assessments-api";
 import AssignStudentsModal from "@/src/components/ui/teacher/assessment-tasks/AssignStudentsModal";
+import { assessmentDisplayStatus, datePart, timePart, validateAssessmentSchedule } from '@/src/lib/assessment-timing';
 
 export default function TaskDashboard({
   tasks,
@@ -22,10 +23,15 @@ export default function TaskDashboard({
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("ALL");
   const [publishing, setPublishing] = useState<AssessmentPayload | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const filtered = tasks.filter(
     (task) =>
       (category === "all" || task.target_category === category) &&
-      (status === "ALL" || task.status === status),
+      (status === "ALL" || assessmentDisplayStatus(task, now) === status),
   );
   async function publish(target_category: TargetCategory) {
     if (!publishing?.assessment_id)
@@ -38,6 +44,14 @@ export default function TaskDashboard({
       throw new Error(
         "The deadline has passed. Edit the schedule before publishing.",
       );
+    if (publishing.assessment_type !== 'ACTIVITY') {
+      const start = publishing.start_date ? new Date(publishing.start_date) : null;
+      const scheduleError = validateAssessmentSchedule(start ? datePart(start) : '', start ? timePart(start) : '', publishing.duration_minutes ?? '', publishing.grace_period_minutes);
+      if (scheduleError) throw new Error(`${scheduleError} Edit the configuration before publishing.`);
+      if (!start || !publishing.end_date || Date.parse(publishing.end_date) !== start.getTime() + Number(publishing.duration_minutes) * 60000) {
+        throw new Error('The end time must match the start time plus duration. Edit the configuration before publishing.');
+      }
+    }
     if (
       publishing.assessment_type !== "ACTIVITY" &&
       (!publishing.categories_data.length ||
@@ -73,7 +87,7 @@ export default function TaskDashboard({
       );
     }
     const status: TaskStatus =
-      publishing.start_date && new Date(publishing.start_date) > new Date()
+      publishing.assessment_type === 'ACTIVITY' && publishing.start_date && new Date(publishing.start_date) > new Date()
         ? "SCHEDULED"
         : "ACTIVE";
     onUpdated(
@@ -127,6 +141,7 @@ export default function TaskDashboard({
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((task) => {
+            const displayStatus = assessmentDisplayStatus(task, now);
             const route =
               task.assessment_type === "QUIZ"
                 ? "quizzes"
@@ -135,7 +150,7 @@ export default function TaskDashboard({
                   : "activity";
             const isLocked =
               task.can_edit === false ||
-              task.status === "COMPLETED" ||
+              displayStatus === "COMPLETED" ||
               (task.submissions_count ?? 0) > 0;
             return (
               <article
@@ -150,11 +165,11 @@ export default function TaskDashboard({
                         title={task.lock_reason || "Assessment is locked from editing"}
                         className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
                       >
-                        <Lock size={11} /> {task.status === "COMPLETED" ? "Completed" : "Locked"}
+                        <Lock size={11} /> {displayStatus === "COMPLETED" ? "Completed" : "Locked"}
                       </span>
                     )}
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-                      {task.status}
+                      {displayStatus}
                     </span>
                   </div>
                 </div>

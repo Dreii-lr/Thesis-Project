@@ -45,7 +45,6 @@ export function subjectName(subjects: SubjectRecord[], code: string, category?: 
 
 export interface SubjectCreatePayload {
   category_id: string;
-  code: string;
   name: string;
   description?: string | null;
   is_active: boolean;
@@ -56,7 +55,6 @@ function subjectPayload(payload: SubjectUpdatePayload) {
   // Send only fields accepted by the active subject schemas.
   return {
     ...(payload.category_id !== undefined ? { category_id: payload.category_id } : {}),
-    ...(payload.code !== undefined ? { code: payload.code.trim() } : {}),
     ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
     ...(payload.description !== undefined ? { description: payload.description?.trim() ?? '' } : {}),
     ...(payload.is_active !== undefined ? { is_active: payload.is_active } : {}),
