@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse
 from app.core.dependencies import (
     get_current_active_user,
     get_user_category_service,
-    require_teacher,
+    require_admin_teacher,
 )
 from app.features.user_categories.schemas import (
     UserCategoryCreateSchema,
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/user-categories", tags=["User Categories"])
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_user_category(
     data: UserCategoryCreateSchema,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: UserCategoryService = Depends(get_user_category_service),
 ) -> JSONResponse:
     """
@@ -82,7 +82,7 @@ async def get_user_category_details(
 async def update_user_category(
     category_id: str,
     data: UserCategoryUpdateSchema,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: UserCategoryService = Depends(get_user_category_service),
 ) -> JSONResponse:
     """
@@ -97,7 +97,7 @@ async def update_user_category(
 @router.delete("/{category_id}", status_code=status.HTTP_200_OK)
 async def delete_user_category(
     category_id: str,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: UserCategoryService = Depends(get_user_category_service),
 ) -> JSONResponse:
     """

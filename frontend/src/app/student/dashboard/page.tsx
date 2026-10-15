@@ -122,7 +122,7 @@ export default function StudentDashboardPage() {
         if (active) setMaterialsLoading(false);
       });
 
-    listStudentTasks()
+    listStudentTasks(user || null)
       .then((data) => {
         if (!active) return;
         setTasks(Array.isArray(data) ? data : []);
@@ -165,7 +165,7 @@ export default function StudentDashboardPage() {
     return () => {
       active = false;
     };
-  }, [targetId]);
+  }, [targetId, user]);
 
   const upcomingTasks = useMemo(() => {
     return tasks
@@ -337,7 +337,7 @@ export default function StudentDashboardPage() {
               upcomingTasks.map((task) => (
                 <Link
                   key={task.assessment_id}
-                  href="/student/activities"
+                  href="/student/subjects"
                   className="block rounded-2xl border border-slate-100 bg-slate-50/70 p-4 transition hover:border-slate-200 hover:bg-slate-100/60"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -354,8 +354,8 @@ export default function StudentDashboardPage() {
             )}
           </div>
 
-          <Link href="/student/activities" className="mt-4 flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900">
-            View activities <ArrowRight size={15} />
+          <Link href="/student/subjects" className="mt-4 flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900">
+            View my subjects <ArrowRight size={15} />
           </Link>
         </section>
       </div>

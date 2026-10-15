@@ -5,19 +5,29 @@ import { usePathname } from 'next/navigation';
 import { Bell, ChevronRight, Home, PanelLeft, Search } from 'lucide-react';
 import Link from 'next/link';
 import StudentProfileDropdown from './StudentProfileDropdown';
+import { useStudentSubjects } from '@/src/context/StudentSubjectsContext';
 
 export default function StudentHeader() {
   const { toggleSidebar } = useSidebar();
   const pathname = usePathname();
+  const { subjects } = useStudentSubjects();
 
   const pathSegments = pathname?.split('/').filter(Boolean) || [];
-  const breadcrumbSegments = pathSegments.filter((segment) => segment !== 'student');
-
   const formatSegment = (segment: string) =>
-    segment
+    segment === 'results' ? 'My Results' : segment === 'subjects' || segment === 'activities' ? 'My Subjects' : subjects.find(subject => subject.subject_id === segment)?.name || segment
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+
+  const isAssessmentPage = pathSegments[1] === 'activities' && pathSegments[2] === 'assessment';
+  const breadcrumbs = isAssessmentPage
+    ? [{ label: 'Assessment', href: '/student/subjects' }, { label: 'Details', href: null }]
+    : pathSegments.slice(1).map((segment, index, segments) => ({
+        label: formatSegment(segment),
+        href: index === segments.length - 1 ? null
+          : segment === 'subjects' || segment === 'activities' ? '/student/subjects'
+          : '/' + pathSegments.slice(0, index + 2).join('/'),
+      }));
 
   return (
     <header className="sticky top-0 z-[60] flex h-[72px] w-full shrink-0 items-center justify-between border-b border-slate-200/80 bg-white px-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] sm:px-6">
@@ -32,7 +42,7 @@ export default function StudentHeader() {
 
         <div className="hidden h-5 w-px bg-slate-200 sm:block" />
 
-        <div className="hidden min-w-0 items-center gap-1.5 text-[13px] text-slate-400 sm:flex">
+        <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center gap-1.5 text-[13px] text-slate-400 sm:flex">
           <Link
             href="/student/dashboard"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-slate-50 hover:text-blue-600"
@@ -41,27 +51,23 @@ export default function StudentHeader() {
             <Home size={15} strokeWidth={1.8} />
           </Link>
 
-          {breadcrumbSegments.map((segment, index) => {
-            const segmentIndex = pathSegments.indexOf(segment);
-            const href = '/' + pathSegments.slice(0, segmentIndex + 1).join('/');
-            const isLast = index === breadcrumbSegments.length - 1;
-
+          {breadcrumbs.map((crumb, index) => {
             return (
-              <div key={`${segment}-${index}`} className="flex min-w-0 items-center gap-1.5">
+              <div key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-1.5">
                 <ChevronRight size={14} strokeWidth={1.7} className="shrink-0 text-slate-300" />
-                {isLast ? (
-                  <span className="max-w-[220px] truncate font-semibold text-slate-700">
-                    {formatSegment(segment)}
-                  </span>
-                ) : (
-                  <Link href={href} className="max-w-[160px] truncate hover:text-blue-600">
-                    {formatSegment(segment)}
+                {crumb.href ? (
+                  <Link href={crumb.href} className="max-w-[160px] truncate hover:text-blue-600">
+                    {crumb.label}
                   </Link>
+                ) : (
+                  <span aria-current="page" className="max-w-[220px] truncate font-semibold text-slate-700">
+                    {crumb.label}
+                  </span>
                 )}
               </div>
             );
           })}
-        </div>
+        </nav>
       </div>
 
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">

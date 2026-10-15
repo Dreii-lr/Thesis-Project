@@ -10,12 +10,14 @@ from sqlalchemy.orm import selectinload
 
 from app.features.assessments.models import (
     Assessment,
+    AssessmentCohortAnalysis,
     AssessmentMaterial,
     AssessmentQuestions,
     AssessmentSubmission,
     SubmissionStatus,
     TaskStatus,
     TaskType,
+    utc_now,
 )
 from app.features.assessments.schemas import AssessmentDetailResponse
 from app.features.users.models import UserCategory
@@ -130,14 +132,23 @@ class AssessmentRepository:
     async def list_submissions_for_assessment(
         self,
         assessment_id: str,
+        category: Optional[UserCategory | str] = None,
     ) -> List[AssessmentSubmission]:
-        stmt = (
-            select(AssessmentSubmission)
-            .where(AssessmentSubmission.assessment_id == assessment_id)
-            .order_by(AssessmentSubmission.created_at.desc())
+        stmt = select(AssessmentSubmission).where(
+            AssessmentSubmission.assessment_id == assessment_id
         )
+        if category is not None:
+            cat_val = category.value if hasattr(category, "value") else str(category)
+            stmt = stmt.where(
+                or_(
+                    AssessmentSubmission.student_category == category,
+                    AssessmentSubmission.student_category == cat_val,
+                )
+            )
+        stmt = stmt.order_by(AssessmentSubmission.created_at.desc())
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
 
     async def create_submission(self, submission: AssessmentSubmission) -> AssessmentSubmission:
         self._session.add(submission)
@@ -203,4 +214,30 @@ class AssessmentRepository:
             "pending_count": pending_count,
             "total_assigned": total_assigned,
         }
+
+    async def get_cohort_analysis(
+        self,
+        assessment_id: str,
+    ) -> Optional[AssessmentCohortAnalysis]:
+        stmt = select(AssessmentCohortAnalysis).where(
+            AssessmentCohortAnalysis.assessment_id == assessment_id
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def save_cohort_analysis(
+        self,
+        analysis: AssessmentCohortAnalysis,
+    ) -> AssessmentCohortAnalysis:
+        existing = await self.get_cohort_analysis(analysis.assessment_id)
+        if existing:
+            existing.total_submissions = analysis.total_submissions
+            existing.class_average = analysis.class_average
+            existing.passing_rate = analysis.passing_rate
+            existing.analysis_payload = analysis.analysis_payload
+            existing.updated_at = analysis.updated_at or utc_now()
+            return existing
+        else:
+            self._session.add(analysis)
+            return analysis
 

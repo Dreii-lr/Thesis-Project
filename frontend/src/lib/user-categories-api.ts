@@ -99,18 +99,31 @@ export async function getUserCategories(): Promise<UserCategoryItem[]> {
  * Lists all user categories with pagination support.
  */
 export async function listUserCategories(): Promise<UserCategoryRecord[]> {
-  try {
-    const categories: UserCategoryRecord[] = [];
-    for (let offset = 0; ; offset += 500) {
-      const result = await authenticatedRequest<ListCategoriesResponse>(`/user-categories/?offset=${offset}&limit=500`);
-      categories.push(...result.categories);
-      if (categories.length >= result.total) return categories;
-      if (!result.categories.length) throw new Error('Learning programs changed while loading. Please refresh.');
-    }
-  } catch (err) {
-    console.warn('Failed to list user categories via authenticatedRequest, falling back to getUserCategories():', err);
-    return getUserCategories();
+  const categories: UserCategoryRecord[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const result = await authenticatedRequest<ListCategoriesResponse>(`/user-categories/?offset=${offset}&limit=500`);
+    categories.push(...result.categories);
+    if (categories.length >= result.total) return categories;
+    if (!result.categories.length) throw new Error('Learning programs changed while loading. Please refresh.');
   }
+}
+
+export interface UserCategoryCreatePayload {
+  code: string;
+  name: string;
+  description?: string;
+}
+
+export function createUserCategory(payload: UserCategoryCreatePayload): Promise<UserCategoryRecord> {
+  return authenticatedRequest<UserCategoryRecord>('/user-categories/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code: payload.code.trim().toUpperCase(),
+      name: payload.name.trim(),
+      description: payload.description?.trim() || '',
+    }),
+  });
 }
 
 /**

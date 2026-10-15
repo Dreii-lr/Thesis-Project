@@ -17,7 +17,6 @@ __pycache__/
 **/*.py[cod]
 *.py[cod]
 **/*.pyc
-*.pyc
 **/*.pyo
 *.pyo
 *$py.class
@@ -71,6 +70,7 @@ Thumbs.db
 /docs
 
 AGENTS.md
+<<<<<<< HEAD
 # Environment & Secrets
 .env
 .env.*
@@ -80,3 +80,6 @@ AGENTS.md
 *.key
 *.cert
 
+=======
+# Environment & Secrets
+>>>>>>> merges

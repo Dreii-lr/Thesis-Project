@@ -64,7 +64,6 @@ async def update_assessment(
 
 
 @router.get("/teacher/my-tasks", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
-@router.get("/teacher/list", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
 async def list_teacher_assessments(
     status_filter: Optional[TaskStatus] = Query(default=None, alias="status"),
     target_category: Optional[UserCategory] = Query(default=None),
@@ -241,3 +240,89 @@ async def get_my_result(
     )
     response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COHORT STRUGGLE ANALYSIS ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/cohort-analysis", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
+
+async def generate_cohort_struggle_analysis_query(
+    assessment_id: str = Query(..., description="ID of the completed assessment to analyze"),
+    user_category: str = Query(..., description="Target user category (case-insensitive, e.g. Elementary, Secondary, BLP)"),
+    current_user: UserRead = Depends(require_teacher),
+    service: AssessmentService = Depends(get_assessment_service),
+) -> JSONResponse:
+    """
+    Generate or refresh cohort-wide quiz struggle analysis using query parameters.
+    Query parameters:
+      - assessment_id: ID of the assessment (must be COMPLETED)
+      - user_category: Category from user_categories table (case-insensitive)
+    Workflow:
+      1. Query category in database (case-insensitive).
+      2. If valid, query assessment in database (must be COMPLETED).
+      3. If valid, query submissions strictly for that category.
+      4. Feed aggregated data to document-processing-ms via HTTP API and return diagnosis.
+    """
+    response = await service.generate_cohort_struggle_analysis(
+        assessment_id=assessment_id,
+        user_category=user_category,
+        current_user=current_user,
+    )
+    response.status_code = status.HTTP_200_OK
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.get("/cohort-analysis", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
+async def get_cohort_struggle_analysis_query(
+    assessment_id: str = Query(..., description="ID of the assessment"),
+    user_category: Optional[str] = Query(None, description="Optional user category filter"),
+    current_user: UserRead = Depends(require_teacher),
+    service: AssessmentService = Depends(get_assessment_service),
+) -> JSONResponse:
+    """
+    Retrieve previously generated and cached cohort struggle analysis using query parameters.
+    """
+    response = await service.get_cohort_struggle_analysis(
+        assessment_id=assessment_id,
+        current_user=current_user,
+        user_category=user_category,
+    )
+    response.status_code = status.HTTP_200_OK
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.post("/{assessment_id}/cohort-analysis", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
+async def generate_cohort_struggle_analysis_path(
+    assessment_id: str,
+    user_category: str = Query(..., alias="category", description="Target user category (case-insensitive)"),
+    current_user: UserRead = Depends(require_teacher),
+    service: AssessmentService = Depends(get_assessment_service),
+) -> JSONResponse:
+    """Backward-compatible path-parameter alias for generating cohort struggle analysis."""
+    response = await service.generate_cohort_struggle_analysis(
+        assessment_id=assessment_id,
+        user_category=user_category,
+        current_user=current_user,
+    )
+    response.status_code = status.HTTP_200_OK
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.get("/{assessment_id}/cohort-analysis", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
+async def get_cohort_struggle_analysis_path(
+    assessment_id: str,
+    user_category: Optional[str] = Query(None, alias="category", description="Optional user category filter"),
+    current_user: UserRead = Depends(require_teacher),
+    service: AssessmentService = Depends(get_assessment_service),
+) -> JSONResponse:
+    """Backward-compatible path-parameter alias for retrieving cohort struggle analysis."""
+    response = await service.get_cohort_struggle_analysis(
+        assessment_id=assessment_id,
+        current_user=current_user,
+        user_category=user_category,
+    )
+    response.status_code = status.HTTP_200_OK
+    return SharedUtils.SuccessfulResponse(response)
+

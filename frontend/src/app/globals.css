@@ -27,12 +27,14 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
-button,
-a,
-input,
-select,
-textarea {
-  font: inherit;
+@layer base {
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 }
 
 ::selection {

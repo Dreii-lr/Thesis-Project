@@ -45,6 +45,62 @@ def student_user() -> UserRead:
     )
 
 
+def admin_user() -> UserRead:
+    return teacher_user().model_copy(update={"role": UserRole.ADMIN})
+
+
+@pytest.mark.asyncio
+async def test_admin_can_create_program_then_subject(client: AsyncClient):
+    app.dependency_overrides[get_current_active_user] = admin_user
+    app.dependency_overrides[get_current_user] = admin_user
+
+    empty = await client.get("/api/v1/user-categories/")
+    assert empty.status_code == 200
+    assert empty.json()["data"]["resources"]["categories"] == []
+
+    program = await client.post("/api/v1/user-categories/", json={
+        "code": " elementary ", "name": " Elementary ",
+    })
+    assert program.status_code == 201
+    saved = program.json()["data"]["resources"]
+    assert saved["code"] == "ELEMENTARY"
+    assert saved["name"] == "Elementary"
+    category_id = saved["category_id"]
+
+    subject = await client.post("/api/v1/subjects/", json={
+        "category_id": category_id, "name": "Mathematics", "is_active": True,
+    })
+    assert subject.status_code == 201
+    details = await client.get(f"/api/v1/user-categories/{category_id}")
+    assert details.status_code == 200
+    assert details.json()["data"]["resources"]["subjects"][0]["name"] == "Mathematics"
+
+    duplicate = await client.post("/api/v1/user-categories/", json={
+        "code": "ELEMENTARY", "name": "Another program",
+    })
+    assert duplicate.status_code == 409
+
+    updated = await client.put(f"/api/v1/user-categories/{category_id}", json={"description": "Updated"})
+    assert updated.status_code == 200
+    deleted = await client.delete(f"/api/v1/user-categories/{category_id}")
+    assert deleted.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_students_cannot_modify_learning_programs(client: AsyncClient):
+    app.dependency_overrides[get_current_active_user] = teacher_user
+    app.dependency_overrides[get_current_user] = teacher_user
+    created = await client.post("/api/v1/user-categories/", json={"code": "BLP", "name": "Basic Literacy Program"})
+    assert created.status_code == 201
+    category_id = created.json()["data"]["resources"]["category_id"]
+
+    app.dependency_overrides[get_current_active_user] = student_user
+    app.dependency_overrides[get_current_user] = student_user
+    assert (await client.post("/api/v1/user-categories/", json={"code": "SECONDARY", "name": "Secondary"})).status_code == 403
+    assert (await client.put(f"/api/v1/user-categories/{category_id}", json={"name": "Changed"})).status_code == 403
+    assert (await client.delete(f"/api/v1/user-categories/{category_id}")).status_code == 403
+
+
 @pytest.mark.asyncio
 async def test_user_category_crud_operations(client: AsyncClient):
     """Test full CRUD lifecycle for UserCategory, ensuring subjects are included."""

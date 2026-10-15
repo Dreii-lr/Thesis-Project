@@ -21,6 +21,7 @@ import {
   CategoryDataPayload,
 } from '@/src/lib/assessments-api';
 import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
+import { assessmentEnd, datePart, nextMinute, timePart, validateAssessmentSchedule } from '@/src/lib/assessment-timing';
 
 interface AssessmentFormProps {
   type: 'Quiz' | 'Exam';
@@ -42,36 +43,36 @@ export default function AssessmentForm({
   onSave,
   onCancel,
 }: AssessmentFormProps) {
-  const [today] = useState(() => new Date());
-  const datePart = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-  const timePart = (value: Date) => `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
-  const minDate = datePart(today);
+  const [now, setNow] = useState(() => new Date());
+  const minDate = datePart(now);
+  const minTime = timePart(nextMinute(now));
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [title, setTitle] = useState(initialData?.title ?? '');
   const [description, setDescription] = useState(initialData?.description ?? '');
   const [subjectCode, setSubjectCode] = useState(initialData?.subject_code ?? '');
   const [targetCategory, setTargetCategory] = useState<TargetCategory>(initialData?.target_category || 'SECONDARY');
   const [subjects, setSubjects] = useState<SubjectRecord[]>([]);
-  const [loadingSubjects, setLoadingSubjects] = useState(false);
+  const [loadingSubjects, setLoadingSubjects] = useState(true);
   const [subjectsError, setSubjectsError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    setLoadingSubjects(true);
-    setSubjectsError(null);
-
-    listSubjects(targetCategory)
+    Promise.resolve().then(() => {
+      if (!isMounted) return [];
+      setLoadingSubjects(true);
+      setSubjectsError(null);
+      return listSubjects(targetCategory);
+    })
       .then((fetched) => {
         if (!isMounted) return;
         const activeSubjects = fetched.filter((s) => s.is_active);
         setSubjects(activeSubjects);
         if (activeSubjects.length > 0) {
-          const matchesExisting = activeSubjects.some(
-            (s) => s.code === subjectCode || s.name === subjectCode || s.subject_id === subjectCode
-          );
-          if (!matchesExisting) {
-            const firstCode = activeSubjects[0].code || activeSubjects[0].name;
-            setSubjectCode(firstCode);
-          }
+          setSubjectCode(current => activeSubjects.some(s => s.code === current || s.name === current || s.subject_id === current)
+            ? current : activeSubjects[0].code || activeSubjects[0].name);
         }
       })
       .catch((err) => {
@@ -87,12 +88,12 @@ export default function AssessmentForm({
     };
   }, [targetCategory]);
 
-  const [startDate, setStartDate] = useState(initialData?.start_date ? datePart(new Date(initialData.start_date)) : minDate);
-  const [startTime, setStartTime] = useState(initialData?.start_date ? timePart(new Date(initialData.start_date)) : '08:00');
-  const [endDate, setEndDate] = useState(initialData?.end_date ? datePart(new Date(initialData.end_date)) : minDate);
-  const [endTime, setEndTime] = useState(initialData?.end_date ? timePart(new Date(initialData.end_date)) : '10:00');
-  const [duration, setDuration] = useState<number | ''>(initialData?.duration_minutes ?? '');
+  const [startDate, setStartDate] = useState(initialData?.start_date ? datePart(new Date(initialData.start_date)) : datePart(nextMinute(now)));
+  const [startTime, setStartTime] = useState(initialData?.start_date ? timePart(new Date(initialData.start_date)) : minTime);
+  const [duration, setDuration] = useState<number | ''>(initialData?.duration_minutes ?? 60);
   const [gracePeriod, setGracePeriod] = useState<number>(initialData?.grace_period_minutes ?? 5);
+  const end = assessmentEnd(startDate, startTime, duration);
+  const endTime = end ? timePart(end) : '';
 
   const mc = initialData?.categories_data.find(category => category.type === 'Multiple Choice');
   const tf = initialData?.categories_data.find(category => ['True/False', 'True or False'].includes(category.type));
@@ -298,19 +299,11 @@ export default function AssessmentForm({
     if (saveStatus === 'SCHEDULED') {
       if (!title.trim()) return alert(`Please enter a ${type.toLowerCase()} title.`);
       if (!subjectCode.trim()) return alert('Please select a subject.');
-      if (!startDate || !startTime || !endDate || !endTime) {
-        return alert('Please set the Start Date, Start Time, End Date, and End Time.');
-      }
     }
-
-    const safeStartDate = startDate || minDate || new Date().toISOString().slice(0, 10);
-    const safeEndDate = endDate || safeStartDate;
-    const startIso = new Date(`${safeStartDate}T${startTime || '08:00'}`).toISOString();
-    const endIso = new Date(`${safeEndDate}T${endTime || '10:00'}`).toISOString();
-
-    if (new Date(endIso) <= new Date(startIso)) return alert('End time must be after start time.');
-
-    if (duration !== '' && (!Number.isInteger(duration) || duration < 1)) return alert('Duration must be a positive number of minutes.');
+    const scheduleError = validateAssessmentSchedule(startDate, startTime, duration, gracePeriod);
+    if (scheduleError) return alert(scheduleError);
+    const startIso = new Date(`${startDate}T${startTime}`).toISOString();
+    const endIso = assessmentEnd(startDate, startTime, duration)!.toISOString();
 
     const categoriesData: CategoryDataPayload[] = [];
 
@@ -417,7 +410,8 @@ export default function AssessmentForm({
       0
     );
 
-    const finalStatus = saveStatus === 'DRAFT' ? 'DRAFT' : initialData?.status === 'COMPLETED' || new Date(endIso) <= new Date() ? 'COMPLETED' : new Date(startIso) > new Date() ? 'SCHEDULED' : 'ACTIVE';
+    // The existing student start API requires ACTIVE; dates control when entry opens.
+    const finalStatus = saveStatus === 'DRAFT' ? 'DRAFT' : 'ACTIVE';
 
     const payload: AssessmentPayload = {
 
@@ -456,7 +450,7 @@ export default function AssessmentForm({
                 {initialData ? `Edit ${type}` : `${type} Configuration`}
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Set up the title, class program, start/end schedule, and grace period.
+                Set up the title, class program, assessment date, duration, and grace period to start.
               </p>
             </div>
             {initialData && (
@@ -560,12 +554,12 @@ export default function AssessmentForm({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 pt-3 border-t border-slate-100">
             <div>
               <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-                <Calendar size={13} className="text-blue-600" /> Start Date
+                <Calendar size={13} className="text-blue-600" /> {type} Date
               </label>
               <input
                 type="date"
                 required
-                min={initialData ? undefined : minDate}
+                min={minDate}
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
@@ -579,22 +573,9 @@ export default function AssessmentForm({
               <input
                 type="time"
                 required
+                min={startDate === minDate ? minTime : undefined}
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-              />
-            </div>
-
-            <div>
-              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
-                <Calendar size={13} className="text-rose-600" /> End Date
-              </label>
-              <input
-                type="date"
-                required
-                min={startDate || minDate}
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
             </div>
@@ -605,16 +586,15 @@ export default function AssessmentForm({
               </label>
               <input
                 type="time"
-                required
+                readOnly
                 value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Time Limit (minutes, optional)</label>
-              <input type="number" min={1} value={duration} onChange={event => setDuration(event.target.value === '' ? '' : Number(event.target.value))} placeholder="No time limit" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed" />
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Duration (mins.)</label>
+              <input type="number" required min={1} step={1} value={duration} onChange={event => setDuration(event.target.value === '' ? '' : Number(event.target.value))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed" />
             </div>
             <div>
               <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-1.5">
@@ -624,7 +604,8 @@ export default function AssessmentForm({
                 <input
                   type="number"
                   min={0}
-                  max={180}
+                  max={duration === '' ? 180 : Math.min(180, Number(duration) - 1)}
+                  step={1}
                   value={gracePeriod}
                   onChange={(e) => setGracePeriod(Math.max(0, Number(e.target.value)))}
                   className="w-full rounded-xl border border-slate-200 bg-white pl-3 pr-14 py-2 text-sm text-slate-900 focus:border-blue-600 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
@@ -635,6 +616,7 @@ export default function AssessmentForm({
               </div>
             </div>
           </div>
+          <p className="text-xs leading-5 text-slate-500">The end time is calculated from the duration and must stay on the same day. Students may begin during the grace period after the start time. All attempts end at the scheduled end time and answers are automatically submitted.</p>
         </div>
 
       {/* DYNAMIC QUESTION CATEGORIES */}

@@ -4,7 +4,7 @@ repository.py — Data access layer for User Categories.
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -45,6 +45,18 @@ class UserCategoryRepository:
         stmt = select(UserCategoryModel).where(func.upper(UserCategoryModel.name) == name.upper())
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_by_code_or_name(self, value: str) -> Optional[UserCategoryModel]:
+        clean_val = value.strip().upper()
+        stmt = select(UserCategoryModel).where(
+            or_(
+                func.upper(UserCategoryModel.code) == clean_val,
+                func.upper(UserCategoryModel.name) == clean_val,
+            )
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
 
     async def list(
         self,
