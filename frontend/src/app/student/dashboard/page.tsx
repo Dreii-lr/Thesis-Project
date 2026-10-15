@@ -122,7 +122,7 @@ export default function StudentDashboardPage() {
         if (active) setMaterialsLoading(false);
       });
 
-    listStudentTasks()
+    listStudentTasks(user || null)
       .then((data) => {
         if (!active) return;
         setTasks(Array.isArray(data) ? data : []);
@@ -165,7 +165,7 @@ export default function StudentDashboardPage() {
     return () => {
       active = false;
     };
-  }, [targetId]);
+  }, [targetId, user]);
 
   const upcomingTasks = useMemo(() => {
     return tasks

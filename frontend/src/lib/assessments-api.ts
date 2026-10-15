@@ -1,4 +1,4 @@
-import { authenticatedRequest, clearCurrentUserCache, getCurrentUser, SessionError } from './auth-api';
+import { authenticatedRequest, clearCurrentUserCache, getCurrentUser, SessionError, type UserRead } from './auth-api';
 
 export type TargetCategory = 'ELEMENTARY' | 'SECONDARY' | 'BLP';
 export const CATEGORY_LABELS = { ELEMENTARY: 'Elementary', SECONDARY: 'Junior High School', BLP: 'Basic Literacy Program' };
@@ -146,8 +146,25 @@ export interface StudentTask {
   is_available: boolean;
 }
 
-export function listStudentTasks(): Promise<StudentTask[]> {
-  return request<StudentTask[]>('/student/my-tasks');
+export async function listStudentTasks(expectedUser: UserRead | null): Promise<StudentTask[]> {
+  const matchesStudent = (user: UserRead | null) => {
+    const category = String(user?.user_category || '').trim().toUpperCase();
+    return !!expectedUser && !!user &&
+      (user.user_id || user.email) === (expectedUser.user_id || expectedUser.email) &&
+      String(user.role || user.user_type || '').toUpperCase() === 'STUDENT' &&
+      ['ELEMENTARY', 'SECONDARY', 'BLP'].includes(category) &&
+      category === String(expectedUser.user_category || '').trim().toUpperCase();
+  };
+  // Tabs share cookies. Never show another account's tasks under this student's program.
+  if (!matchesStudent(await getCurrentUser(true, true))) {
+    throw new Error('Your account or learning program has changed. Reload this page before viewing assessments.');
+  }
+  const tasks = await request<StudentTask[]>('/student/my-tasks');
+  if (!matchesStudent(await getCurrentUser(true, true))) {
+    throw new Error('Your account or learning program changed while loading. Reload this page to continue.');
+  }
+  if (!Array.isArray(tasks)) throw new Error('Unexpected student assessment response.');
+  return tasks;
 }
 
 export interface StudentQuestion {

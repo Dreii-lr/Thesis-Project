@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, BadgeCheck, BookOpen, CalendarDays, CheckCircle2, ClipboardList, Clock3, GraduationCap, ListTodo } from 'lucide-react';
 import { listStudentTasks, type StudentTask, type TaskType } from '@/src/lib/assessments-api';
@@ -9,6 +9,7 @@ import { assessmentCompleted, assessmentOnDay, assessmentState, subjectTasks } f
 import { assessmentStartMessage, scheduledEnd } from '@/src/lib/assessment-timing';
 import { useApiData } from '@/src/lib/use-api-data';
 import ApiState from '@/src/components/ui/ApiState';
+import { useAuth } from '@/src/context/AuthContext';
 
 const typeNames: Record<TaskType, string> = { ACTIVITY: 'Activity', QUIZ: 'Quiz', EXAM: 'Examination' };
 const formatDate = (value: string | number) => new Date(value).toLocaleString([], { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', hour: 'numeric', minute: '2-digit' });
@@ -20,7 +21,9 @@ const statusStyles = {
 };
 
 export default function SubjectAssessments({ subject, programName }: { subject: SubjectRecord; programName: string }) {
-  const records = useApiData(listStudentTasks);
+  const { user } = useAuth();
+  const loadTasks = useCallback(() => listStudentTasks(user), [user]);
+  const records = useApiData(loadTasks);
   const [filter, setFilter] = useState<'ALL' | TaskType>('ALL');
   const [now, setNow] = useState(() => Date.now());
   const tasks = subjectTasks(records.data || [], subject);
