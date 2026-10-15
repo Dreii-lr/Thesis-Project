@@ -14,7 +14,7 @@ export default function StudentHeader() {
 
   const pathSegments = pathname?.split('/').filter(Boolean) || [];
   const formatSegment = (segment: string) =>
-    segment === 'subjects' || segment === 'activities' ? 'My Subjects' : subjects.find(subject => subject.subject_id === segment)?.name || segment
+    segment === 'results' ? 'My Results' : segment === 'subjects' || segment === 'activities' ? 'My Subjects' : subjects.find(subject => subject.subject_id === segment)?.name || segment
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
