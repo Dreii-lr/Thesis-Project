@@ -11,7 +11,7 @@ import {
   updateAssessment,
 } from "@/src/lib/assessments-api";
 import AssignStudentsModal from "@/src/components/ui/teacher/assessment-tasks/AssignStudentsModal";
-import { assessmentDisplayStatus, datePart, timePart, validateAssessmentSchedule } from '@/src/lib/assessment-timing';
+import { datePart, timePart, validateAssessmentSchedule } from '@/src/lib/assessment-timing';
 
 export default function TaskDashboard({
   tasks,
@@ -23,15 +23,10 @@ export default function TaskDashboard({
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("ALL");
   const [publishing, setPublishing] = useState<AssessmentPayload | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
   const filtered = tasks.filter(
     (task) =>
       (category === "all" || task.target_category === category) &&
-      (status === "ALL" || assessmentDisplayStatus(task, now) === status),
+      (status === "ALL" || task.status === status),
   );
   async function publish(target_category: TargetCategory) {
     if (!publishing?.assessment_id)
@@ -87,7 +82,7 @@ export default function TaskDashboard({
       );
     }
     const status: TaskStatus =
-      publishing.assessment_type === 'ACTIVITY' && publishing.start_date && new Date(publishing.start_date) > new Date()
+      publishing.start_date && new Date(publishing.start_date) > new Date()
         ? "SCHEDULED"
         : "ACTIVE";
     onUpdated(
@@ -141,7 +136,7 @@ export default function TaskDashboard({
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((task) => {
-            const displayStatus = assessmentDisplayStatus(task, now);
+            const displayStatus = task.status;
             const route =
               task.assessment_type === "QUIZ"
                 ? "quizzes"

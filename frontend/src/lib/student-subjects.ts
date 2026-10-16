@@ -23,6 +23,7 @@ export function assessmentCompleted(task: StudentTask) {
 
 export function assessmentState(task: StudentTask, now: number) {
   if (assessmentCompleted(task)) return { color: 'green', label: 'Done' } as const;
+  if (task.status === 'COMPLETED') return { color: 'gray', label: 'Ended' } as const;
   if (task.assessment_type === 'ACTIVITY') return { color: 'red', label: 'Not submitted' } as const;
   if (task.submission_status === 'IN_PROGRESS') return { color: 'yellow', label: 'In progress' } as const;
   if (now >= scheduledEnd(task)) return { color: 'gray', label: 'Ended' } as const;

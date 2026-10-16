@@ -3,7 +3,7 @@ models.py — Attendance tables definition for sessions and individual learner r
 """
 from datetime import datetime, timezone, date
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 import uuid
 
 from sqlalchemy import Column, DateTime, func, UniqueConstraint, Date
@@ -28,7 +28,7 @@ class AttendanceStatus(str, Enum):
 class AttendanceRecord(SQLModel, table=True):
     __tablename__ = "attendance_records"
     __table_args__ = (
-        UniqueConstraint("session_id", "student_id", name="uq_session_student"),
+        UniqueConstraint("session_id", "account_id", name="uq_session_account"),
     )
 
     record_id: str = Field(
@@ -42,7 +42,7 @@ class AttendanceRecord(SQLModel, table=True):
         index=True,
         nullable=False,
     )
-    student_id: str = Field(index=True, nullable=False)
+    account_id: str = Field(index=True, nullable=False)
     status: AttendanceStatus = Field(nullable=False)
     remarks: Optional[str] = Field(default=None, nullable=True)
 
@@ -76,7 +76,12 @@ class AttendanceSession(SQLModel, table=True):
         index=True,
         nullable=False,
     )
-    teacher_id: str = Field(index=True, nullable=False,foreign_key="users.teacher_id")
+    teacher_id: str = Field(
+        index=True,
+        nullable=False,
+        foreign_key="users.user_id",
+        ondelete="CASCADE",
+    )
     category_code: str = Field(index=True, nullable=False)
     subject_code: str = Field(index=True, nullable=False)
     session_date: date = Field( sa_column=Column(Date,index=True, nullable=False) )  # ISO string: YYYY-MM-DD

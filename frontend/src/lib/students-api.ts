@@ -50,6 +50,7 @@ interface DetailDates {
 }
 export interface UserRecord {
   user_id?: string | null;
+  account_id?: string | null;
   student_id?: string | null;
   teacher_id?: string | null;
   employee_id?: string | null;
@@ -116,6 +117,7 @@ export interface FamilyDetails extends FamilyDetailsInput {
 }
 export interface Student {
   id: string;
+  account_id?: string;
   student_id: string;
   email: string;
   first_name: string;
@@ -186,7 +188,8 @@ export function normalizeStudentRecord(raw: UserRecord): Student {
   const family = raw.family_details;
   return {
     id: raw.user_id,
-    student_id: raw.student_id ?? "",
+    account_id: raw.account_id ?? raw.student_id ?? "",
+    student_id: raw.account_id ?? raw.student_id ?? "",
     email: raw.email ?? "",
     first_name: raw.first_name ?? "",
     last_name: raw.last_name ?? "",

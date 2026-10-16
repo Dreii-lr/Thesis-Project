@@ -17,7 +17,7 @@ from app.main import app
 def teacher_user() -> UserRead:
     return UserRead(
         user_id="teacher-uuid-001",
-        employee_id="EMP-2026-001",
+        account_id="TCH-2026-001",
         email="teacher@als.edu.ph",
         role=UserRole.TEACHER,
         status=UserStatus.ACTIVE,
@@ -26,10 +26,10 @@ def teacher_user() -> UserRead:
     )
 
 
-def student_user(student_id: str = "ALS-0001") -> UserRead:
+def student_user(account_id: str = "ALS-0001") -> UserRead:
     return UserRead(
         user_id="student-uuid-001",
-        student_id=student_id,
+        account_id=account_id,
         email="juan.delacruz@als.edu.ph",
         role=UserRole.STUDENT,
         status=UserStatus.ACTIVE,
@@ -42,7 +42,7 @@ def student_user(student_id: str = "ALS-0001") -> UserRead:
 
 @pytest.mark.asyncio
 async def test_teacher_can_record_and_list_attendance(client: AsyncClient):
-    """Teachers (EMPLOYEE) have full permission to record, list, and view sessions."""
+    """Teachers have full permission to record, list, and view sessions."""
     app.dependency_overrides[get_current_active_user] = teacher_user
 
     try:
@@ -54,10 +54,10 @@ async def test_teacher_can_record_and_list_attendance(client: AsyncClient):
             "strand_code": "LS1: Communication Skills",
             "status": "COMPLETED",
             "records": [
-                {"student_id": "ALS-0001", "status": "Present", "remarks": ""},
-                {"student_id": "ALS-0002", "status": "Present", "remarks": ""},
-                {"student_id": "ALS-0003", "status": "Absent", "remarks": "Medical leave"},
-                {"student_id": "ALS-0004", "status": "Excused", "remarks": "Family emergency"},
+                {"account_id": "ALS-0001", "status": "Present", "remarks": ""},
+                {"account_id": "ALS-0002", "status": "Present", "remarks": ""},
+                {"account_id": "ALS-0003", "status": "Absent", "remarks": "Medical leave"},
+                {"account_id": "ALS-0004", "status": "Excused", "remarks": "Family emergency"},
             ],
         }
 
@@ -76,7 +76,7 @@ async def test_teacher_can_record_and_list_attendance(client: AsyncClient):
         session_id = session_data["session_id"]
 
         # ERD & Flowchart alignment: records contain reason_of_absence alongside remarks
-        records = {r["student_id"]: r for r in session_data["records"]}
+        records = {r["account_id"]: r for r in session_data["records"]}
         assert records["ALS-0003"]["reason_of_absence"] == "Medical leave"
         assert records["ALS-0003"]["remarks"] == "Medical leave"
         assert records["ALS-0004"]["reason_of_absence"] == "Family emergency"
@@ -93,13 +93,13 @@ async def test_teacher_can_record_and_list_attendance(client: AsyncClient):
         assert get_res.status_code == 200
         get_session_data = get_res.json()["data"]["resources"]
         assert get_session_data["session_id"] == session_id
-        get_records = {r["student_id"]: r for r in get_session_data["records"]}
+        get_records = {r["account_id"]: r for r in get_session_data["records"]}
         assert get_records["ALS-0003"]["reason_of_absence"] == "Medical leave"
 
         # 4. Teacher views student history
         hist_res = await client.get("/api/v1/attendance/students/ALS-0001")
         assert hist_res.status_code == 200
-        assert hist_res.json()["data"]["resources"]["student_id"] == "ALS-0001"
+        assert hist_res.json()["data"]["resources"]["account_id"] == "ALS-0001"
 
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
@@ -116,15 +116,15 @@ async def test_reason_of_absence_payload_interchangeability(client: AsyncClient)
             "level_code": "Elementary",
             "strand_code": "LS2: Scientific Literacy",
             "records": [
-                {"student_id": "ALS-0005", "status": "Absent", "reason_of_absence": "Severe flu"},
-                {"student_id": "ALS-0006", "status": "Excused", "reason_of_absence": "Barangay clearance errand"},
+                {"account_id": "ALS-0005", "status": "Absent", "reason_of_absence": "Severe flu"},
+                {"account_id": "ALS-0006", "status": "Excused", "reason_of_absence": "Barangay clearance errand"},
             ],
         }
 
         res = await client.post("/api/v1/attendance/sessions", json=payload)
         assert res.status_code == 200
         resources = res.json()["data"]["resources"]
-        records = {r["student_id"]: r for r in resources["records"]}
+        records = {r["account_id"]: r for r in resources["records"]}
 
         assert records["ALS-0005"]["reason_of_absence"] == "Severe flu"
         assert records["ALS-0005"]["remarks"] == "Severe flu"
@@ -152,7 +152,7 @@ async def test_student_cannot_record_or_list_sessions(client: AsyncClient):
             "session_date": "2026-09-24",
             "level_code": "Junior High School",
             "strand_code": "LS1: Communication Skills",
-            "records": [{"student_id": "ALS-0001", "status": "Present"}],
+            "records": [{"account_id": "ALS-0001", "status": "Present"}],
         }
         res = await client.post("/api/v1/attendance/sessions", json=payload)
         assert res.status_code == 403
@@ -184,8 +184,8 @@ async def test_student_can_only_view_own_attendance_history(client: AsyncClient)
         "level_code": "Junior High School",
         "strand_code": "LS1: Communication Skills",
         "records": [
-            {"student_id": "ALS-0001", "status": "Present", "remarks": ""},
-            {"student_id": "ALS-0002", "status": "Absent", "remarks": "Unexcused"},
+            {"account_id": "ALS-0001", "status": "Present", "remarks": ""},
+            {"account_id": "ALS-0002", "status": "Absent", "remarks": "Unexcused"},
         ],
     }
     await client.post("/api/v1/attendance/sessions", json=payload)
@@ -197,7 +197,7 @@ async def test_student_can_only_view_own_attendance_history(client: AsyncClient)
         own_res = await client.get("/api/v1/attendance/students/ALS-0001")
         assert own_res.status_code == 200
         data = own_res.json()["data"]["resources"]
-        assert data["student_id"] == "ALS-0001"
+        assert data["account_id"] == "ALS-0001"
         assert data["present_days"] == 1
 
         # 2. Student attempts to view another student's history (ALS-0002) -> 403 Forbidden

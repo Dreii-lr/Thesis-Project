@@ -27,20 +27,23 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 require_admin = require_roles(UserRole.ADMIN)
 
-#
-# @router.post("/teacher", status_code=status.HTTP_201_CREATED)
-# async def create_teacher(
-#         data: TeacherCreate = Depends(TeacherCreate.get_teacher_create_dependency),
-#         current_user: UserRead = Depends(require_admin_teacher),
-#         uow: AbstractUnitOfWork = Depends(get_uow),
-# ) -> JSONResponse:
-#     """
-#     Create a new teacher user account.
-#     Restricted to ADMIN role only.
-#     """
-#     response = await UserService.create_teacher(uow, data)
-#     return SharedUtils.SuccessfulResponse(response)
-#
+@router.post("/teacher", status_code=status.HTTP_201_CREATED)
+@router.post("/teachers", status_code=status.HTTP_201_CREATED)
+@router.post("/create-teacher-account", status_code=status.HTTP_201_CREATED)
+async def create_teacher_account(
+        data: TeacherCreate,
+        current_user: UserRead = Depends(require_admin),
+        uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Create a new teacher user account.
+    Restricted to ADMIN role only.
+    Credentials: account_id and password only.
+    Ensures account_id is filled and role is TEACHER.
+    """
+    response = await UserService.create_teacher_account(uow, data)
+    return SharedUtils.SuccessfulResponse(response)
+
 @router.post("/mapping", status_code=status.HTTP_201_CREATED)
 async def mapping_student(
         data: UserCreate = Depends(MapStudent.get_map_student_dependency),

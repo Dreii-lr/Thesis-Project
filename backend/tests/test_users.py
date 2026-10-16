@@ -61,7 +61,7 @@ async def test_create_and_get_user(client: AsyncClient):
         "first_name": "John",
         "last_name": "Doe",
         "middle_name": "M",
-        "student_id": "ST-2026-001",
+        "account_id": "ST-2026-001",
         "role": "student",
     }
     response = await client.post("/api/v1/users/", json=payload)
@@ -292,7 +292,7 @@ async def test_admin_can_create_teacher_user(client: AsyncClient):
         "first_name": "Maria",
         "last_name": "Santos",
         "middle_name": "Reyes",
-        "teacher_id": "TCH-2026-001",
+        "account_id": "TCH-2026-001",
         "personal_details": {
             "gender": "Female",
             "civil_status": "Married",
@@ -311,9 +311,8 @@ async def test_admin_can_create_teacher_user(client: AsyncClient):
     assert body["email"] == "teacher.santos@als.edu.ph"
     assert body["first_name"] == "Maria"
     assert body["last_name"] == "Santos"
-    assert body["role"] == "teacher"
-    assert body["teacher_id"] == "TCH-2026-001"
-    assert body["student_id"] is None
+    assert body["role"].upper() == "TEACHER"
+    assert body["account_id"] == "TCH-2026-001"
     assert body["personal_details"]["civil_status"] == "Married"
     assert body["contact_details"]["contact_no"] == "09181234567"
 
@@ -322,13 +321,13 @@ async def test_admin_can_create_teacher_user(client: AsyncClient):
     get_res = await client.get(f"/api/v1/users/{user_id}")
     assert get_res.status_code == 200
     retrieved = get_res.json()["data"]["resources"]
-    assert retrieved["teacher_id"] == "TCH-2026-001"
-    assert retrieved["role"] == "teacher"
+    assert retrieved["account_id"] == "TCH-2026-001"
+    assert retrieved["role"].upper() == "TEACHER"
 
 
 @pytest.mark.asyncio
 async def test_admin_create_teacher_auto_generates_id(client: AsyncClient):
-    """If teacher_id is not provided, it is automatically generated with TCH- prefix."""
+    """If account_id is not provided, it is automatically generated with TCH- prefix."""
     app.dependency_overrides[get_current_active_user] = admin_auth_user
 
     payload = {
@@ -342,9 +341,9 @@ async def test_admin_create_teacher_auto_generates_id(client: AsyncClient):
     body = res.json()["data"]["resources"]
 
     assert body["email"] == "auto.teacher@als.edu.ph"
-    assert body["role"] == "teacher"
-    assert body["teacher_id"] is not None
-    assert body["teacher_id"].startswith("TCH-")
+    assert body["role"].upper() == "TEACHER"
+    assert body["account_id"] is not None
+    assert body["account_id"].startswith("TCH-")
 
 
 @pytest.mark.asyncio
@@ -360,7 +359,7 @@ async def test_teacher_singular_route_alias(client: AsyncClient):
 
     res = await client.post("/api/v1/users/teacher", json=payload)
     assert res.status_code == 201
-    assert res.json()["data"]["resources"]["role"] == "teacher"
+    assert res.json()["data"]["resources"]["role"].upper() == "TEACHER"
 
 
 @pytest.mark.asyncio
@@ -393,14 +392,14 @@ async def test_non_admin_forbidden_from_creating_teacher(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_create_teacher_conflict_checks(client: AsyncClient):
-    """Duplicate email or teacher_id returns 409 Conflict."""
+    """Duplicate email or account_id returns 409 Conflict."""
     app.dependency_overrides[get_current_active_user] = admin_auth_user
 
     payload1 = {
         "email": "conflict.teacher@als.edu.ph",
         "first_name": "First",
         "last_name": "Teacher",
-        "teacher_id": "TCH-UNIQUE-001",
+        "account_id": "TCH-UNIQUE-001",
     }
     res1 = await client.post("/api/v1/users/teachers", json=payload1)
     assert res1.status_code == 201
@@ -410,18 +409,18 @@ async def test_create_teacher_conflict_checks(client: AsyncClient):
         "email": "conflict.teacher@als.edu.ph",
         "first_name": "Another",
         "last_name": "Person",
-        "teacher_id": "TCH-DIFFERENT-002",
+        "account_id": "TCH-DIFFERENT-002",
     }
     res_dup_email = await client.post("/api/v1/users/teachers", json=dup_email_payload)
     assert res_dup_email.status_code == 409
     assert res_dup_email.json()["error_code"] == "CONFLICT"
 
-    # Duplicate teacher_id
+    # Duplicate account_id
     dup_id_payload = {
         "email": "different.email@als.edu.ph",
         "first_name": "Third",
         "last_name": "Person",
-        "teacher_id": "TCH-UNIQUE-001",
+        "account_id": "TCH-UNIQUE-001",
     }
     res_dup_id = await client.post("/api/v1/users/teachers", json=dup_id_payload)
     assert res_dup_id.status_code == 409
@@ -443,4 +442,39 @@ async def test_create_teacher_forces_teacher_role(client: AsyncClient):
     res = await client.post("/api/v1/users/teachers", json=payload)
     assert res.status_code == 201
     body = res.json()["data"]["resources"]
-    assert body["role"] == "teacher"
+    assert body["role"].upper() == "TEACHER"
+
+
+@pytest.mark.asyncio
+async def test_centralized_account_id_creation_and_retrieval(client: AsyncClient):
+    """Verify that both students and teachers have a centralized account_id populated and retrievable."""
+    app.dependency_overrides[get_current_active_user] = admin_auth_user
+
+    # 1. Create teacher with explicit account_id
+    teacher_payload = {
+        "email": "centralized.teacher@als.edu.ph",
+        "first_name": "Clara",
+        "last_name": "Santos",
+        "account_id": "TCH-2026-9999",
+    }
+    t_res = await client.post("/api/v1/users/teachers", json=teacher_payload)
+    assert t_res.status_code == 201
+    t_body = t_res.json()["data"]["resources"]
+    assert t_body["account_id"] == "TCH-2026-9999"
+
+    # Retrieve teacher
+    get_t = await client.get(f"/api/v1/users/{t_body['user_id']}")
+    assert get_t.status_code == 200
+    retrieved_t = get_t.json()["data"]["resources"]
+    assert retrieved_t["account_id"] == "TCH-2026-9999"
+
+    # 2. Duplicate account_id across roles returns 409 Conflict
+    dup_payload = {
+        "email": "another.teacher@als.edu.ph",
+        "first_name": "Another",
+        "last_name": "Teacher",
+        "account_id": "TCH-2026-9999",
+    }
+    dup_res = await client.post("/api/v1/users/teachers", json=dup_payload)
+    assert dup_res.status_code == 409
+

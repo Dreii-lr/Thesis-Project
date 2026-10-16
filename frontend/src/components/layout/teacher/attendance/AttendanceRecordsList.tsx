@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Plus, Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
-import { CATEGORY_LABELS, type TargetCategory } from '@/src/data/mockAssessment';
+import { CATEGORY_LABELS, type TargetCategory } from '@/src/lib/assessments-api';
 import { type WorkspaceAttendance } from '@/src/data/mockTeacher';
 import type { SubjectRecord } from '@/src/lib/subjects-api';
 
@@ -170,7 +170,7 @@ export default function AttendanceRecordsList({
                   </td>
                   <td className="px-5 py-5 text-right">
                     <button
-                      aria-label={`Review attendance for ${session.display_date}, ${subjectName(session.strand_code)}`}
+                      aria-label={`Review attendance for ${session.display_date || session.session_date}, ${getSubjectTitle(session.strand_code || session.subject_code || '')}`}
                       onClick={() => onViewRecord(session)}
                       className="inline-flex items-center gap-2 rounded-lg border border-blue-100 px-3 py-2 font-semibold text-blue-600 hover:bg-blue-50"
                     >

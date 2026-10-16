@@ -171,7 +171,10 @@ export default function StudentDashboardPage() {
     return tasks
       .filter(
         (t) =>
-          t.submission_status !== 'SUBMITTED' && t.submission_status !== 'GRADED'
+          t.status !== 'COMPLETED' &&
+          t.submission_status !== 'SUBMITTED' &&
+          t.submission_status !== 'GRADED' &&
+          (!t.end_date || new Date(t.end_date).getTime() > Date.now())
       )
       .sort((a, b) => {
         if (!a.end_date) return 1;

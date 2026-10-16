@@ -106,11 +106,11 @@ class AttendanceRepository:
 
         return sessions, total
 
-    async def get_student_records(self, student_id: str | list[str]) -> list[tuple[AttendanceRecord, AttendanceSession]]:
-        if isinstance(student_id, list):
-            condition = AttendanceRecord.student_id.in_(student_id)
+    async def get_student_records(self, account_id: str | list[str]) -> list[tuple[AttendanceRecord, AttendanceSession]]:
+        if isinstance(account_id, list):
+            condition = AttendanceRecord.account_id.in_(account_id)
         else:
-            condition = AttendanceRecord.student_id == student_id
+            condition = AttendanceRecord.account_id == account_id
 
         stmt = (
             select(AttendanceRecord, AttendanceSession)
@@ -196,3 +196,7 @@ class AttendanceRepository:
                 "completed_sessions": completed_sessions,
             })
         return results
+
+    async def flush(self) -> None:
+        await self._session.flush()
+

@@ -26,7 +26,7 @@ from app.main import app
 def teacher_user() -> UserRead:
     return UserRead(
         user_id="teacher-uuid-als",
-        employee_id="EMP-ALS-001",
+        account_id="TCH-ALS-001",
         email="teacher.als@deped.gov.ph",
         role=UserRole.TEACHER,
         status=UserStatus.ACTIVE,
@@ -38,7 +38,7 @@ def teacher_user() -> UserRead:
 def student_junior_user() -> UserRead:
     return UserRead(
         user_id="student-junior-uuid",
-        student_id="ALS-JHS-001",
+        account_id="ALS-JHS-001",
         email="junior.student@als.edu.ph",
         role=UserRole.STUDENT,
         user_category=UserCategory.SECONDARY,  # "junior"
@@ -51,7 +51,7 @@ def student_junior_user() -> UserRead:
 def student_elementary_user() -> UserRead:
     return UserRead(
         user_id="student-elem-uuid",
-        student_id="ALS-ELEM-001",
+        account_id="ALS-ELEM-001",
         email="elem.student@als.edu.ph",
         role=UserRole.STUDENT,
         user_category=UserCategory.ELEMENTARY,  # "elementary"

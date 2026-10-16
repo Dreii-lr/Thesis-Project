@@ -4,7 +4,7 @@ repository.py — Data access layer for Assessments, Question Banks, and Submiss
 from __future__ import annotations
 
 from typing import List, Optional
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,6 +27,40 @@ class AssessmentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def reconcile_assessment_statuses(self) -> None:
+        """Universal status reconciliation for all assessment types (ACTIVITY, QUIZ, EXAM).
+        - Any non-draft assessment whose end_date <= now -> COMPLETED.
+        - Any scheduled assessment whose start_date <= now and (end_date is None or end_date > now) -> ACTIVE.
+        Flushes changes to the session without committing, preserving rollback safety.
+        """
+        now = utc_now()
+        # 1. Any non-draft assessment whose end_date has passed -> COMPLETED
+        stmt_completed = (
+            update(Assessment)
+            .where(
+                Assessment.status != TaskStatus.DRAFT,
+                Assessment.status != TaskStatus.COMPLETED,
+                Assessment.end_date.is_not(None),
+                Assessment.end_date <= now,
+            )
+            .values(status=TaskStatus.COMPLETED, updated_at=now)
+        )
+        await self._session.execute(stmt_completed)
+
+        # 2. Scheduled assessments whose start_date has arrived -> ACTIVE
+        stmt_active = (
+            update(Assessment)
+            .where(
+                Assessment.status == TaskStatus.SCHEDULED,
+                Assessment.start_date.is_not(None),
+                Assessment.start_date <= now,
+                or_(Assessment.end_date.is_(None), Assessment.end_date > now),
+            )
+            .values(status=TaskStatus.ACTIVE, updated_at=now)
+        )
+        await self._session.execute(stmt_active)
+        await self._session.flush()
+
     async def create_assessment(
         self,
         assessment: Assessment,
@@ -41,6 +75,7 @@ class AssessmentRepository:
         return assessment
 
     async def get_assessment_by_id(self, assessment_id: str) -> Optional[Assessment]:
+        await self.reconcile_assessment_statuses()
         stmt = (
             select(Assessment)
             .where(Assessment.assessment_id == assessment_id)
@@ -66,6 +101,7 @@ class AssessmentRepository:
         offset: int = 0,
         limit: int = 50,
     ) -> List[Assessment]:
+        await self.reconcile_assessment_statuses()
         stmt = (
             select(Assessment)
             .where(Assessment.teacher_id == teacher_id)
@@ -96,8 +132,9 @@ class AssessmentRepository:
         if not student_category:
             return []
 
+        await self.reconcile_assessment_statuses()
         conditions = [
-            Assessment.status.in_([TaskStatus.ACTIVE, TaskStatus.SCHEDULED]),
+            Assessment.status.in_([TaskStatus.ACTIVE,TaskStatus.COMPLETED, TaskStatus.SCHEDULED]),
             Assessment.target_category == student_category,
         ]
         stmt = (
@@ -173,11 +210,15 @@ class AssessmentRepository:
         if not student_category:
             return {"submitted_count": 0, "pending_count": 0, "total_assigned": 0}
 
-        # 1. Active or scheduled activities assigned to student's category
+        await self.reconcile_assessment_statuses()
+        now = utc_now()
+
+        # 1. Active or scheduled activities assigned to student's category that have not expired
         stmt_assigned = select(Assessment.assessment_id).where(
             Assessment.status.in_([TaskStatus.ACTIVE, TaskStatus.SCHEDULED]),
             Assessment.target_category == student_category,
             Assessment.assessment_type == TaskType.ACTIVITY,
+            or_(Assessment.end_date.is_(None), Assessment.end_date > now),
         )
         res_assigned = await self._session.execute(stmt_assigned)
         assigned_ids = list(res_assigned.scalars().all())

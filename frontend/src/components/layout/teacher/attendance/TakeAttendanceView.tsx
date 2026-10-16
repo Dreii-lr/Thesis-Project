@@ -2,20 +2,23 @@
 
 import { useContext, useMemo, useState } from 'react';
 import { ArrowLeft, Check, Pencil } from 'lucide-react';
-import { CATEGORY_LABELS } from '@/src/data/mockAssessment';
+import { CATEGORY_LABELS } from '@/src/lib/assessments-api';
 import { subjectName, type WorkspaceAttendance } from '@/src/data/mockTeacher';
+import type { SubjectRecord } from '@/src/lib/subjects-api';
 import { StudentContext } from '@/src/context/StudentContext';
 import AttendanceTable from './AttendanceTable';
 import AttendanceFooter from './AttendanceFooter';
 
 interface TakeAttendanceViewProps {
   session: WorkspaceAttendance;
+  categorySubjects?: SubjectRecord[];
   onSave: (session: WorkspaceAttendance) => boolean | Promise<boolean>;
   onBack: () => void;
 }
 
 export default function TakeAttendanceView({
   session,
+  categorySubjects = [],
   onSave,
   onBack,
 }: TakeAttendanceViewProps) {
@@ -112,6 +115,28 @@ export default function TakeAttendanceView({
     setError('');
   };
 
+  const categoryLabel =
+    (session.level_code && (CATEGORY_LABELS as Record<string, string>)[session.level_code]) ||
+    (session.category_code && (CATEGORY_LABELS as Record<string, string>)[session.category_code]) ||
+    session.level_code ||
+    session.category_code ||
+    'Program Attendance';
+
+  const resolvedSubjectTitle = useMemo(() => {
+    const code = session.strand_code || session.subject_code || '';
+    if (categorySubjects && categorySubjects.length > 0) {
+      const found = categorySubjects.find(
+        (s) => s.code === code || s.name === code || s.subject_id === code,
+      );
+      if (found) {
+        return found.code && found.name && found.code !== found.name
+          ? `${found.code} - ${found.name}`
+          : found.name;
+      }
+    }
+    return subjectName(code) || code;
+  }, [session.strand_code, session.subject_code, categorySubjects]);
+
   return (
     <>
       <button
@@ -123,13 +148,13 @@ export default function TakeAttendanceView({
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-blue-600">
-            {CATEGORY_LABELS[session.level_code]}
+            {categoryLabel}
           </p>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
             {isEditing ? 'Update attendance' : 'Review attendance'}
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            {session.display_date} · {subjectName(session.strand_code)}
+            {session.display_date || session.session_date} · {resolvedSubjectTitle}
           </p>
         </div>
         <span

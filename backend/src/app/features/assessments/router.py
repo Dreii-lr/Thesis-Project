@@ -11,9 +11,11 @@ from starlette.responses import JSONResponse
 
 from app.core.dependencies import (
     get_assessment_service,
+    get_cohort_analysis_service,
     require_student,
     require_teacher,
 )
+from app.features.assessments.analysis.service import CohortAnalysisService
 from app.features.assessments.models import TaskStatus
 from app.features.assessments.schemas import (
     AssessmentCreateSchema,
@@ -247,12 +249,11 @@ async def get_my_result(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.post("/cohort-analysis", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
-
 async def generate_cohort_struggle_analysis_query(
     assessment_id: str = Query(..., description="ID of the completed assessment to analyze"),
     user_category: str = Query(..., description="Target user category (case-insensitive, e.g. Elementary, Secondary, BLP)"),
     current_user: UserRead = Depends(require_teacher),
-    service: AssessmentService = Depends(get_assessment_service),
+    service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """
     Generate or refresh cohort-wide quiz struggle analysis using query parameters.
@@ -266,8 +267,8 @@ async def generate_cohort_struggle_analysis_query(
       4. Feed aggregated data to document-processing-ms via HTTP API and return diagnosis.
     """
     response = await service.generate_cohort_struggle_analysis(
-        assessment_id=assessment_id,
-        user_category=user_category,
+        assessment_id=str(assessment_id).strip(),
+        user_category=str(user_category).strip(),
         current_user=current_user,
     )
     response.status_code = status.HTTP_200_OK
@@ -279,15 +280,15 @@ async def get_cohort_struggle_analysis_query(
     assessment_id: str = Query(..., description="ID of the assessment"),
     user_category: Optional[str] = Query(None, description="Optional user category filter"),
     current_user: UserRead = Depends(require_teacher),
-    service: AssessmentService = Depends(get_assessment_service),
+    service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """
     Retrieve previously generated and cached cohort struggle analysis using query parameters.
     """
     response = await service.get_cohort_struggle_analysis(
-        assessment_id=assessment_id,
+        assessment_id=str(assessment_id).strip(),
         current_user=current_user,
-        user_category=user_category,
+        user_category=str(user_category).strip() if user_category else None,
     )
     response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
@@ -298,12 +299,12 @@ async def generate_cohort_struggle_analysis_path(
     assessment_id: str,
     user_category: str = Query(..., alias="category", description="Target user category (case-insensitive)"),
     current_user: UserRead = Depends(require_teacher),
-    service: AssessmentService = Depends(get_assessment_service),
+    service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """Backward-compatible path-parameter alias for generating cohort struggle analysis."""
     response = await service.generate_cohort_struggle_analysis(
-        assessment_id=assessment_id,
-        user_category=user_category,
+        assessment_id=str(assessment_id).strip(),
+        user_category=str(user_category).strip(),
         current_user=current_user,
     )
     response.status_code = status.HTTP_200_OK
@@ -315,13 +316,13 @@ async def get_cohort_struggle_analysis_path(
     assessment_id: str,
     user_category: Optional[str] = Query(None, alias="category", description="Optional user category filter"),
     current_user: UserRead = Depends(require_teacher),
-    service: AssessmentService = Depends(get_assessment_service),
+    service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """Backward-compatible path-parameter alias for retrieving cohort struggle analysis."""
     response = await service.get_cohort_struggle_analysis(
-        assessment_id=assessment_id,
+        assessment_id=str(assessment_id).strip(),
         current_user=current_user,
-        user_category=user_category,
+        user_category=str(user_category).strip() if user_category else None,
     )
     response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)

@@ -28,6 +28,7 @@ class SubjectReadSchema(BaseModel):
     subject_id: str
     category_id: str
     name: str
+    code: Optional[str] = None
     description: Optional[str] = None
     is_active: bool
     created_at: datetime

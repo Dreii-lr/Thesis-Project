@@ -193,6 +193,7 @@ class StudentTaskItem(BaseModel):
     description: Optional[str] = None
     subject_code: str
     assessment_type: TaskType
+    status: TaskStatus = TaskStatus.ACTIVE
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     grace_period_minutes: int
@@ -251,7 +252,7 @@ class SubmissionDetailResponse(BaseModel):
 
     submission_id: str
     assessment_id: str
-    student_id: str
+    account_id: Optional[str] = None
     student_name: Optional[str] = None
     student_category: Optional[UserCategory] = None
     auto_score: float
@@ -274,57 +275,12 @@ class StudentActivityMetrics(BaseModel):
 
 
 # ── Cohort Diagnostic & Struggling Topics Analysis ───────────────────────────
-
-class StudentCohortBreakdownSchema(BaseModel):
-    student_id: str
-    student_name: str
-    score: float
-    max_score: float
-    percentage: float
-    passed: bool
-    personal_struggling_topics: List[str] = Field(default_factory=list)
-
-
-class StrugglingTopicSchema(BaseModel):
-    topic_name: str
-    severity: str  # "HIGH", "MEDIUM", "LOW"
-    error_rate_percent: float
-    description: str
-    misconception: str
-    affected_question_ids: List[str] = Field(default_factory=list)
-    struggling_students: List[str] = Field(default_factory=list)
-
-
-class RecommendedLessonSchema(BaseModel):
-    lesson_id: str
-    material_id: Optional[str] = None
-    module_title: str
-    lesson_title: str
-    main_topic: str
-    relevance_reason: str
-    similarity_score: Optional[float] = None
-
-
-class CohortOverviewSchema(BaseModel):
-    total_students: int
-    class_average: float
-    passing_rate: float
-    performance_summary: str
-
-
-class AssessmentCohortAnalysisResponse(BaseModel):
-    status: str = "SUCCESS"
-    topic_found: bool = True
-    message: Optional[str] = None
-    assessment_id: str
-    assessment_title: str
-    subject_code: str
-    target_category: Optional[str] = None
-    cohort_overview: CohortOverviewSchema
-    struggling_topics: List[StrugglingTopicSchema] = Field(default_factory=list)
-    recommended_lessons: List[RecommendedLessonSchema] = Field(default_factory=list)
-    student_breakdowns: List[StudentCohortBreakdownSchema] = Field(default_factory=list)
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+from app.features.assessments.analysis.schemas import (
+    StudentCohortBreakdownSchema,
+    StrugglingTopicSchema,
+    RecommendedLessonSchema,
+    CohortOverviewSchema,
+    AssessmentCohortAnalysisResponse,
+)
 
 

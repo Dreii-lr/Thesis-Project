@@ -29,8 +29,7 @@ class User(SQLModel, table=True):
     firebase_uid: Optional[str] = Field(default=None, nullable=True, index=True)
     email: Optional[str] = Field(default=None, unique=True, index=True, nullable=True)
     password: Optional[str] = Field(default=None, nullable=True)
-    student_id: Optional[str] = Field(default=None, index=True, nullable=True)
-    teacher_id: Optional[str] = Field(default=None, unique=True, nullable=True)
+    account_id: Optional[str] = Field(default=None, unique=True, index=True, nullable=True)
     first_name: str = Field(nullable=False)
     last_name: str = Field(nullable=False)
     middle_name: Optional[str] = Field(default=None, nullable=True)
@@ -46,11 +45,6 @@ class User(SQLModel, table=True):
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=True),
     )
-
-    @property
-    def employee_id(self) -> Optional[str]:
-        """Backward-compatible alias for teacher_id."""
-        return self.teacher_id
 
     # Normalized relationships from USERS.drawio
     personal_details: Optional[PersonalDetails] = Relationship(
@@ -84,7 +78,7 @@ class PersonalDetails(SQLModel, table=True):
         nullable=False,
     )
     is_interested: Optional[bool] = Field(default=True, nullable=True)
-    student_id: Optional[str] = Field(default=None, index=True, nullable=True)
+    account_id: Optional[str] = Field(default=None, index=True, nullable=True)
     gender: Optional[str] = Field(default=None, nullable=True)
     birth_date: Optional[date] = Field(
         default=None,

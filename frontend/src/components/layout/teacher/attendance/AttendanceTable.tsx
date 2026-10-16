@@ -1,6 +1,6 @@
 'use client';
 
-import { type Student } from '@/src/data/mockStudents';
+import { type Student } from '@/src/lib/students-api';
 import { type WorkspaceAttendance } from '@/src/data/mockTeacher';
 
 interface AttendanceTableProps {

@@ -26,6 +26,7 @@ from app.features.auth.router import router as auth_router
 from app.features.attendance.router import router as attendance_router
 from app.features.users.router import router as users_router
 from app.features.assessments.router import router as assessments_router
+from app.features.assessments.analysis.router import router as cohort_analysis_router
 from app.features.user_categories.router import router as user_categories_router
 from app.features.subjects.router import router as subjects_router
 
@@ -71,6 +72,7 @@ app.include_router(auth_router, prefix=constants.API_V1_PREFIX)
 app.include_router(attendance_router, prefix=constants.API_V1_PREFIX)
 app.include_router(users_router, prefix=constants.API_V1_PREFIX)
 app.include_router(assessments_router, prefix=constants.API_V1_PREFIX)
+app.include_router(cohort_analysis_router, prefix=constants.API_V1_PREFIX)
 app.include_router(user_categories_router, prefix=constants.API_V1_PREFIX)
 app.include_router(subjects_router, prefix=constants.API_V1_PREFIX)
 

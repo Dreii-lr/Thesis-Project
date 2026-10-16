@@ -68,9 +68,7 @@ export function remainingSeconds(deadline: number, now = Date.now()) {
   return Math.max(0, Math.ceil((deadline - now) / 1000));
 }
 
-export function assessmentDisplayStatus(task: AssessmentSchedule & { status: string; assessment_type: string }, now = Date.now()) {
-  if (task.assessment_type === 'ACTIVITY' || task.status === 'DRAFT' || task.status === 'COMPLETED') return task.status;
-  if (task.start_date && now < Date.parse(task.start_date)) return 'SCHEDULED';
-  if (now >= scheduledEnd(task)) return 'COMPLETED';
-  return 'ACTIVE';
+export function assessmentDisplayStatus(task: { status: string }, _now?: number) {
+  return task.status;
 }
+

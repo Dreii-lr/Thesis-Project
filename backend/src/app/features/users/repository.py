@@ -86,26 +86,18 @@ class UserRepository:
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def get_by_student_id(self, student_id: str) -> UserRead | None:
-        stmt = _user_query().where(User.student_id == student_id)
+    async def get_by_account_id(self, account_id: str) -> UserRead | None:
+        stmt = _user_query().where(User.account_id == account_id)
         result = await self._session.execute(stmt)
         data = result.scalar_one_or_none()
+        print(data)
         if data is not None:
             user_read = UserRead.model_validate(data)
             return user_read
         return None
 
-    async def get_by_teacher_id(self, teacher_id: str) -> UserRead | None:
-        statement = _user_query().where(User.teacher_id == teacher_id)
-        result = await self._session.execute(statement)
-        data = result.scalar_one_or_none()
-        if data is not None:
-            user_read = UserRead.model_validate(data)
-            return user_read
-        return None
-
-    async def get_entity_by_teacher_id(self, teacher_id: str) -> User | None:
-        statement = _user_query().where(User.teacher_id == teacher_id)
+    async def get_entity_by_account_id(self, account_id: str) -> User | None:
+        statement = _user_query().where(User.account_id == account_id)
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 

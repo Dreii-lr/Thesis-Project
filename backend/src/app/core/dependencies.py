@@ -20,6 +20,7 @@ from app.features.users.schemas import UserRead
 
 if TYPE_CHECKING:
     from app.features.assessments.service import AssessmentService
+    from app.features.assessments.analysis.service import CohortAnalysisService
     from app.features.subjects.service import SubjectService
     from app.features.user_categories.service import UserCategoryService
 
@@ -101,3 +102,10 @@ def get_subject_service(
 ) -> SubjectService:
     from app.features.subjects.service import SubjectService
     return SubjectService(uow)
+
+
+def get_cohort_analysis_service(
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> CohortAnalysisService:
+    from app.features.assessments.analysis.service import CohortAnalysisService
+    return CohortAnalysisService(uow)

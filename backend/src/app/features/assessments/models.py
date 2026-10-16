@@ -12,7 +12,7 @@ from sqlalchemy import Column, DateTime, Enum as SAEnum, JSON, func
 from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM, JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.features.users.models import UserCategory
+from app.features.users.models import User, UserCategory
 
 # Support PostgreSQL native JSONB while allowing in-memory SQLite JSON in test suites
 JSON_TYPE = JSON().with_variant(JSONB, "postgresql")
@@ -183,6 +183,16 @@ class AssessmentSubmission(SQLModel, table=True):
     updated_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
 
     assessment: Optional[Assessment] = Relationship(back_populates="submissions")
+    student: Optional[User] = Relationship(
+        sa_relationship_kwargs={"lazy": "selectin"}
+    )
+
+    @property
+    def account_id(self) -> Optional[str]:
+        """Access the student's institutional account_id if available."""
+        if self.student and hasattr(self.student, "account_id") and self.student.account_id:
+            return self.student.account_id
+        return None
 
 
 class AssessmentCohortAnalysis(SQLModel, table=True):

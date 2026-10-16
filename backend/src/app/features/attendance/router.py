@@ -17,8 +17,8 @@ from app.shared.utils import SharedUtils
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 
-# Role dependency: only teachers (employees) and admins can manage attendance sessions
-require_teacher = require_roles(UserRole.TEACHER, UserRole.EMPLOYEE, UserRole.ADMIN)
+# Role dependency: only teachers and admins can manage attendance sessions
+require_teacher = require_roles(UserRole.TEACHER, UserRole.ADMIN)
 
 
 @router.post("/sessions", status_code=status.HTTP_200_OK, tags=["Secured"])
@@ -33,7 +33,7 @@ async def record_attendance_session(
     Students (STUDENT) are forbidden.
     """
     # Align with ERD: attendance_sessions.teacher_id references users.user_id
-    teacher_id = current_user.user_id or current_user.teacher_id
+    teacher_id = current_user.user_id
     response = await AttendanceService.record_session(uow, teacher_id, data)
     return SharedUtils.SuccessfulResponse(response)
 
@@ -93,26 +93,32 @@ async def get_attendance_session(
     return SharedUtils.SuccessfulResponse(response)
 
 
-@router.get("/students/{student_id}", status_code=status.HTTP_200_OK, tags=["Secured"])
+@router.get("/students/{account_id}", status_code=status.HTTP_200_OK, tags=["Secured"])
 async def get_student_attendance_history(
-    student_id: str,
+    account_id: str,
     current_user: UserRead = Depends(get_current_active_user),
     uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     Get attendance history and KPIs for a specific learner.
     Protected:
-      - Teachers (EMPLOYEE) and Admins can view any student's attendance.
-      - Students (STUDENT) can only view their own attendance log.
+      - Teachers and Admins can view any student's attendance.
+      - Students can only view their own attendance log.
       - Access to another student's record by a student is forbidden (403).
     """
     is_teacher_or_admin = current_user.role in (UserRole.TEACHER, UserRole.ADMIN)
-    is_own_record = current_user.role == UserRole.STUDENT and (
-        current_user.student_id == student_id or current_user.user_id == student_id
-    )
+    target_account_id = account_id
+    if current_user.role == UserRole.STUDENT:
+        if account_id == "me" or account_id in (current_user.account_id, current_user.user_id):
+            target_account_id = current_user.account_id or current_user.user_id or account_id
+            is_own_record = True
+        else:
+            is_own_record = False
+    else:
+        is_own_record = False
 
     if not (is_teacher_or_admin or is_own_record):
         raise DomainForbiddenDomainException("Operation not permitted for your role.")
 
-    response = await AttendanceService.get_student_history(uow, student_id)
+    response = await AttendanceService.get_student_history(uow, target_account_id)
     return SharedUtils.SuccessfulResponse(response)

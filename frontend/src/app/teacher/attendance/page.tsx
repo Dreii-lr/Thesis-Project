@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, CalendarCheck, FolderOpen } from 'lucide-react';
 import {
   CATEGORY_LABELS,
   type TargetCategory,
-} from '@/src/data/mockAssessment';
+} from '@/src/lib/assessments-api';
 import {
   formatAttendanceDate,
   type WorkspaceAttendance,
@@ -332,6 +332,7 @@ function AttendanceDirectory({
         <TakeAttendanceView
           key={activeSession.session_id}
           session={activeSession}
+          categorySubjects={categorySubjects}
           onSave={saveSession}
           onBack={() => setActiveSession(null)}
         />
@@ -383,7 +384,12 @@ function AttendanceContent() {
       .then((cats) => {
         if (!isMounted) return;
         if (cats && cats.length > 0) {
-          setCategories(cats);
+          const studentCategories = cats.filter(
+            (c) =>
+              (c.code || '').toUpperCase() !== 'EMPLOYEE' &&
+              (c.name || '').toUpperCase() !== 'EMPLOYEE',
+          );
+          setCategories(studentCategories);
         }
       })
       .catch((err) => {

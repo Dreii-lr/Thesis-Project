@@ -3,14 +3,17 @@ schemas.py — Pydantic DTOs for authentication requests and responses.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
 from typing import Literal
 
 from app.features.users.schemas import UserRead, UserReadLessData
 
 
 class LoginRequest(BaseModel):
-    student_id: str
+    account_id: str = Field(
+        ...,
+        validation_alias=AliasChoices("account_id", "identity", "username", "email"),
+    )
     password: str
 
 

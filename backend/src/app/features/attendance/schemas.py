@@ -11,7 +11,7 @@ from app.features.attendance.models import AttendanceStatus, RecordStatus
 
 
 class AttendanceRecordInput(BaseModel):
-    student_id: str
+    account_id: str
     status: AttendanceStatus
     reason_of_absence: str | None = None
     remarks: str | None = None
@@ -34,11 +34,11 @@ class AttendanceRecordRead(BaseModel):
 
     record_id: str
     session_id: str
-    student_id: str
+    account_id: str
     status: AttendanceStatus
     reason_of_absence: str | None = None
     remarks: str | None = None
-    recorded_at: datetime
+    recorded_at: Optional[datetime] = None
 
 
 class AttendanceSessionCreate(BaseModel):
@@ -78,7 +78,7 @@ class AttendanceSessionRead(BaseModel):
     subject_code: str
     status: RecordStatus
     records: list[AttendanceRecordRead] = []
-    created_at: datetime
+    created_at: Optional[datetime] = None
     updated_at: datetime | None = None
 
     # Legacy field aliases
@@ -141,7 +141,7 @@ class StudentAttendanceItem(BaseModel):
 
 
 class StudentAttendanceHistoryResponse(BaseModel):
-    student_id: str
+    account_id: str
     total_days: int
     present_days: int
     absent_days: int

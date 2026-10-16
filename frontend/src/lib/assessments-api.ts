@@ -136,6 +136,7 @@ export interface StudentTask {
   description: string | null;
   subject_code: string;
   assessment_type: TaskType;
+  status: TaskStatus;
   start_date: string | null;
   end_date: string | null;
   grace_period_minutes: number;

@@ -30,7 +30,7 @@ import {
 export default function StudentAttendancePage() {
   const auth = useOptionalAuth();
   const user = auth?.user;
-  const targetId = user?.student_id || user?.user_id;
+  const targetId = user?.student_id || user?.user_id || (user ? 'me' : null);
 
   const [data, setData] = useState<StudentAttendanceHistory | null>(null);
   const [isLoading, setIsLoading] = useState(true);

@@ -74,7 +74,7 @@ class UserService:
             else:
                 await uow.sequence_id_generator.update()
                 next_value += 1
-            student_id = UsersUtils.generate_student_id(next_value)
+            account_id = data.account_id or UsersUtils.generate_account_id(UserRole.STUDENT, next_value)
 
             user = User(
                 email=data.email,
@@ -82,7 +82,7 @@ class UserService:
                 last_name=data.last_name,
                 middle_name=data.middle_name,
                 suffix=data.suffix,
-                student_id=student_id,
+                account_id=account_id,
                 user_category=data.user_category)
 
             # Attach normalized personal_details
@@ -97,7 +97,7 @@ class UserService:
                 user.personal_details = PersonalDetails(
                     personal_details_id=str(uuid.uuid4()),
                     user_id=user.user_id,
-                    student_id=student_id,
+                    account_id=account_id,
                     lrn_number=data.personal_details.lrn_number,
                     gender=data.personal_details.gender,
                     birth_date=pd_bdate,
@@ -295,7 +295,8 @@ class UserService:
             if not data:
                 raise DomainEntityNotFoundException("This Mapped student is not exists.")
 
-            email_for_firebase = f"{data.student_id}@gmail.com" if not data.email else data.email
+            account_id = data.account_id
+            email_for_firebase = f"{account_id}@gmail.com" if not data.email else data.email
             #if existing then it must not create user.
             existing = check_email_in_firebase(email_for_firebase)
             if existing:
@@ -328,6 +329,122 @@ class UserService:
             return SuccessfulResponseSchema(message_status="Ok",message="Successfully created user account.")
         except Exception as e:
             # delete data if encountered an error.
+            if is_inserted_on_firebase and firebase_uid is not None:
+                delete_firebase_user(firebase_uid)
+            raise e
+
+    @staticmethod
+    async def create_teacher_account(uow: AbstractUnitOfWork, data: TeacherCreate) -> SuccessfulResponseSchema:
+        is_inserted_on_firebase = False
+        firebase_uid = None
+        try:
+            # 1. Resolve and ensure account_id is filled
+            raw_id = (data.account_id or "").strip()
+            if raw_id:
+                account_id = raw_id
+            else:
+                next_value = await uow.sequence_id_generator.get_next_value()
+                if not next_value:
+                    await uow.sequence_id_generator.add()
+                    next_value = 1
+                else:
+                    await uow.sequence_id_generator.update()
+                    next_value += 1
+                account_id = UsersUtils.generate_account_id(UserRole.TEACHER, next_value)
+
+            # Check if account_id already exists in database
+            existing_teacher = await uow.users.get_by_account_id(account_id)
+            if existing_teacher:
+                raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+
+            # 2. Synthetic email credentials: only account_id is credentials and password
+            email_for_firebase = f"{account_id}@gmail.com"
+
+            # Check if existing in Firebase
+            existing = check_email_in_firebase(email_for_firebase)
+            if existing:
+                raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+
+            # 3. Determine raw password
+            raw_password = data.password
+            if not raw_password:
+                if data.personal_details and data.personal_details.birth_date:
+                    bdate = data.personal_details.birth_date
+                    if isinstance(bdate, date):
+                        raw_password = bdate.strftime("%Y%m%d")
+                    else:
+                        raw_password = str(bdate).replace("-", "")
+                else:
+                    raw_password = "Password123!"
+
+            hashed_password = hash_password(raw_password)
+
+            # 4. Insert user into Firebase
+            firebase_new_user = create_firebase_new_user(email_for_firebase, raw_password)
+            is_inserted_on_firebase = True
+            firebase_uid = firebase_new_user.uid
+
+            # 5. Insert teacher into existing users table
+            user = User(
+                user_id=str(uuid.uuid4()),
+                account_id=account_id,
+                first_name=data.first_name,
+                last_name=data.last_name,
+                middle_name=data.middle_name,
+                suffix=data.suffix,
+                role=UserRole.TEACHER,
+                password=hashed_password,
+                firebase_uid=firebase_uid,
+                user_category=data.user_category,
+                status=UserStatus.ACTIVE,
+                created_at=utc_now(),
+            )
+
+            # Attach optional personal/contact details if provided
+            if data.personal_details:
+                pd_bdate = data.personal_details.birth_date
+                if isinstance(pd_bdate, str) and pd_bdate:
+                    try:
+                        pd_bdate = date.fromisoformat(pd_bdate[:10])
+                    except Exception:
+                        pd_bdate = None
+                user.personal_details = PersonalDetails(
+                    personal_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    account_id=account_id,
+                    gender=data.personal_details.gender,
+                    birth_date=pd_bdate if isinstance(pd_bdate, date) else None,
+                    nationality=data.personal_details.nationality or "Filipino",
+                    civil_status=data.personal_details.civil_status,
+                    religion=data.personal_details.religion,
+                )
+
+            if data.contact_details:
+                user.contact_details = ContactDetails(
+                    contact_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    street_building_no=data.contact_details.street_building_no,
+                    municipality=data.contact_details.municipality,
+                    province=data.contact_details.province,
+                    contact_no=data.contact_details.contact_no,
+                )
+
+            await uow.users.create(user)
+
+            read_user = await uow.users.get_by_id_with_details(user.user_id)
+            if not read_user:
+                read_user = UserRead.model_validate(user)
+                del read_user.password
+            response_data = jsonable_encoder(read_user)
+
+            return SuccessfulResponseSchema(
+                message="Successfully created teacher account.",
+                message_status="Ok",
+                status_code=201,
+                data=AdditionalData(resources=response_data),
+            )
+        except Exception as e:
+            # Delete data on Firebase if encountered an error (mirrors create_user)
             if is_inserted_on_firebase and firebase_uid is not None:
                 delete_firebase_user(firebase_uid)
             raise e
@@ -392,7 +509,7 @@ class UserService:
                 user.personal_details = PersonalDetails(
                     personal_details_id=str(uuid.uuid4()),
                     user_id=user_id,
-                    student_id=user.student_id,
+                    account_id=user.account_id,
                     created_at=utc_now(),
                     updated_at=utc_now(),
                     **pd_data,

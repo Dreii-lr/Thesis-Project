@@ -160,14 +160,25 @@ export interface WorkspaceAttendance extends Omit<
   })[];
 }
 
-export const formatAttendanceDate = (date: string) =>
-  new Date(date + 'T12:00:00+08:00').toLocaleDateString('en-PH', {
+export const formatAttendanceDate = (date: string) => {
+  if (!date) return '';
+  let d: Date;
+  if (date.includes('T')) {
+    d = new Date(date);
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    d = new Date(date + 'T12:00:00+08:00');
+  } else {
+    d = new Date(date);
+  }
+  if (isNaN(d.getTime())) return date;
+  return d.toLocaleDateString('en-PH', {
     timeZone: 'Asia/Manila',
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
+};
 
 export function toAttendancePayload(
   session: WorkspaceAttendance,

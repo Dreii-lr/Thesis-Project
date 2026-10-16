@@ -16,7 +16,7 @@ from app.core.firebase import (
 )
 from app.core.unit_of_work import AbstractUnitOfWork
 from app.features.auth.schemas import AccountRecoveryRequest, LoginRequest, TokenResponse
-from app.features.users.models import UserStatus
+from app.features.users.models import UserRole, UserStatus
 from app.features.users.schemas import UserRead
 from app.shared import retry_on_transient
 from app.shared.schema import SuccessfulResponseSchema, AdditionalData
@@ -42,12 +42,19 @@ class AuthService:
             # A local hash can be stale after an email reset. Never use it to bypass
             # Firebase's current password, disabled-account checks, or reset flow.
 
-            user = await uow.users.get_by_student_id(data.student_id)
+            account_id = data.account_id.strip()
+            if "@" in account_id:
+                user = await uow.users.get_by_email(account_id.lower())
+            else:
+                user = await uow.users.get_by_account_id(account_id)
+                if not user:
+                    user = await uow.users.get_by_id(account_id)
             if not user:
                 raise DomainUnauthorizedDomainException(
                     "Your account is not registered in this application. Please contact your administrator.")
 
-            firebase_email = f"{data.student_id}@gmail.com"
+            identifier = user.account_id
+            firebase_email = f"{identifier}@gmail.com" #if not user.email else user.email
             firebase_data = await sign_in_with_password(firebase_email, data.password)
 
             if not firebase_data:
@@ -76,9 +83,9 @@ class AuthService:
         if "@" in identity:
             user = await uow.users.get_by_email(identity.lower())
         else:
-            user = await uow.users.get_by_student_id(identity)
+            user = await uow.users.get_by_account_id(identity)
             if not user:
-                user = await uow.users.get_by_teacher_id(identity)
+                user = await uow.users.get_by_id(identity)
 
         if user and user.status == UserStatus.ACTIVE and user.firebase_uid:
             await send_password_reset_email(user.firebase_uid)

@@ -7,6 +7,9 @@ export const API_BASE_URL = '/api/v1';
 export interface UserRead {
   id?: string | number;
   user_id?: string;
+  account_id?: string;
+  student_id?: string;
+  teacher_id?: string;
   email: string;
   role?: string;
   user_type?: string;
@@ -61,6 +64,7 @@ export async function loginAndFetchUser(
       credentials: 'include',
       cache: 'no-store',
       body: JSON.stringify({
+        account_id: identity.trim(),
         student_id: identity.trim(),
         password,
       }),

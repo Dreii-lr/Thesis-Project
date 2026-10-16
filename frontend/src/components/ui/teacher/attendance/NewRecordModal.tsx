@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import {
   CATEGORY_LABELS,
   type TargetCategory,
-} from '@/src/data/mockAssessment';
+} from '@/src/lib/assessments-api';
 import { dateKey } from '@/src/data/mockTeacher';
 import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
 

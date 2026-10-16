@@ -13,6 +13,7 @@ from app.features.attendance.models import (
     AttendanceSession,
     AttendanceStatus,
     RecordStatus,
+    utc_now,
 )
 from app.features.attendance.schemas import (
     AttendanceProgramMetric,
@@ -54,9 +55,11 @@ class AttendanceService:
             subject_code=subject_code,
         )
 
+        current_time = utc_now()
+
         if existing_session:
             existing_session.status = data.status
-            existing_session.updated_at = datetime.now()
+            existing_session.updated_at = current_time
             session = existing_session
             session_id = existing_session.session_id
             await uow.attendance.delete_records_for_session(session_id)
@@ -69,6 +72,7 @@ class AttendanceService:
                 category_code=category_code,
                 subject_code=subject_code,
                 status=data.status,
+                created_at=current_time,
             )
             await uow.attendance.create_session(session)
 
@@ -77,24 +81,33 @@ class AttendanceService:
             AttendanceRecord(
                 record_id=str(uuid.uuid4()),
                 session_id=session_id,
-                student_id=r.student_id,
+                account_id=r.account_id,
                 status=r.status,
                 remarks=r.reason_of_absence or r.remarks,
+                recorded_at=current_time,
             )
             for r in data.records
         ]
         await uow.attendance.add_records(records)
+        await uow.attendance.flush()
 
-        # Build response schema (counts omitted as frontend computes them)
+        # Compute summary counts
+        total_count = len(records)
+        present_count = sum(1 for r in records if r.status == AttendanceStatus.PRESENT)
+        absent_count = sum(1 for r in records if r.status == AttendanceStatus.ABSENT)
+        excused_count = sum(1 for r in records if r.status == AttendanceStatus.EXCUSED)
+        rate = (present_count / total_count * 100) if total_count > 0 else 0.0
+
+        # Build response schema
         records_read = [
             AttendanceRecordRead(
                 record_id=rec.record_id,
                 session_id=rec.session_id,
-                student_id=rec.student_id,
+                account_id=rec.account_id,
                 status=rec.status,
                 reason_of_absence=rec.remarks,
                 remarks=rec.remarks,
-                recorded_at=rec.recorded_at,
+                recorded_at=rec.recorded_at or current_time,
             )
             for rec in records
         ]
@@ -104,9 +117,16 @@ class AttendanceService:
             session_date=session.session_date,
             category_code=session.category_code,
             subject_code=session.subject_code,
+            level_code=session.category_code,
+            strand_code=session.subject_code,
             status=session.status,
             records=records_read,
-            created_at=session.created_at,
+            total_count=total_count,
+            present_count=present_count,
+            absent_count=absent_count,
+            excused_count=excused_count,
+            attendance_rate=round(rate, 1),
+            created_at=session.created_at or current_time,
             updated_at=session.updated_at,
         )
 
@@ -146,7 +166,7 @@ class AttendanceService:
                     AttendanceRecordRead(
                         record_id=r.record_id,
                         session_id=r.session_id,
-                        student_id=r.student_id,
+                        account_id=r.account_id,
                         status=r.status,
                         reason_of_absence=r.remarks,
                         remarks=r.remarks,
@@ -178,26 +198,40 @@ class AttendanceService:
         if not session:
             raise DomainEntityNotFoundException(f"Attendance session '{session_id}' not found.")
 
+        records_list = session.records or []
+        total_count = len(records_list)
+        present_count = sum(1 for r in records_list if r.status == AttendanceStatus.PRESENT)
+        absent_count = sum(1 for r in records_list if r.status == AttendanceStatus.ABSENT)
+        excused_count = sum(1 for r in records_list if r.status == AttendanceStatus.EXCUSED)
+        rate = (present_count / total_count * 100) if total_count > 0 else 0.0
+
         session_read = AttendanceSessionRead(
             session_id=session.session_id,
             teacher_id=session.teacher_id,
             session_date=session.session_date,
             category_code=session.category_code,
             subject_code=session.subject_code,
+            level_code=session.category_code,
+            strand_code=session.subject_code,
             status=session.status,
             records=[
                 AttendanceRecordRead(
                     record_id=r.record_id,
                     session_id=r.session_id,
-                    student_id=r.student_id,
+                    account_id=r.account_id,
                     status=r.status,
                     reason_of_absence=r.remarks,
                     remarks=r.remarks,
-                    recorded_at=r.recorded_at,
+                    recorded_at=r.recorded_at or session.created_at or utc_now(),
                 )
-                for r in (session.records or [])
+                for r in records_list
             ],
-            created_at=session.created_at,
+            total_count=total_count,
+            present_count=present_count,
+            absent_count=absent_count,
+            excused_count=excused_count,
+            attendance_rate=round(rate, 1),
+            created_at=session.created_at or utc_now(),
             updated_at=session.updated_at,
         )
 
@@ -209,18 +243,18 @@ class AttendanceService:
         )
 
     @staticmethod
-    async def get_student_history(uow: AbstractUnitOfWork, student_id: str) -> SuccessfulResponseSchema:
-        # Resolve candidate identifiers (user_id and student_id) for ERD alignment
-        candidate_ids = [student_id]
+    async def get_student_history(uow: AbstractUnitOfWork, account_id: str) -> SuccessfulResponseSchema:
+        # Resolve candidate identifiers (user_id and account_id) for record lookup
+        candidate_ids = [account_id]
         if hasattr(uow, "users") and uow.users:
-            user = await uow.users.get_by_student_id(student_id)
+            user = await uow.users.get_by_account_id(account_id)
             if not user:
-                user = await uow.users.get_by_id(student_id)
+                user = await uow.users.get_by_id(account_id)
             if user:
                 if user.user_id and user.user_id not in candidate_ids:
                     candidate_ids.append(user.user_id)
-                if user.student_id and user.student_id not in candidate_ids:
-                    candidate_ids.append(user.student_id)
+                if user.account_id and user.account_id not in candidate_ids:
+                    candidate_ids.append(user.account_id)
 
         raw_items = await uow.attendance.get_student_records(candidate_ids)
 
@@ -252,7 +286,7 @@ class AttendanceService:
         rate = round((present_days / total_days) * 100) if total_days > 0 else 0
 
         history = StudentAttendanceHistoryResponse(
-            student_id=student_id,
+            account_id=account_id,
             total_days=total_days,
             present_days=present_days,
             absent_days=absent_days,
@@ -262,7 +296,7 @@ class AttendanceService:
         )
 
         return SuccessfulResponseSchema(
-            message=f"Successfully retrieved attendance history for student '{student_id}'.",
+            message=f"Successfully retrieved attendance history for account '{account_id}'.",
             message_status="SUCCESS_RETRIEVED",
             status_code=200,
             data=AdditionalData(resources=history.model_dump(mode="json")),

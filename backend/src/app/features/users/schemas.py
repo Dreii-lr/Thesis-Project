@@ -42,6 +42,7 @@ class UserStatus(str, Enum):
 
 class PersonalDetailsInput(BaseModel):
     user_id: str | None = None
+    account_id: str | None = None
     is_interested: bool | None = True
     gender: str | None = None
     birth_date: date | str | None = None
@@ -67,7 +68,7 @@ class PersonalDetailsRead(BaseModel):
 
     personal_details_id: str | None = None
     user_id: str | None = None
-    student_id: str | None = None
+    account_id: str | None = None
     is_interested: bool | None = None
     gender: str | None = None
     birth_date: date | None = None
@@ -230,8 +231,7 @@ class MapStudent(BaseModel):
     last_name: str = Field()
     middle_name: str | None = Field(default=None, )
     suffix: str | None = None
-    student_id: str | None = Field(default=None, )
-    teacher_id: str | None = Field(default=None, )
+    account_id: str | None = Field(default=None, )
     role: UserRole = UserRole.STUDENT
     user_category: UserCategory = Field(default=UserCategory.SECONDARY, )
     status: UserStatus = UserStatus.ACTIVE
@@ -274,8 +274,7 @@ class UserCreate(BaseModel):
     last_name: str = Field(default="", )
     middle_name: str | None = Field(default=None, )
     suffix: str | None = None
-    student_id: str | None = Field(default=None, )
-    teacher_id: str | None = Field(default=None, )
+    account_id: str | None = Field(default=None, )
     role: UserRole = UserRole.STUDENT
     user_category: UserCategory = Field(default=UserCategory.SECONDARY, )
     status: UserStatus = UserStatus.ACTIVE
@@ -312,17 +311,33 @@ class UserCreate(BaseModel):
                           family_details=family_details)
 
 
-class TeacherCreate(UserCreate):
+class TeacherCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    first_name: str = Field(min_length=1, description="Teacher's first name")
+    last_name: str = Field(min_length=1, description="Teacher's last name")
+    middle_name: Optional[str] = Field(default=None, description="Optional middle name")
+    suffix: Optional[str] = Field(default=None, description="Optional suffix (e.g. Jr., III)")
+    account_id: Optional[str] = Field(default=None, description="Account ID (e.g. TCH-2026-0001). Auto-generated if omitted.")
+    password: Optional[str] = Field(default=None, description="Initial account password.")
     role: UserRole = UserRole.TEACHER
+    user_category: Optional[UserCategory] = Field(default=None, description="Optional primary category")
+    status: UserStatus = Field(default=UserStatus.ACTIVE, description="Account status")
+    personal_details: Optional[PersonalDetailsInput] = Field(default=None, description="Optional personal details")
+    contact_details: Optional[ContactDetailsInput] = Field(default=None, description="Optional contact details")
+
+    @field_validator("first_name", "last_name", "middle_name", "suffix", mode="before")
+    @classmethod
+    def capitalize_first_letter(cls, value: str | None) -> str | None:
+        if isinstance(value, str) and value:
+            return SharedUtils.capitalized_first_letter(value)
+        return value
 
 
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     user_id: str | None = None
-    student_id: str | None = None
-    teacher_id: str | None = None
-    employee_id: str | None = None
+    account_id: str | None = None
     firebase_uid: str | None = None
     email: EmailStr | None = None
     first_name: str | None = None
@@ -345,9 +360,7 @@ class UserReadLessData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     user_id: str | None = None
-    student_id: str | None = None
-    teacher_id: str | None = None
-    employee_id: str | None = None
+    account_id: str | None = None
     firebase_uid: str | None = None
     email: EmailStr | None = None
     first_name: str | None = None
