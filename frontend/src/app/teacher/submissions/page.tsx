@@ -1,345 +1,59 @@
 'use client';
 
-import { useState } from 'react';
-import { CATEGORY_LABELS } from '@/src/data/mockAssessment';
-import {
-  formatTime,
-  programs,
-  studentName,
-  subjectName,
-  type Submission,
-} from '@/src/data/mockTeacher';
-import { useTeacher } from '@/src/context/TeacherContext';
-import { gradeSubmission } from '@/src/lib/assessments-api';
+import { useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { CATEGORY_LABELS, gradeSubmission, type TeacherSubmission } from '@/src/lib/assessments-api';
+import { subjectName } from '@/src/lib/subjects-api';
+import { loadSubmissionReview, manualGradePayload } from '@/src/lib/submission-review';
+import { reviewedAnswers, resultTimeLabel } from '@/src/lib/student-results';
+import { useApiData } from '@/src/lib/use-api-data';
+import ApiState from '@/src/components/ui/ApiState';
 
-const fieldClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500';
-const buttonClass =
-  'inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40';
+const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100';
+const learnerName = (row: TeacherSubmission) => row.submission.student_name || row.submission.account_id || 'Learner';
+const submittedAt = (value?: string | null) => value ? new Date(value).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'Not recorded';
 
 export default function SubmissionsPage() {
-  const { tasks, submissions, setSubmissions } = useTeacher();
+  const source = useApiData(loadSubmissionReview);
   const [search, setSearch] = useState('');
   const [program, setProgram] = useState('all');
   const [type, setType] = useState('all');
   const [status, setStatus] = useState('all');
-  const [selected, setSelected] = useState<Submission | null>(null);
+  const [selected, setSelected] = useState<TeacherSubmission | null>(null);
   const [score, setScore] = useState('');
   const [feedback, setFeedback] = useState('');
   const [message, setMessage] = useState('');
-  const selectedTask = tasks.find((t) => t.id === selected?.assessment_id);
-  const rows = submissions.flatMap((s) => {
-    const task = tasks.find((t) => t.id === s.assessment_id);
-    return task ? [{ submission: s, task }] : [];
-  });
-  const filtered = rows.filter(
-    ({ submission: s, task: t }) =>
-      (program === 'all' || t.target_category === program) &&
-      (type === 'all' || t.assessment_type === type) &&
-      (status === 'all' || s.status === status) &&
-      `${studentName(s.student_id)} ${t.title} ${s.student_id}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
-  const review = (s: Submission) => {
-    setSelected(s);
-    setScore(String(s.final_score));
-    setFeedback(s.feedback);
-    setMessage('');
-  };
-  const save = () => {
-    if (!selected || !selectedTask) return;
-    const value = Number(score);
-    if (
-      score.trim() === '' ||
-      !Number.isFinite(value) ||
-      value < 0 ||
-      value > selectedTask.max_score
-    ) {
-      setMessage(`Enter a score from 0 to ${selectedTask.max_score}.`);
-      return;
-    }
-    // Manual grading is a final-score override, like the backend grading service.
-    if (
-      !setSubmissions(
-        submissions.map((s) =>
-          s.submission_id === selected.submission_id
-            ? {
-                ...s,
-                status: 'GRADED',
-                manual_score: value,
-                final_score: value,
-                feedback,
-              }
-            : s,
-        ),
-      )
-    )
-      return;
-    try {
-      if (selected.assessment_id && selected.submission_id) {
-        gradeSubmission(selected.assessment_id, selected.submission_id, {
-          manual_score: value,
-          feedback,
-        }).catch(() => {});
-      }
-    } catch {}
-    setSelected(null);
-    setMessage('Grade and feedback saved.');
-  };
-  return (
-    <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
-            {'Student submissions'}
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            {
-              'Review submitted activities, quizzes, and exams. Each submission is linked to its learner and assessment.'
-            }
-          </p>
-        </div>
-      </div>
-      {message && (
-        <p
-          role="status"
-          className="mb-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-800"
-        >
-          {message}
-        </p>
-      )}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        {[
-          ['Total submitted', rows.length],
-          [
-            'Needs review',
-            rows.filter((r) => r.submission.status === 'SUBMITTED').length,
-          ],
-          [
-            'Graded',
-            rows.filter((r) => r.submission.status === 'GRADED').length,
-          ],
-        ].map(([label, value]) => (
-          <section
-            key={label}
-            className={
-              'rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6'
-            }
-          >
-            <p className="text-sm text-slate-500">{label}</p>
-            <p className="mt-2 text-3xl font-extrabold">{value}</p>
-          </section>
-        ))}
-      </div>
-      {selected && selectedTask ? (
-        <section
-          className={
-            'rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6'
-          }
-        >
-          <div className="flex flex-wrap justify-between gap-3">
-            <div>
-              <span className="inline-block rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
-                {selectedTask.assessment_type}
-              </span>
-              <h2 className="mt-3 text-xl font-bold">
-                {studentName(selected.student_id)}
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                {selectedTask.title} · {formatTime(selected.submitted_at)}
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                setSelected(null);
-                setMessage('');
-              }}
-              className="text-sm font-semibold text-blue-600"
-            >
-              ← Back to submissions
-            </button>
-          </div>
-          <div className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-            <div>
-              <h3 className="mb-3 font-bold">Submitted work</h3>
-              {Object.entries(
-                (selected.answers_payload as any)?.answers || selected.answers_payload || {}
-              ).map(([key, value]) => {
-                const category = selectedTask.categories_data.find((c) =>
-                  c.questions.some((q) => q.id === key)
-                );
-                const question = selectedTask.categories_data
-                  .flatMap((c) => c.questions)
-                  .find((q) => q.id === key);
-                const isEssay = category?.type === 'Essay';
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
+  const rows = source.error || source.loading ? [] : source.data?.records || [];
+  const filtered = rows.filter(row => (program === 'all' || row.task.target_category === program) && (type === 'all' || row.task.assessment_type === type) &&
+    (status === 'all' || row.submission.status === status) && `${learnerName(row)} ${row.task.title} ${row.submission.account_id || ''}`.toLowerCase().includes(search.toLowerCase()));
 
-                return (
-                  <div key={key} className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        {category?.type || 'Question'}
-                      </span>
-                      {isEssay && (
-                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
-                          Essay · Manual Review ({category.points_per_item} pts)
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {question?.text ||
-                        question?.premise ||
-                        'Written response'}
-                    </p>
-                    {isEssay && question?.premise && (
-                      <div className="mt-2 rounded-lg bg-amber-50/70 border border-amber-200 p-2.5 text-xs text-amber-900">
-                        <span className="font-bold">Rubric / Answer Guidelines: </span>
-                        {question.premise}
-                      </div>
-                    )}
-                    <div className="mt-3 rounded-lg bg-white border border-slate-200 p-3">
-                      <p className="text-xs font-medium text-slate-400 mb-1">Learner Response:</p>
-                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                        {String(value || '(No answer provided)')}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                save();
-              }}
-              className="space-y-4"
-            >
-              <label className="block text-sm font-semibold">
-                Final score (out of {selectedTask.max_score})
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  max={selectedTask.max_score}
-                  step="0.5"
-                  value={score}
-                  onChange={(e) => setScore(e.target.value)}
-                  className={`mt-2 ${fieldClass}`}
-                />
-              </label>
-              <label className="block text-sm font-semibold">
-                Feedback
-                <textarea
-                  rows={5}
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                  placeholder="Help your learner understand their next steps…"
-                  className={`mt-2 ${fieldClass}`}
-                />
-              </label>
-              <button className={buttonClass} type="submit">
-                Save grade & feedback
-              </button>
-            </form>
-          </div>
-        </section>
-      ) : (
-        <section
-          className={
-            'rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6'
-          }
-        >
-          <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <input
-              aria-label="Search submissions"
-              placeholder="Search learner or assessment…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className={fieldClass}
-            />
-            <select
-              aria-label="Program"
-              value={program}
-              onChange={(e) => setProgram(e.target.value)}
-              className={fieldClass}
-            >
-              <option value="all">All programs</option>
-              {programs.map((p) => (
-                <option key={p} value={p}>
-                  {CATEGORY_LABELS[p]}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Type"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className={fieldClass}
-            >
-              <option value="all">All types</option>
-              {['ACTIVITY', 'QUIZ', 'EXAM'].map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-            <select
-              aria-label="Review status"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className={fieldClass}
-            >
-              <option value="all">All statuses</option>
-              <option value="SUBMITTED">Needs review</option>
-              <option value="GRADED">Graded</option>
-            </select>
-          </div>
-          <div className="space-y-3">
-            {filtered.map(({ submission: s, task: t }) => (
-              <button
-                key={s.submission_id}
-                onClick={() => review(s)}
-                className="flex w-full flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 p-5 text-left hover:border-blue-300 hover:bg-blue-50/30"
-              >
-                <div className="flex items-center gap-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 font-bold text-blue-600">
-                    {studentName(s.student_id)
-                      .split(' ')
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join('')}
-                  </span>
-                  <div>
-                    <p className="font-bold">{studentName(s.student_id)}</p>
-                    <p className="mt-1 text-sm text-slate-700">{t.title}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {CATEGORY_LABELS[t.target_category]} ·{' '}
-                      {subjectName(t.subject_code)} ·{' '}
-                      {formatTime(s.submitted_at)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="inline-block rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
-                    {t.assessment_type}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    {s.status === 'GRADED'
-                      ? `${s.final_score}/${t.max_score} · Graded`
-                      : 'Needs review'}
-                  </span>
-                  <span className="text-sm font-semibold text-blue-600">
-                    Review →
-                  </span>
-                </div>
-              </button>
-            ))}
-            {!filtered.length && (
-              <p className="py-10 text-center text-sm text-slate-500">
-                No submissions match these filters.
-              </p>
-            )}
-          </div>
-        </section>
-      )}
-    </div>
-  );
+  const review = (row: TeacherSubmission) => {
+    setSelected(row); setScore(String(row.submission.final_score)); setFeedback(row.submission.feedback || ''); setError(''); setMessage('');
+  };
+  const save = async () => {
+    if (!selected || pending.current) return;
+    setError('');
+    try {
+      const payload = manualGradePayload(selected.task, selected.submission, score, feedback);
+      pending.current = true; setSaving(true);
+      await gradeSubmission(selected.task.assessment_id, selected.submission.submission_id, payload);
+      setSelected(null); setMessage('Grade and feedback saved.'); source.reload();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to save the grade.'); }
+    finally { pending.current = false; setSaving(false); }
+  };
+
+  return <div className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-bold tracking-tight text-slate-900">Student submissions</h1><p className="mt-2 text-sm leading-6 text-slate-500">Review learner answers and save grades to the assessment record.</p></div><button type="button" disabled={saving || source.loading} onClick={() => { setSelected(null); source.reload(); }} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 disabled:opacity-50"><RefreshCw size={14} />Refresh</button></div>
+    <ApiState loading={source.loading} error={source.error} onRetry={source.reload} />
+    {message && <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm text-blue-800">{message}</p>}
+    {error && <p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error}</p>}
+    <div className="grid gap-4 sm:grid-cols-3">{[['Total submitted', rows.length], ['Needs review', rows.filter(row => row.submission.status === 'SUBMITTED').length], ['Graded', rows.filter(row => row.submission.status === 'GRADED').length]].map(([label, value]) => <section key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold">{source.loading || source.error ? '—' : value}</p></section>)}</div>
+    {selected ? <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><span className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">{selected.task.assessment_type}</span><h2 className="mt-3 text-xl font-bold">{learnerName(selected)}</h2><p className="mt-2 text-xs text-slate-500">{selected.submission.account_id || 'Account ID unavailable'} · {selected.task.title}</p><p className="mt-2 text-xs text-slate-400">{submittedAt(selected.submission.submitted_at)} · {resultTimeLabel(selected.submission.time_spent_seconds)}</p></div><button type="button" disabled={saving} onClick={() => { setSelected(null); setError(''); }} className="text-xs font-semibold text-blue-600 disabled:opacity-50">Back to submissions</button></div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]"><div><h3 className="mb-3 text-sm font-bold">Submitted answers</h3>{reviewedAnswers(selected.submission).map((answer, index) => <article key={answer.id} className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-[10px] font-semibold text-slate-400">Item {index + 1}{answer.essay ? ' · Essay / teacher review' : ''}</p><h4 className="mt-2 text-sm font-semibold leading-6 text-slate-700">{answer.question}</h4><p className="mt-3 whitespace-pre-line break-words rounded-lg bg-white p-3 text-sm leading-6 text-slate-600">{answer.answer || 'No answer provided'}</p>{answer.correct !== null && <p className={`mt-2 text-xs ${answer.correct ? 'text-emerald-700' : 'text-rose-600'}`}>{answer.correct ? 'Correct' : 'Incorrect'}{answer.points !== null ? ` · ${answer.points} points` : ''}</p>}</article>)}{!reviewedAnswers(selected.submission).length && <p className="text-sm text-slate-400">No text answers are available for this submission.</p>}{!!selected.submission.attachments_payload?.length && <div className="mt-4"><h4 className="text-xs font-semibold text-slate-600">Submitted attachments</h4>{selected.submission.attachments_payload.map((attachment, index) => <p key={index} className="mt-2 break-words text-xs text-slate-500">{String(attachment.file_name || attachment.name || `Attachment ${index + 1}`)}</p>)}</div>}</div>
+      <form onSubmit={event => { event.preventDefault(); void save(); }} className="space-y-4"><label className="block text-xs font-semibold text-slate-600">Final score (out of {selected.task.max_score})<input type="number" required step="any" min={selected.task.assessment_type === 'ACTIVITY' ? 0 : selected.submission.auto_score} max={selected.task.max_score} value={score} disabled={saving} onChange={event => setScore(event.target.value)} className={`${fieldClass} mt-2`} /></label>{selected.task.assessment_type !== 'ACTIVITY' && <p className="text-xs leading-6 text-slate-400">Includes {selected.submission.auto_score} automatically awarded points. Only the remaining manual points are added.</p>}<label className="block text-xs font-semibold text-slate-600">Feedback<textarea rows={5} value={feedback} disabled={saving} onChange={event => setFeedback(event.target.value)} className={`${fieldClass} mt-2`} /></label><button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{saving ? 'Saving...' : 'Save grade & feedback'}</button></form></div>
+    </section> : !source.loading && !source.error && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><input aria-label="Search submissions" placeholder="Search learner or assessment" value={search} onChange={event => setSearch(event.target.value)} className={fieldClass} /><select aria-label="Program" value={program} onChange={event => setProgram(event.target.value)} className={fieldClass}><option value="all">All programs</option>{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="Type" value={type} onChange={event => setType(event.target.value)} className={fieldClass}><option value="all">All types</option>{['ACTIVITY', 'QUIZ', 'EXAM'].map(value => <option key={value}>{value}</option>)}</select><select aria-label="Review status" value={status} onChange={event => setStatus(event.target.value)} className={fieldClass}><option value="all">All statuses</option><option value="SUBMITTED">Needs review</option><option value="GRADED">Graded</option></select></div><div className="space-y-3">{filtered.map(row => <button key={row.submission.submission_id} type="button" onClick={() => review(row)} className="flex w-full flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 p-5 text-left hover:border-blue-300 hover:bg-blue-50/30"><div><p className="text-sm font-bold text-slate-800">{learnerName(row)}</p><p className="mt-1 text-xs text-slate-500">{row.submission.account_id || 'Account ID unavailable'} · {row.task.title}</p><p className="mt-2 text-[11px] text-slate-400">{subjectName(source.data?.subjects || [], row.task.subject_code, row.task.target_category)} · {submittedAt(row.submission.submitted_at)}</p></div><div className="flex items-center gap-3"><span className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700">{row.task.assessment_type}</span><span className="text-xs text-slate-500">{row.submission.status === 'GRADED' ? `${row.submission.final_score}/${row.task.max_score} · Graded` : 'Needs review'}</span><span className="text-xs font-semibold text-blue-600">Review →</span></div></button>)}{!filtered.length && <p className="py-10 text-center text-sm text-slate-400">No submissions match these filters.</p>}</div></section>}
+  </div>;
 }

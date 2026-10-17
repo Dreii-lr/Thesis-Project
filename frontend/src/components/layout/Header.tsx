@@ -32,6 +32,7 @@ export default function Header() {
         ["Calendar", "/teacher/calendar"],
         ["Assessment Task", "/teacher/assessment-tasks"],
         ["Submissions", "/teacher/submissions"],
+        ["Item Analysis", "/teacher/item-analysis"],
       ];
 
   const pathSegments = pathname?.split("/").filter(Boolean) || [];

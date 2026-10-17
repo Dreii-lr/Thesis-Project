@@ -5,11 +5,11 @@ export type AttendanceStatus = 'Present' | 'Absent' | 'Excused';
 export interface AttendanceRecordRead {
   record_id: string;
   session_id: string;
-  student_id: string;
+  account_id: string;
   status: AttendanceStatus;
   reason_of_absence?: string | null;
   remarks?: string | null;
-  recorded_at: string;
+  recorded_at?: string | null;
 }
 
 export interface AttendanceSessionListItem {
@@ -24,8 +24,8 @@ export interface AttendanceSessionListItem {
   displayDate?: string;
   level?: string;
   subject?: string;
-  presentCount?: number;
-  totalCount?: number;
+  presentCount: number;
+  totalCount: number;
 }
 
 export interface ListAttendanceSessionsResponse {
@@ -45,7 +45,7 @@ export interface StudentAttendanceItem {
 }
 
 export interface StudentAttendanceHistory {
-  student_id: string;
+  account_id: string;
   total_days: number;
   present_days: number;
   absent_days: number;
@@ -86,7 +86,8 @@ export async function listAttendanceSessions(
     const result = await authenticatedRequest<ListAttendanceSessionsResponse>(
       `/attendance/sessions?${query.toString()}`
     );
-    sessions.push(...result.sessions);
+    if (!Array.isArray(result.sessions)) throw new Error('Unexpected attendance response.');
+    sessions.push(...result.sessions.map(normalizeAttendanceSession));
     if (params?.page || sessions.length >= result.total) return sessions;
     if (!result.sessions.length) break;
   }
@@ -107,7 +108,7 @@ export interface AttendanceSessionDetails {
   subject_code: string;
   status: 'DRAFT' | 'COMPLETED';
   records: AttendanceRecordRead[];
-  created_at: string;
+  created_at?: string | null;
   updated_at?: string | null;
   // Transitional support
   display_date?: string;
@@ -120,14 +121,15 @@ export interface AttendanceSessionDetails {
   attendance_rate?: number;
 }
 
-export function getAttendanceSession(id: string): Promise<AttendanceSessionDetails> {
-  return authenticatedRequest<AttendanceSessionDetails>(
+export async function getAttendanceSession(id: string): Promise<AttendanceSessionDetails> {
+  const session = await authenticatedRequest<AttendanceSessionDetails>(
     `/attendance/sessions/${encodeURIComponent(id)}`
   );
+  return normalizeAttendanceDetails(session);
 }
 
 export interface RecordAttendanceRecordInput {
-  student_id: string;
+  account_id: string;
   status: AttendanceStatus;
   reason_of_absence?: string | null;
   remarks?: string | null;
@@ -144,14 +146,58 @@ export interface RecordAttendancePayload {
   records: RecordAttendanceRecordInput[];
 }
 
-export function recordAttendanceSession(
+export async function recordAttendanceSession(
   payload: RecordAttendancePayload
 ): Promise<AttendanceSessionDetails> {
-  return authenticatedRequest<AttendanceSessionDetails>('/attendance/sessions', {
+  if (payload.records.some(record => !record.account_id?.trim())) throw new Error('Each learner needs a user or account ID before attendance can be saved.');
+  const session = await authenticatedRequest<AttendanceSessionDetails>('/attendance/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
+  return normalizeAttendanceDetails(session);
+}
+
+export function normalizeAttendanceSession(session: AttendanceSessionListItem): AttendanceSessionListItem {
+  const records = session.records || [];
+  return { ...session, records, rawDate: session.session_date, displayDate: formatAttendanceDate(session.session_date),
+    level: session.category_code, subject: session.subject_code,
+    presentCount: records.filter(record => record.status === 'Present').length, totalCount: records.length };
+}
+
+function normalizeAttendanceDetails(session: AttendanceSessionDetails): AttendanceSessionDetails {
+  const records = session.records || [];
+  const present = records.filter(record => record.status === 'Present').length;
+  return { ...session, records, level_code: session.category_code, strand_code: session.subject_code,
+    display_date: formatAttendanceDate(session.session_date), total_count: records.length, present_count: present,
+    absent_count: records.filter(record => record.status === 'Absent').length,
+    excused_count: records.filter(record => record.status === 'Excused').length,
+    attendance_rate: records.length ? Math.round(present / records.length * 100) : 0 };
+}
+
+export interface WorkspaceAttendance {
+  session_id: string;
+  teacher_id?: string;
+  session_date: string;
+  display_date: string;
+  level_code: string;
+  strand_code: string;
+  category_code?: string;
+  subject_code?: string;
+  status: 'DRAFT' | 'COMPLETED';
+  present_count?: number;
+  total_count?: number;
+  records: { account_id: string; status: AttendanceStatus | null; reason_of_absence: string; remarks: string }[];
+}
+
+export function formatAttendanceDate(date: string) {
+  if (!date) return '';
+  const value = new Date(`${date.slice(0, 10)}T12:00:00+08:00`);
+  return Number.isFinite(value.getTime()) ? value.toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : date;
+}
+
+export function attendanceDate(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 }
 
 export interface AttendanceProgramMetric {

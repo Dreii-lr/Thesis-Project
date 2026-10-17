@@ -239,7 +239,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
           </h1>
           <p className="text-gray-500 text-sm">
             Editing details for {student.first_name} {student.last_name} (
-            {student.student_id || student.id})
+            {student.account_id || student.id})
           </p>
         </div>
         <Link

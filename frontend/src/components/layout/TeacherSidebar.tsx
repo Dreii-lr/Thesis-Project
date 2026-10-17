@@ -12,6 +12,7 @@ import {
   Library,
   FilePlus,
   FileText,
+  ChartNoAxesCombined,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -67,6 +68,7 @@ export default function TeacherSidebar() {
           href: "/teacher/assessment-tasks",
         },
         { name: "Submissions", icon: FileText, href: "/teacher/submissions" },
+        { name: "Item Analysis", icon: ChartNoAxesCombined, href: "/teacher/item-analysis" },
       ],
     },
   ];

@@ -30,7 +30,7 @@ export default function AdminProfilePage() {
       setPending(false);
     }
   };
-  const fields = user ? [['Role', 'Admin'], ['User ID', user.user_id], ['Account ID', user.student_id], ['Teacher ID', user.teacher_id], ['Employee ID', user.employee_id], ['Email', user.email], ['Status', user.status]] : [];
+  const fields = user ? [['Role', 'Admin'], ['User ID', user.user_id], ['Account ID', user.account_id], ['Email', user.email], ['Status', user.status]] : [];
 
   return <div className="mx-auto w-full max-w-[1000px] p-4 sm:p-6 lg:p-8">
     <h1 className="text-2xl font-bold">My Profile</h1><p className="mt-2 text-sm text-slate-500">Your authenticated account information.</p>

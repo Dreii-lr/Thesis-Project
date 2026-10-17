@@ -15,7 +15,7 @@ export default function StudentsListPage() {
       student.first_name,
       student.middle_name,
       student.last_name,
-      student.student_id,
+      student.account_id,
       student.personal_details.lrn_number,
       student.email,
     ]
@@ -115,7 +115,7 @@ export default function StudentsListPage() {
                       className="hover:bg-gray-50 transition-colors bg-white"
                     >
                       <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {student.student_id || "—"}
+                        {student.account_id || "—"}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700">
                         {student.first_name} {student.last_name}

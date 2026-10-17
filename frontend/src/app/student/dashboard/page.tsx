@@ -102,7 +102,7 @@ export default function StudentDashboardPage() {
   const [attendanceHistory, setAttendanceHistory] = useState<StudentAttendanceHistory | null>(null);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
 
-  const targetId = user?.student_id || user?.user_id;
+  const targetId = user?.account_id || user?.user_id;
 
   useEffect(() => {
     let active = true;

@@ -16,7 +16,7 @@ export async function loadStudentResults(user: UserRead | null): Promise<Student
       try {
         const submission = await getStudentAssessmentResult(task.assessment_id);
         if (!submission || submission.assessment_id !== task.assessment_id ||
-          (user?.user_id && submission.student_id !== user.user_id) ||
+          (submission.account_id && submission.account_id !== user?.account_id) ||
           (submission.student_category && submission.student_category !== user?.user_category) ||
           !['SUBMITTED', 'GRADED'].includes(submission.status)) {
           throw new Error('This result is unavailable for your account. Refresh your records and try again.');
@@ -30,7 +30,7 @@ export async function loadStudentResults(user: UserRead | null): Promise<Student
   }
   const current = await getCurrentUser(true, true);
   if (!user || !current || (current.user_id || current.email) !== (user.user_id || user.email) ||
-    current.user_category !== user.user_category || String(current.role || current.user_type).toUpperCase() !== 'STUDENT') {
+    current.user_category !== user.user_category || current.account_id !== user.account_id || String(current.role || current.user_type).toUpperCase() !== 'STUDENT') {
     throw new Error('Your account or learning program changed while loading. Reload this page to view your own results.');
   }
   return records.sort((a, b) => resultDate(b) - resultDate(a));

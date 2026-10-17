@@ -221,7 +221,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
         isOpen: true,
         name: `${mappedStudent.first_name} ${mappedStudent.last_name}`.trim(),
         id:
-          mappedStudent.student_id ||
+          mappedStudent.account_id ||
           mappedStudent.id ||
           mappedStudent.email ||
           "Assigned on record",

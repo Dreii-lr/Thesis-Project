@@ -3,29 +3,35 @@
 import { Suspense, useContext, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, ArrowRight, CalendarCheck, FolderOpen } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarCheck, FolderOpen, Users, CheckCircle2 } from 'lucide-react';
 import {
-  CATEGORY_LABELS,
   type TargetCategory,
 } from '@/src/lib/assessments-api';
 import {
-  formatAttendanceDate,
   type WorkspaceAttendance,
-} from '@/src/data/mockTeacher';
+} from '@/src/lib/attendance-api';
 import { StudentContext } from '@/src/context/StudentContext';
+import { useOptionalAuth } from '@/src/context/AuthContext';
+import {
+  attendanceSavePayload,
+  attendanceSubjectMatches,
+  canEditAttendance,
+  createAttendanceDraft,
+  initializeAttendanceRoster,
+  toAttendanceWorkspace,
+  normalizeAttendanceCategory as normalizeCategoryCode,
+  resolveAttendanceCategory,
+} from '@/src/lib/attendance-workspace';
 import {
   getAttendanceSession,
   getAttendanceSummaryMetrics,
   listAttendanceSessions,
   recordAttendanceSession,
   type AttendanceProgramMetric,
-  type AttendanceStatus,
-  type RecordAttendancePayload,
 } from '@/src/lib/attendance-api';
 import {
-  getUserCategories,
+  listUserCategories,
   type UserCategoryRecord,
-  DEFAULT_USER_CATEGORIES,
 } from '@/src/lib/user-categories-api';
 import {
   listSubjects,
@@ -34,15 +40,9 @@ import {
 import AttendanceRecordsList from '@/src/components/layout/teacher/attendance/AttendanceRecordsList';
 import TakeAttendanceView from '@/src/components/layout/teacher/attendance/TakeAttendanceView';
 import NewRecordModal from '@/src/components/ui/teacher/attendance/NewRecordModal';
+import ApiState from '@/src/components/ui/ApiState';
 
-function normalizeCategoryCode(code: string | null | undefined): string {
-  if (!code) return '';
-  const s = code.trim().toLowerCase();
-  if (s === 'secondary' || s === 'junior' || s === 'jhs') return 'SECONDARY';
-  if (s === 'elementary' || s === 'elem') return 'ELEMENTARY';
-  if (s === 'blp' || s === 'basic_literacy' || s === 'basic literacy program') return 'BLP';
-  return code.toUpperCase();
-}
+const EMPTY_SUBJECTS: SubjectRecord[] = [];
 
 function matchProgramCategory(
   userCategory: string | null | undefined,
@@ -53,10 +53,7 @@ function matchProgramCategory(
 }
 
 function AttendanceDirectory({
-  program,
-  categoryId,
-  categoryName,
-  initialSubjects = [],
+  program, categoryId, categoryName, initialSubjects = EMPTY_SUBJECTS,
 }: {
   program: string;
   categoryId?: string;
@@ -64,303 +61,127 @@ function AttendanceDirectory({
   initialSubjects?: SubjectRecord[];
 }) {
   const studentCtx = useContext(StudentContext);
-  const liveStudents = studentCtx?.students || [];
-
+  const auth = useOptionalAuth();
+  const teacherId = auth?.user?.user_id;
   const [sessions, setSessions] = useState<WorkspaceAttendance[]>([]);
-  const [activeSession, setActiveSession] =
-    useState<WorkspaceAttendance | null>(null);
+  const [activeSession, setActiveSession] = useState<WorkspaceAttendance | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [categorySubjects, setCategorySubjects] = useState<SubjectRecord[]>(() => {
-    return initialSubjects.filter((s) => s.is_active !== false);
-  });
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [subjectsLoading, setSubjectsLoading] = useState(true);
+  const [subjectsError, setSubjectsError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [categorySubjects, setCategorySubjects] = useState<SubjectRecord[]>(() => initialSubjects.filter(subject => subject.is_active));
+  const normalizedCategory = normalizeCategoryCode(program);
 
-  const normalizedCategory = useMemo(
-    () => normalizeCategoryCode(program),
-    [program],
-  );
-
-  // Dynamically load active subjects belonging to this category
   useEffect(() => {
-    let isMounted = true;
-    const targetQueryParam = categoryId || normalizedCategory;
-    listSubjects(targetQueryParam)
-      .then((items) => {
-        if (!isMounted) return;
-        const activeOnly = items.filter((s) => s.is_active !== false);
-        setCategorySubjects(activeOnly);
+    let active = true;
+    listSubjects(categoryId || normalizedCategory)
+      .then(items => {
+        if (active) setCategorySubjects(items.filter(subject => subject.is_active && (!categoryId || subject.category_id === categoryId)));
       })
-      .catch((err) => {
-        console.warn('Failed to load category subjects for attendance:', err);
-        if (isMounted && initialSubjects.length === 0) setCategorySubjects([]);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [categoryId, normalizedCategory, initialSubjects]);
+      .catch(err => { if (active) setSubjectsError(err instanceof Error ? err.message : 'Unable to load subjects.'); })
+      .finally(() => { if (active) setSubjectsLoading(false); });
+    return () => { active = false; };
+  }, [categoryId, normalizedCategory, reloadKey]);
 
   useEffect(() => {
-    let isMounted = true;
-    setIsLoading(true);
-
+    let active = true;
     listAttendanceSessions({ level: normalizedCategory })
-      .then((items) => {
-        if (!isMounted) return;
-        const mapped: WorkspaceAttendance[] = items.map((item) => {
-          const rawDate = String(item.session_date || item.rawDate || '');
-          const cat = (item.category_code || item.level || normalizedCategory) as TargetCategory;
-          const subj = item.subject_code || item.subject || '';
-          const recs = item.records || [];
-          const presCount = recs.filter((r) => r.status === 'Present').length;
-          const totCount = recs.length;
+      .then(items => { if (active) setSessions(items.map(toAttendanceWorkspace)); })
+      .catch(err => { if (active) setSessionsError(err instanceof Error ? err.message : 'Unable to load attendance.'); })
+      .finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
+  }, [normalizedCategory, reloadKey]);
 
-          return {
-            session_id: item.id,
-            session_date: rawDate,
-            display_date: formatAttendanceDate(rawDate),
-            level_code: cat,
-            category_code: cat,
-            strand_code: subj,
-            subject_code: subj,
-            status: item.status,
-            present_count: presCount,
-            total_count: totCount,
-            records: recs.map((r) => ({
-              student_id: r.student_id,
-              status: r.status,
-              reason_of_absence: r.reason_of_absence || '',
-              remarks: r.remarks || '',
-            })),
-          };
-        });
-        setSessions(mapped);
-      })
-      .catch(() => {
-        if (isMounted) {
-          setSessions([]);
-        }
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [normalizedCategory]);
-
-  const handleViewRecord = async (
-    session: WorkspaceAttendance,
-    customMessage = '',
-  ) => {
-    setMessage(customMessage);
-    if (session.records && session.records.length > 0) {
-      setActiveSession(structuredClone(session));
-      return;
+  const prepareSession = (session: WorkspaceAttendance) => {
+    if (session.status === 'DRAFT' && !session.records.length && canEditAttendance(session, teacherId)) {
+      if (!studentCtx || studentCtx.isLoading) throw new Error('Wait for the learner list to finish loading, then open this draft again.');
+      if (studentCtx.error) throw new Error(studentCtx.error);
     }
-    try {
-      const details = await getAttendanceSession(session.session_id);
-      const rawDate = String(details.session_date);
-      const cat = (details.category_code || details.level_code || normalizedCategory) as TargetCategory;
-      const subj = details.subject_code || details.strand_code || '';
-      const recs = details.records || [];
+    return initializeAttendanceRoster(session, studentCtx?.students || [], teacherId);
+  };
 
-      const fullSession: WorkspaceAttendance = {
-        session_id: details.session_id,
-        session_date: rawDate,
-        display_date: formatAttendanceDate(rawDate),
-        level_code: cat,
-        category_code: cat,
-        strand_code: subj,
-        subject_code: subj,
-        status: details.status,
-        present_count: recs.filter((r) => r.status === 'Present').length,
-        total_count: recs.length,
-        records: recs.map((r) => ({
-          student_id: r.student_id,
-          status: r.status,
-          reason_of_absence: r.reason_of_absence || '',
-          remarks: r.remarks || '',
-        })),
-      };
-      setActiveSession(fullSession);
-    } catch {
-      setActiveSession(structuredClone(session));
+  const handleViewRecord = async (session: WorkspaceAttendance) => {
+    if (openingId) return;
+    setOpeningId(session.session_id);
+    setActionError('');
+    setMessage('');
+    try {
+      // List responses omit teacher_id, so open the full record before editing.
+      setActiveSession(prepareSession(toAttendanceWorkspace(await getAttendanceSession(session.session_id))));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to open this attendance record.');
+    } finally {
+      setOpeningId(null);
     }
   };
 
-  const startSession = (date: string, subject: string) => {
-    const existing = sessions.find(
-      (session) =>
-        session.session_date === date &&
-        (session.strand_code === subject || session.subject_code === subject),
-    );
-    if (existing) {
-      void handleViewRecord(
-        existing,
-        'This session already exists. Review or update the saved attendance below.',
-      );
+  const startSession = async (date: string, subject: string): Promise<string | null> => {
+    if (!teacherId) return 'Your teacher profile is still loading. Please try again.';
+    if (isLoading || subjectsLoading) return 'Wait for attendance and subjects to finish loading.';
+    if (sessionsError || subjectsError) return sessionsError || subjectsError;
+    const selectedSubject = categorySubjects.find(item => (item.code || item.name) === subject);
+    if (!selectedSubject) return 'Select an active subject belonging to this program.';
+    try {
+      const matching = sessions.filter(session => session.session_date === date && attendanceSubjectMatches(session, selectedSubject));
+      for (const session of matching) {
+        const details = toAttendanceWorkspace(await getAttendanceSession(session.session_id));
+        if (canEditAttendance(details, teacherId)) {
+          setActiveSession(prepareSession(details));
+          setMessage(details.status === 'DRAFT' ? 'Your saved draft is open. Finish marking the learners below.' : 'Your saved session is open. Select Edit attendance to make a correction.');
+          setIsModalOpen(false);
+          return null;
+        }
+      }
+      if (!studentCtx) return 'The learner directory is unavailable. Reload the page and try again.';
+      if (studentCtx.isLoading) return 'Wait for the learner list to finish loading.';
+      if (studentCtx.error) return studentCtx.error;
+      setActiveSession(createAttendanceDraft(date, subject, normalizedCategory, studentCtx.students, teacherId));
       setIsModalOpen(false);
-      return;
+      setMessage('');
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Unable to open attendance.';
     }
+  };
 
-    const learners = liveStudents.filter(
-      (s) =>
-        matchProgramCategory(s.user_category, program) &&
-        (!((s as any).role) || (s as any).role === 'STUDENT'),
-    );
-
-    setActiveSession({
-      session_id: crypto.randomUUID(),
-      session_date: date,
-      display_date: formatAttendanceDate(date),
-      level_code: normalizedCategory as TargetCategory,
-      category_code: normalizedCategory as TargetCategory,
-      strand_code: subject,
-      subject_code: subject,
-      status: 'DRAFT',
-      records: learners.map((student) => ({
-        student_id: (student as any).student_id || student.id,
-        status: null,
-        reason_of_absence: '',
-        remarks: '',
-      })),
-    });
-    setIsModalOpen(false);
-    setMessage('');
+  const retryLoading = () => {
+    setIsLoading(true);
+    setSubjectsLoading(true);
+    setSessionsError(null);
+    setSubjectsError(null);
+    setActionError('');
+    setReloadKey(value => value + 1);
+    if (studentCtx?.error) void studentCtx.refreshStudents();
   };
 
   const saveSession = async (session: WorkspaceAttendance) => {
-    try {
-      const catCode = normalizeCategoryCode(
-        session.category_code || session.level_code || normalizedCategory,
-      );
-      const subjCode = session.subject_code || session.strand_code;
-
-      const payload: RecordAttendancePayload = {
-        session_date: session.session_date,
-        category_code: catCode,
-        subject_code: subjCode,
-        level_code: catCode,
-        strand_code: subjCode,
-        status: 'COMPLETED',
-        records: session.records.map((record) => {
-          if (!record.status) {
-            throw new Error('Mark every learner before saving attendance.');
-          }
-          return {
-            student_id: record.student_id,
-            status: record.status as AttendanceStatus,
-            reason_of_absence: record.reason_of_absence || null,
-            remarks: record.remarks || record.reason_of_absence || null,
-          };
-        }),
-      };
-
-      const saved = await recordAttendanceSession(payload);
-      const rawDate = String(saved.session_date);
-      const cat = (saved.category_code || saved.level_code || catCode) as TargetCategory;
-      const subj = saved.subject_code || saved.strand_code || subjCode;
-      const recs = saved.records || [];
-
-      const updated: WorkspaceAttendance = {
-        session_id: saved.session_id,
-        session_date: rawDate,
-        display_date: formatAttendanceDate(rawDate),
-        level_code: cat,
-        category_code: cat,
-        strand_code: subj,
-        subject_code: subj,
-        status: saved.status,
-        present_count: recs.filter((r) => r.status === 'Present').length,
-        total_count: recs.length,
-        records: recs.map((r) => ({
-          student_id: r.student_id,
-          status: r.status,
-          reason_of_absence: r.reason_of_absence || '',
-          remarks: r.remarks || '',
-        })),
-      };
-
-      setSessions((prev) => [
-        updated,
-        ...prev.filter(
-          (item) =>
-            item.session_id !== updated.session_id &&
-            !(
-              item.session_date === updated.session_date &&
-              (item.strand_code === updated.strand_code ||
-                item.subject_code === updated.subject_code)
-            ),
-        ),
-      ]);
-      setMessage(
-        'Attendance saved successfully. The history and learner records are updated.',
-      );
-      return true;
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : 'Failed to save attendance session.';
-      setMessage(msg);
-      return false;
-    }
+    if (!canEditAttendance(session, teacherId)) throw new Error('Open a session recorded by your account to make changes.');
+    const payload = attendanceSavePayload(session, studentCtx?.students || []);
+    const updated = toAttendanceWorkspace(await recordAttendanceSession(payload));
+    setSessions(previous => [updated, ...previous.filter(item => item.session_id !== updated.session_id && item.session_id !== session.session_id)]);
+    setMessage('Attendance saved. Learners can now see these records in their attendance history.');
+    return updated;
   };
 
   return (
     <>
-      {!activeSession && (
-        <Link
-          href="/teacher/attendance"
-          className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-blue-600"
-        >
-          <ArrowLeft size={16} /> All programs
-        </Link>
-      )}
-      {message && (
-        <p
-          role="status"
-          className="mb-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800"
-        >
-          {message}
-        </p>
-      )}
+      {!activeSession && <Link href="/teacher/attendance" className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-blue-700"><ArrowLeft size={16} /> All programs</Link>}
+      {message && <p role="status" className="mb-5 flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800"><CheckCircle2 size={18} className="shrink-0" />{message}</p>}
+      {actionError && <p role="alert" className="mb-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">{actionError}</p>}
       {activeSession ? (
-        <TakeAttendanceView
-          key={activeSession.session_id}
-          session={activeSession}
-          categorySubjects={categorySubjects}
-          onSave={saveSession}
-          onBack={() => setActiveSession(null)}
-        />
+        <TakeAttendanceView key={activeSession.session_id} session={activeSession} categoryName={categoryName} categorySubjects={categorySubjects} canEdit={canEditAttendance(activeSession, teacherId)} onSave={saveSession} onBack={() => { setActiveSession(null); setMessage(''); }} />
       ) : (
-        <AttendanceRecordsList
-          program={program as TargetCategory}
-          sessions={sessions}
-          categorySubjects={categorySubjects}
-          categoryName={categoryName}
-          onNewRecord={() => {
-            setIsModalOpen(true);
-            setMessage('');
-          }}
-          onViewRecord={(session) => {
-            void handleViewRecord(session);
-          }}
-        />
+        <>
+          <ApiState loading={false} error={sessionsError || subjectsError || studentCtx?.error || null} onRetry={retryLoading} />
+          <AttendanceRecordsList program={program as TargetCategory} sessions={sessions} categorySubjects={categorySubjects} categoryName={categoryName} loading={isLoading} openingId={openingId} onRefresh={retryLoading} onNewRecord={() => { setIsModalOpen(true); setMessage(''); setActionError(''); }} onViewRecord={session => void handleViewRecord(session)} />
+        </>
       )}
-      {isModalOpen && (
-        <NewRecordModal
-          program={program as TargetCategory}
-          categoryId={categoryId}
-          preloadedSubjects={categorySubjects}
-          categoryName={categoryName}
-          onClose={() => setIsModalOpen(false)}
-          onStartRecording={startSession}
-        />
-      )}
+      {isModalOpen && <NewRecordModal program={program} subjects={categorySubjects} isLoading={isLoading || subjectsLoading || !!studentCtx?.isLoading} loadError={sessionsError || subjectsError || studentCtx?.error || null} onRetry={retryLoading} categoryName={categoryName} onClose={() => setIsModalOpen(false)} onStartRecording={startSession} />}
     </>
   );
 }
@@ -372,15 +193,18 @@ function AttendanceContent() {
   const studentCtx = useContext(StudentContext);
   const liveStudents = studentCtx?.students || [];
 
-  const [categories, setCategories] = useState<UserCategoryRecord[]>(DEFAULT_USER_CATEGORIES);
+  const [categories, setCategories] = useState<UserCategoryRecord[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<AttendanceProgramMetric[]>([]);
   const [metricsLoading, setMetricsLoading] = useState(true);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
+  const [metricsVersion, setMetricsVersion] = useState(0);
 
   // Fetch dynamic categories from the backend
   useEffect(() => {
     let isMounted = true;
-    getUserCategories()
+    listUserCategories()
       .then((cats) => {
         if (!isMounted) return;
         if (cats && cats.length > 0) {
@@ -393,7 +217,7 @@ function AttendanceContent() {
         }
       })
       .catch((err) => {
-        console.warn('Failed to load user categories for attendance:', err);
+        if (isMounted) setCategoriesError(err instanceof Error ? err.message : 'Unable to load learning programs.');
       })
       .finally(() => {
         if (isMounted) setCategoriesLoading(false);
@@ -404,19 +228,16 @@ function AttendanceContent() {
     };
   }, []);
 
-  // Fetch aggregate summary metrics from dedicated backend endpoint
+  // The backend totals include sessions recorded by all teachers.
   useEffect(() => {
     let isMounted = true;
-    setMetricsLoading(true);
-
     getAttendanceSummaryMetrics()
       .then((items) => {
         if (!isMounted) return;
         setMetrics(items);
       })
       .catch((err) => {
-        console.warn('Failed to load attendance summary metrics:', err);
-        if (isMounted) setMetrics([]);
+        if (isMounted) setMetricsError(err instanceof Error ? err.message : 'Unable to load attendance totals.');
       })
       .finally(() => {
         if (isMounted) setMetricsLoading(false);
@@ -425,49 +246,52 @@ function AttendanceContent() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [metricsVersion]);
 
-  const selectedCategory = useMemo(() => {
-    if (!programParam) return null;
+  const selectedCategory = useMemo(
+    () => programParam ? resolveAttendanceCategory(categories, programParam) : null,
+    [categories, programParam],
+  );
+
+  if (categoriesLoading || categoriesError) {
+    return <ApiState loading={categoriesLoading} error={categoriesError} onRetry={() => window.location.reload()} />;
+  }
+  if (programParam && !selectedCategory) {
     return (
-      categories.find(
-        (cat) =>
-          normalizeCategoryCode(cat.code) === normalizeCategoryCode(programParam) ||
-          cat.category_id === programParam,
-      ) || null
+      <div className="p-8 text-sm text-slate-600">
+        <p>This learning program is unavailable. Choose a program from the attendance directory.</p>
+        <Link href="/teacher/attendance" className="mt-3 inline-block font-semibold text-blue-600">All programs</Link>
+      </div>
     );
-  }, [categories, programParam]);
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      {programParam ? (
+      {selectedCategory ? (
         <AttendanceDirectory
-          key={programParam}
-          program={programParam}
-          categoryId={selectedCategory?.category_id}
-          categoryName={
-            selectedCategory?.name ||
-            CATEGORY_LABELS[programParam as TargetCategory] ||
-            programParam
-          }
-          initialSubjects={(selectedCategory?.subjects as SubjectRecord[] | undefined) || []}
+          key={selectedCategory.category_id}
+          program={selectedCategory.code}
+          categoryId={selectedCategory.category_id}
+          categoryName={selectedCategory.name}
+          initialSubjects={(selectedCategory.subjects as SubjectRecord[] | undefined) || EMPTY_SUBJECTS}
         />
       ) : (
         <>
-          <div className="mb-7">
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+          <div className="portal-hero relative mb-7 overflow-hidden rounded-3xl p-6 text-white sm:p-8">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold text-white">
               <CalendarCheck size={14} /> Attendance
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+            <h1 className="text-3xl font-bold tracking-tight">
               Learner attendance
             </h1>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Choose a program to view attendance history, review learner
-              records, or record a new session.
+            <p className="mt-3 max-w-xl text-sm leading-6 text-white/80">
+              Every learning session counts. Choose a program to record attendance, review participation, and keep learner records up to date.
             </p>
           </div>
-          <div className="grid gap-5 md:grid-cols-3">
-            {categories.map((cat, index) => {
+          {metricsError && <ApiState loading={metricsLoading} error={metricsError} onRetry={() => { setMetricsLoading(true); setMetricsError(null); setMetricsVersion(value => value + 1); }} />}
+          {!categories.length && <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No learning programs are available. Add a program and active subjects before recording attendance.</div>}
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {categories.map((cat) => {
               const catCode = cat.code || cat.category_id;
               const metric = metrics.find(
                 (m) =>
@@ -475,35 +299,26 @@ function AttendanceContent() {
                   normalizeCategoryCode(m.category_code) === normalizeCategoryCode(catCode) ||
                   (m.category_name && cat.name && m.category_name.trim().toLowerCase() === cat.name.trim().toLowerCase()),
               );
-              const cardThemes = [
-                'bg-blue-50 text-blue-600',
-                'bg-violet-50 text-violet-600',
-                'bg-emerald-50 text-emerald-600',
-                'bg-amber-50 text-amber-600',
-              ];
-              const cardTheme = cardThemes[index % cardThemes.length];
-
               // Actual database student count fallback from StudentContext (role === 'STUDENT')
               const studentFallbackCount = liveStudents.filter(
                 (s) =>
-                  matchProgramCategory(s.user_category, catCode) &&
-                  (!((s as any).role) || (s as any).role === 'STUDENT'),
+                  matchProgramCategory(s.user_category, catCode) && s.status !== 'INACTIVE',
               ).length;
 
-              const learnersCount = metric?.learners_count ?? studentFallbackCount;
-              const totalSessions = metric?.total_sessions ?? 0;
-              const completedSessions = metric?.completed_sessions ?? 0;
+              const learnersCount = metric?.learners_count ?? (studentCtx && !studentCtx.isLoading && !studentCtx.error ? studentFallbackCount : '—');
+              const totalSessions = metric?.total_sessions ?? '—';
+              const completedSessions = metric?.completed_sessions ?? '—';
 
               return (
                 <Link
                   key={cat.category_id || cat.code}
                   href={`/teacher/attendance?program=${encodeURIComponent(cat.code || cat.category_id)}`}
-                  className="group rounded-[24px] border border-slate-200 bg-white p-7 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-md"
+                  className="group relative rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-blue-300 hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600"
                 >
                   <span
-                    className={`mb-7 flex h-14 w-14 items-center justify-center rounded-2xl ${cardTheme}`}
+                    className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-blue-700"
                   >
-                    <FolderOpen size={28} />
+                    <FolderOpen size={24} />
                   </span>
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
                     Program directory
@@ -511,16 +326,11 @@ function AttendanceContent() {
                   <h2 className="mt-2 text-xl font-bold text-slate-900">
                     {cat.name}
                   </h2>
-                  <p className="mt-4 text-sm text-slate-500">
-                    {metricsLoading ? '...' : learnersCount} learners ·{' '}
-                    {metricsLoading ? '...' : totalSessions} attendance records
-                  </p>
-                  <p className="mt-2 text-xs text-slate-400">
-                    {metricsLoading
-                      ? '...'
-                      : completedSessions}{' '}
-                    completed sessions
-                  </p>
+                  <div className="mt-6 grid grid-cols-2 gap-4 rounded-2xl bg-slate-50 p-4">
+                    <div><p className="text-xl font-bold text-slate-900">{metricsLoading || studentCtx?.isLoading ? '…' : learnersCount}</p><p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><Users size={13} /> Registered learners</p></div>
+                    <div><p className="text-xl font-bold text-slate-900">{metricsLoading ? '…' : totalSessions}</p><p className="mt-1 text-xs text-slate-500">Recorded sessions</p></div>
+                  </div>
+                  <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-500"><CheckCircle2 size={14} className="text-blue-600" /> {metricsLoading ? '…' : completedSessions} completed sessions · all teachers</p>
                   <span className="mt-8 flex items-center justify-between text-sm font-bold text-blue-600">
                     View attendance history <ArrowRight size={17} />
                   </span>

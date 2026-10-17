@@ -49,7 +49,7 @@ export default function AttendancePage() {
       <ApiState loading={isLoading} error={error} onRetry={() => void refreshStudents()} />
       {!isLoading && !error && <>
         <label htmlFor="attendance-learner" className="mb-2 block text-sm text-slate-500">Choose a learner</label>
-        <select id="attendance-learner" value={learner} onChange={event => setLearner(event.target.value)} className={`${inputClass} mb-5 w-full max-w-md`}><option value="">Select learner...</option>{students.map(student => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.student_id || student.id}</option>)}</select>
+        <select id="attendance-learner" value={learner} onChange={event => setLearner(event.target.value)} className={`${inputClass} mb-5 w-full max-w-md`}><option value="">Select learner...</option>{students.map(student => <option key={student.id} value={student.id}>{student.first_name} {student.last_name} · {student.account_id || student.id}</option>)}</select>
         {!students.length && <p className="text-sm text-slate-500">No learner records are available.</p>}
         {learner && <LearnerAttendance key={learner} id={learner} />}
       </>}
@@ -70,10 +70,10 @@ function SessionDetails({ id, students, onClose }: { id: string; students: Stude
         {[['Present', data.present_count], ['Absent', data.absent_count], ['Excused', data.excused_count], ['Total', data.total_count], ['Attendance rate', `${data.attendance_rate}%`]].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold">{value}</dd></div>)}
       </dl>
       <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm">
-        <thead className="border-b border-slate-200 text-xs uppercase text-slate-500"><tr>{['Learner', 'Status', 'Reason of absence', 'Remarks'].map(label => <th key={label} scope="col" className="px-3 py-3">{label}</th>)}</tr></thead>
+        <thead className="border-b border-slate-200 text-xs uppercase text-slate-500"><tr>{['Learner', 'Status', 'Note / absence reason'].map(label => <th key={label} scope="col" className="px-3 py-3">{label}</th>)}</tr></thead>
         <tbody className="divide-y divide-slate-100">{data.records.map(record => {
-          const student = students.find(learner => learner.id === record.student_id || learner.student_id === record.student_id);
-          return <tr key={record.record_id}><td className="px-3 py-3">{student ? <Link href={`/admin/students/${encodeURIComponent(student.id)}`} onClick={onClose} className="font-medium text-blue-600">{student.first_name} {student.last_name}<span className="mt-1 block text-xs text-slate-500">{student.student_id}</span></Link> : record.student_id}</td><td className="px-3 py-3">{record.status}</td><td className="px-3 py-3">{record.reason_of_absence || '—'}</td><td className="px-3 py-3">{record.remarks || '—'}</td></tr>;
+          const student = students.find(learner => learner.id === record.account_id || learner.account_id === record.account_id);
+          return <tr key={record.record_id}><td className="px-3 py-3">{student ? <Link href={`/admin/students/${encodeURIComponent(student.id)}`} onClick={onClose} className="font-medium text-blue-600">{student.first_name} {student.last_name}<span className="mt-1 block text-xs text-slate-500">{student.account_id}</span></Link> : record.account_id}</td><td className="px-3 py-3">{record.status}</td><td className="whitespace-pre-wrap px-3 py-3">{record.remarks || record.reason_of_absence || '—'}</td></tr>;
         })}</tbody>
       </table></div>
       {!data.records.length && <p className="py-6 text-center text-sm text-slate-500">No learner marks were saved for this session.</p>}

@@ -59,7 +59,7 @@ function StudentDetails({ id }: { id: string }) {
       {success && <p role="status" className="mb-5 rounded-xl bg-green-50 p-4 text-sm text-green-700">{success}</p>}
       {!profile.loading && !profile.error && student && <>
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div><h1 className="text-2xl font-bold">{student.first_name} {student.middle_name} {student.last_name} {student.suffix}</h1><p className="mt-2 text-sm text-slate-500">{student.student_id || 'No student ID'} · {formatCategoryLevel(student.user_category)} · {student.status || 'Status unavailable'}</p></div>
+          <div><h1 className="text-2xl font-bold">{student.first_name} {student.middle_name} {student.last_name} {student.suffix}</h1><p className="mt-2 text-sm text-slate-500">{student.account_id || 'No account ID'} · {formatCategoryLevel(student.user_category)} · {student.status || 'Status unavailable'}</p></div>
           <div className="flex flex-wrap gap-3">
             <Link href={`/admin/mapping/${encodeURIComponent(id)}`} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"><Edit size={16} /> Update mapping</Link>
             {student.status !== 'INACTIVE' && <button type="button" onClick={() => { setError(null); setConfirming(true); }} className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"><UserMinus size={16} /> Mark inactive</button>}

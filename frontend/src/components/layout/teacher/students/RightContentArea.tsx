@@ -35,11 +35,11 @@ export default function RightContentArea({ student }: { student: Student }) {
   useEffect(() => {
     let active = true;
     listAssessmentRecords().then(listTeacherSubmissions)
-      .then(data => { if (active) setRecords(data.filter(record => record.submission.student_id === student.id)); })
+      .then(data => { if (active) setRecords(data.filter(record => !!student.account_id && record.submission.account_id === student.account_id)); })
       .catch(err => { if (active) setError(err instanceof Error ? err.message : 'Unable to load assessment records.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [student.id, retry]);
+  }, [student.id, student.account_id, retry]);
 
   useEffect(() => {
     let active = true;

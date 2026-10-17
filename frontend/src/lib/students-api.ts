@@ -6,6 +6,7 @@ export type LearningModality = "FTF" | "BLENDED";
 
 export interface PersonalDetailsInput {
   user_id?: string | null;
+  account_id?: string | null;
   is_interested?: boolean | null;
   gender?: string | null;
   birth_date?: string | null;
@@ -51,9 +52,6 @@ interface DetailDates {
 export interface UserRecord {
   user_id?: string | null;
   account_id?: string | null;
-  student_id?: string | null;
-  teacher_id?: string | null;
-  employee_id?: string | null;
   firebase_uid?: string | null;
   email?: string | null;
   first_name?: string | null;
@@ -70,7 +68,6 @@ export interface UserRecord {
     | (PersonalDetailsInput &
         DetailDates & {
           personal_details_id?: string | null;
-          student_id?: string | null;
         })
     | null;
   contact_details?:
@@ -91,7 +88,7 @@ export interface ListUsersResponse {
 
 export interface PersonalDetails {
   user_id?: string | null;
-  student_id?: string | null;
+  account_id?: string | null;
   is_interested?: boolean | null;
   gender: string;
   birth_date: string;
@@ -117,8 +114,7 @@ export interface FamilyDetails extends FamilyDetailsInput {
 }
 export interface Student {
   id: string;
-  account_id?: string;
-  student_id: string;
+  account_id: string;
   email: string;
   first_name: string;
   last_name: string;
@@ -188,8 +184,7 @@ export function normalizeStudentRecord(raw: UserRecord): Student {
   const family = raw.family_details;
   return {
     id: raw.user_id,
-    account_id: raw.account_id ?? raw.student_id ?? "",
-    student_id: raw.account_id ?? raw.student_id ?? "",
+    account_id: raw.account_id ?? "",
     email: raw.email ?? "",
     first_name: raw.first_name ?? "",
     last_name: raw.last_name ?? "",
@@ -199,7 +194,7 @@ export function normalizeStudentRecord(raw: UserRecord): Student {
     status: raw.status ?? null,
     personal_details: {
       user_id: raw.user_id,
-      student_id: raw.student_id,
+      account_id: personal?.account_id ?? raw.account_id ?? '',
       is_interested: personal?.is_interested,
       gender: personal?.gender ?? "",
       birth_date: personal?.birth_date ?? "",
@@ -332,7 +327,6 @@ export async function mapStudentInApi(
         : {}),
     }),
   });
-  console.log(created); // --- IGNORE ---
   return normalizeStudentRecord(created);
 }
 

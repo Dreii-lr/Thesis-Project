@@ -46,9 +46,12 @@ async function teacherRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getAssessment(id: string) { return teacherRequest<AssessmentPayload>(`/${encodeURIComponent(id)}`); }
 export async function listAssessments(): Promise<AssessmentPayload[]> {
-  const page = await teacherRequest<AssessmentPayload[]>('/teacher/my-tasks?offset=0&limit=100');
-  if (!Array.isArray(page)) throw new Error('Unexpected assessment list response.');
-  return page;
+  const rows = await listAssessmentRecords();
+  const tasks: AssessmentPayload[] = [];
+  for (let index = 0; index < rows.length; index += 8) {
+    tasks.push(...await Promise.all(rows.slice(index, index + 8).map(row => getAssessment(row.assessment_id))));
+  }
+  return tasks;
 }
 export function createAssessment(task: AssessmentPayload) {
   const { title, description, subject_code, target_category, assessment_type, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score, is_ai_generated, categories_data, materials } = task;
@@ -87,7 +90,7 @@ export interface AssessmentRow {
 export interface SubmissionDetail {
   submission_id: string;
   assessment_id: string;
-  student_id: string;
+  account_id?: string | null;
   student_name?: string | null;
   student_category?: TargetCategory | null;
   auto_score: number;

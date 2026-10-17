@@ -29,7 +29,7 @@ export default function LearnerDirectory({
       student.middle_name,
       student.last_name,
       student.suffix,
-      student.student_id,
+      student.account_id,
       student.email,
       student.personal_details.lrn_number,
     ]
@@ -168,7 +168,7 @@ export default function LearnerDirectory({
                 filtered.map((student) => (
                   <tr key={student.id} className="hover:bg-blue-50/40">
                     <td className="px-5 py-4 font-medium">
-                      {student.student_id || "—"}
+                      {student.account_id || "—"}
                     </td>
                     <td className="px-5 py-4">
                       <p className="font-medium">

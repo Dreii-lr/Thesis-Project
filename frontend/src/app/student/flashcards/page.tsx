@@ -1,98 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { Layers3, ChevronLeft, ChevronRight, RotateCcw, BookOpen } from 'lucide-react';
-import { demoFlashcards } from '@/src/data/studentAssessmentDemo';
+import { useOptionalAuth } from '@/src/context/AuthContext';
+import FlashcardLibrary from '@/src/components/flashcards/FlashcardLibrary';
 
 export default function FlashcardsPage() {
-  const [deck, setDeck] = useState(0);
-  const [index, setIndex] = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  
-  const active = demoFlashcards[deck];
-  const card = active.cards[index];
-  
-  const move = (d: number) => {
-    setIndex((i) => (i + d + active.cards.length) % active.cards.length);
-    setFlipped(false);
-  };
-
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8">
-      <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-        STUDENT PORTAL
-      </p>
-      <h1 className="mt-2 text-3xl font-extrabold text-slate-900">
-        Flashcards from teachers
-      </h1>
-      <p className="mt-2 text-sm text-slate-500">
-        Review terms and concepts assigned by your teachers. Tap a card to reveal its answer.
-      </p>
-
-      <div className="mt-7 grid gap-6 lg:grid-cols-[300px_1fr]">
-        <aside className="space-y-3">
-          {demoFlashcards.map((item, i) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setDeck(i);
-                setIndex(0);
-                setFlipped(false);
-              }}
-              className={`w-full rounded-2xl border p-4 text-left transition ${deck === i ? 'border-blue-300 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white hover:border-blue-200'}`}
-            >
-              <div className="flex items-center gap-3">
-                <Layers3 className="text-blue-600" size={20} />
-                <div>
-                  <p className="text-sm font-bold">{item.title}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {item.cards.length} cards · {item.teacher}
-                  </p>
-                </div>
-              </div>
-            </button>
-          ))}
-        </aside>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                {active.subject}
-              </p>
-              <h2 className="mt-1 text-xl font-bold">{active.title}</h2>
-            </div>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-              {index + 1} / {active.cards.length}
-            </span>
-          </div>
-
-          <button
-            onClick={() => setFlipped((x) => !x)}
-            className="mt-7 flex min-h-[280px] w-full flex-col items-center justify-center rounded-3xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-8 text-center shadow-inner"
-          >
-            <BookOpen className="mb-5 text-blue-600" size={28} />
-            <p className="text-xs font-bold uppercase tracking-wider text-blue-500">
-              {flipped ? 'ANSWER' : 'TERM — TAP TO FLIP'}
-            </p>
-            <p className="mt-4 max-w-xl text-2xl font-bold leading-relaxed text-slate-900">
-              {flipped ? card.back : card.front}
-            </p>
-          </button>
-
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-            <button onClick={() => move(-1)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold">
-              <ChevronLeft size={16} /> Previous
-            </button>
-            <button onClick={() => setFlipped((x) => !x)} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold">
-              <RotateCcw size={16} /> Flip card
-            </button>
-            <button onClick={() => move(1)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
-              Next <ChevronRight size={16} />
-            </button>
-          </div>
-        </section>
-      </div>
-    </div>
-  );
+  const auth = useOptionalAuth();
+  if (auth?.isLoading) return <p role="status" className="p-8 text-sm text-slate-500">Opening your flashcards…</p>;
+  const ownerId = auth?.user?.user_id;
+  if (!ownerId) return <p role="alert" className="p-8 text-sm text-red-700">Your student profile is unavailable. Reload the page to open your study sets.</p>;
+  return <FlashcardLibrary key={ownerId} ownerId={ownerId} />;
 }

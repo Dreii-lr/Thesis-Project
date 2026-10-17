@@ -371,19 +371,18 @@ export default function TeacherDashboard() {
                       Date.parse(a.submitted_at || ""),
                   )
                   .slice(0, 4)
-                  .map((s) => (
-                    <Link
-                      href={`/teacher/students/${encodeURIComponent(s.student_id)}`}
+                  .map((s) => {
+                    const learner = students.find(student => student.account_id === s.account_id);
+                    return <Link
+                      href={learner ? `/teacher/students/${encodeURIComponent(learner.id)}` : '/teacher/submissions'}
                       key={s.submission_id}
                       className="flex items-center justify-between gap-3 border-t border-slate-100 py-4"
                     >
                       <div>
                         <p className="text-sm font-bold">
                           {s.student_name ||
-                            students.find(
-                              (student) => student.id === s.student_id,
-                            )?.first_name ||
-                            s.student_id}
+                            learner?.first_name ||
+                            s.account_id || 'Learner'}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
                           {
@@ -396,8 +395,8 @@ export default function TeacherDashboard() {
                       <span className="inline-block rounded-lg bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
                         {s.status === "GRADED" ? "Graded" : "Needs review"}
                       </span>
-                    </Link>
-                  ))
+                    </Link>;
+                  })
               ) : (
                 <p className="py-10 text-center text-sm text-slate-500">
                   No submissions yet.
