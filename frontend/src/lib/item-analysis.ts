@@ -31,7 +31,7 @@ export function answerOutcome(answer: AnalysisAnswer): AnswerOutcome {
 }
 
 export function buildItemAnalysis(assessment: AnalysisAssessment, submissions: AnalysisSubmission[]) {
-  if (!['QUIZ', 'EXAM'].includes(assessment.assessment_type)) throw new Error('Item analysis is available for quizzes and exams only.');
+  if (!['QUIZ', 'EXAM', 'TEST'].includes(assessment.assessment_type)) throw new Error('Item analysis is available for quizzes, exams, and tests only.');
   const records = submissions.filter(submission => submission.assessment_id === assessment.assessment_id &&
     submission.student_category === assessment.target_category && ['SUBMITTED', 'GRADED'].includes(submission.status));
   const items = assessment.categories_data.flatMap(category => category.questions.map(question => {

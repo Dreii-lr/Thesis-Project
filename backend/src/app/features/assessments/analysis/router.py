@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 
 from app.core.dependencies import (
     get_cohort_analysis_service,
-    require_teacher,
+    require_admin_teacher,
 )
 from app.features.assessments.analysis.service import CohortAnalysisService
 from app.features.users.schemas import UserRead
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/assessments/analysis", tags=["Assessment Cohort Anal
 async def generate_cohort_struggle_analysis_query(
     assessment_id: str = Query(..., description="ID of the completed assessment to analyze"),
     user_category: str = Query(..., description="Target user category (case-insensitive, e.g. Elementary, Secondary, BLP)"),
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """
@@ -59,7 +59,7 @@ async def generate_cohort_struggle_analysis_query(
 async def get_cohort_struggle_analysis_query(
     assessment_id: str = Query(..., description="ID of the assessment"),
     user_category: Optional[str] = Query(None, description="Optional user category filter"),
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """
@@ -79,7 +79,7 @@ async def get_cohort_struggle_analysis_query(
 async def generate_cohort_struggle_analysis_path(
     assessment_id: str,
     user_category: str = Query(..., alias="category", description="Target user category (case-insensitive)"),
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """Path-parameter variant for generating cohort struggle analysis."""
@@ -97,7 +97,7 @@ async def generate_cohort_struggle_analysis_path(
 async def get_cohort_struggle_analysis_path(
     assessment_id: str,
     user_category: Optional[str] = Query(None, alias="category", description="Optional user category filter"),
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: CohortAnalysisService = Depends(get_cohort_analysis_service),
 ) -> JSONResponse:
     """Path-parameter variant for retrieving cohort struggle analysis."""

@@ -248,7 +248,7 @@ class AssessmentService:
 
     async def list_teacher_assessments(
         self,
-        teacher_id: str,
+        teacher_id: Optional[str] = None,
         status: Optional[TaskStatus] = None,
         target_category: Optional[UserCategory] = None,
         offset: int = 0,
@@ -680,7 +680,7 @@ class AssessmentService:
             raise DomainEntityNotFoundException("Submission not found for this assessment.")
 
         submission.manual_score = grade_data.manual_score
-        if assessment.assessment_type in (TaskType.QUIZ, TaskType.EXAM):
+        if assessment.assessment_type in (TaskType.QUIZ, TaskType.EXAM, TaskType.TEST):
             submission.final_score = submission.auto_score + grade_data.manual_score
         else:
             submission.final_score = grade_data.manual_score

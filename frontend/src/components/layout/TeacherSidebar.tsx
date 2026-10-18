@@ -68,7 +68,7 @@ export default function TeacherSidebar() {
           href: "/teacher/assessment-tasks",
         },
         { name: "Submissions", icon: FileText, href: "/teacher/submissions" },
-        { name: "Item Analysis", icon: ChartNoAxesCombined, href: "/teacher/item-analysis" },
+        { name: "Analysis", icon: ChartNoAxesCombined, href: "/teacher/analysis" },
       ],
     },
   ];
@@ -76,6 +76,15 @@ export default function TeacherSidebar() {
   const isItemActive = (href: string) => {
     if (href === "/teacher/dashboard") {
       return pathname === "/teacher" || pathname === "/teacher/dashboard";
+    }
+
+    if (href === "/teacher/analysis") {
+      return (
+        pathname === "/teacher/analysis" ||
+        pathname?.startsWith("/teacher/analysis/") ||
+        pathname === "/teacher/item-analysis" ||
+        pathname?.startsWith("/teacher/item-analysis/")
+      );
     }
 
     return pathname === href || pathname?.startsWith(`${href}/`);

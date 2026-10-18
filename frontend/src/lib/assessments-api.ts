@@ -3,7 +3,7 @@ import { authenticatedRequest, clearCurrentUserCache, getCurrentUser, SessionErr
 export type TargetCategory = 'ELEMENTARY' | 'SECONDARY' | 'BLP';
 export const CATEGORY_LABELS = { ELEMENTARY: 'Elementary', SECONDARY: 'Junior High School', BLP: 'Basic Literacy Program' };
 export type TaskStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'COMPLETED';
-export type TaskType = 'ACTIVITY' | 'QUIZ' | 'EXAM';
+export type TaskType = 'ACTIVITY' | 'QUIZ' | 'EXAM' | 'TEST' | (string & {});
 export interface QuestionPayload {
   id: string; text: string; options: string[]; correct_answer: string; premise: string; match: string;
 }
@@ -37,10 +37,10 @@ async function teacherRequest<T>(path: string, init?: RequestInit): Promise<T> {
     try { user = await getCurrentUser(true, true); }
     catch { throw new SessionError('The server denied teacher access, and your current session could not be verified. Please sign out and sign in with your teacher account.', 403); }
     const role = String(user?.role || user?.user_type || '').trim().toUpperCase();
-    if (role === 'TEACHER') {
-      throw new SessionError('Your current session is TEACHER, but the server rejected this teacher request. The running backend permissions need to be checked.', 403);
+    if (role === 'TEACHER' || role === 'ADMIN') {
+      throw new SessionError(`Your current session is ${role}, but the server rejected this request. The running backend permissions need to be checked.`, 403);
     }
-    throw new SessionError(`Quiz and exam configuration requires a TEACHER account. Your current session is ${role || 'not signed in'}. Please sign out and sign in with your teacher account.${role === 'EMPLOYEE' ? ' EMPLOYEE and TEACHER are separate roles in this system.' : ''}`, 403);
+    throw new SessionError(`Assessment configuration requires a TEACHER or ADMIN account. Your current session is ${role || 'not signed in'}. Please sign out and sign in with your authorized account.${role === 'EMPLOYEE' ? ' EMPLOYEE and TEACHER are separate roles in this system.' : ''}`, 403);
   }
 }
 

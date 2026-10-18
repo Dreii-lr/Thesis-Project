@@ -95,7 +95,7 @@ class AssessmentRepository:
 
     async def list_assessments_for_teacher(
         self,
-        teacher_id: str,
+        teacher_id: Optional[str] = None,
         status: Optional[TaskStatus] = None,
         target_category: Optional[UserCategory] = None,
         offset: int = 0,
@@ -104,13 +104,14 @@ class AssessmentRepository:
         await self.reconcile_assessment_statuses()
         stmt = (
             select(Assessment)
-            .where(Assessment.teacher_id == teacher_id)
             .options(
                 selectinload(Assessment.questions),
                 selectinload(Assessment.submissions),
                 selectinload(Assessment.materials),
             )
         )
+        if teacher_id:
+            stmt = stmt.where(Assessment.teacher_id == teacher_id)
         if status:
             stmt = stmt.where(Assessment.status == status)
         if target_category:

@@ -377,7 +377,7 @@ class ListUserRead(BaseModel):
     users: List[UserRead] | None = None
     total: int | None = None
     offset: int | None = None
-    limit: int | None = None
+    limit: int | None = None    
 
 
 class UserUpdate(BaseModel):

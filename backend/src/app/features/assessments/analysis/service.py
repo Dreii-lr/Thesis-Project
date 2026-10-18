@@ -20,6 +20,7 @@ from app.features.assessments.models import (
     AssessmentCohortAnalysis,
     SubmissionStatus,
     TaskStatus,
+    TaskType,
 )
 from app.features.users.models import UserCategory
 from app.features.users.schemas import UserRead, UserRole
@@ -73,6 +74,13 @@ class CohortAnalysisService:
         # Verify teacher authorization
         if current_user.role != UserRole.ADMIN and assessment.teacher_id != current_user.user_id:
             raise DomainForbiddenDomainException("You are not authorized to analyze this assessment.")
+
+        # Strict assessment type guard: Quizzes, Exams, and Tests are analyzable (TEST is the last included type).
+        if assessment.assessment_type not in (TaskType.QUIZ, TaskType.EXAM, TaskType.TEST):
+            raise DomainValidationDomainException(
+                f"Cohort struggle analysis is only applicable to Quizzes, Exams, and Tests. "
+                f"'{assessment.assessment_type.value}' is excluded."
+            )
 
         # Strict assessment status guard: Analysis is only permissible when assessment is COMPLETED.
         is_completed = assessment.status == TaskStatus.COMPLETED
@@ -327,6 +335,13 @@ class CohortAnalysisService:
 
         if current_user.role != UserRole.ADMIN and assessment.teacher_id != current_user.user_id:
             raise DomainForbiddenDomainException("You are not authorized to view analysis for this assessment.")
+
+        # Strict assessment type guard: Quizzes, Exams, and Tests are analyzable (TEST is the last included type).
+        if assessment.assessment_type not in (TaskType.QUIZ, TaskType.EXAM, TaskType.TEST):
+            raise DomainValidationDomainException(
+                f"Cohort struggle analysis is only applicable to Quizzes, Exams, and Tests. "
+                f"'{assessment.assessment_type.value}' is excluded."
+            )
 
         record = await self.uow.assessments.get_cohort_analysis(assessment_id_str)
         if not record:

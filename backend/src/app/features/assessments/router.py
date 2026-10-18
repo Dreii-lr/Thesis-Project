@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse
 from app.core.dependencies import (
     get_assessment_service,
     get_cohort_analysis_service,
+    require_admin_teacher,
     require_student,
     require_teacher,
 )
@@ -25,7 +26,7 @@ from app.features.assessments.schemas import (
 )
 from app.features.assessments.service import AssessmentService
 from app.features.users.models import UserCategory
-from app.features.users.schemas import UserRead
+from app.features.users.schemas import UserRead, UserRole
 from app.shared.utils import SharedUtils
 
 router = APIRouter(prefix="/assessments", tags=["Assessments"])
@@ -71,7 +72,7 @@ async def list_teacher_assessments(
     target_category: Optional[UserCategory] = Query(default=None),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: AssessmentService = Depends(get_assessment_service),
 ) -> JSONResponse:
     """
@@ -79,7 +80,7 @@ async def list_teacher_assessments(
     Supports both /teacher/list and /teacher/my-tasks endpoints.
     """
     response = await service.list_teacher_assessments(
-        teacher_id=current_user.user_id,
+        teacher_id=current_user.user_id if current_user.role != UserRole.ADMIN else None,
         status=status_filter,
         target_category=target_category,
         offset=offset,
@@ -92,7 +93,7 @@ async def list_teacher_assessments(
 @router.get("/{assessment_id}", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
 async def get_assessment_details(
     assessment_id: str,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: AssessmentService = Depends(get_assessment_service),
 ) -> JSONResponse:
     """
@@ -106,7 +107,7 @@ async def get_assessment_details(
 @router.get("/{assessment_id}/submissions", status_code=status.HTTP_200_OK, tags=["Teacher Assessments"])
 async def list_assessment_submissions(
     assessment_id: str,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: AssessmentService = Depends(get_assessment_service),
 ) -> JSONResponse:
     """

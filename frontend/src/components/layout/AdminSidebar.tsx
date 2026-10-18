@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   BookOpen,
   Layers,
+  ChartNoAxesCombined,
   User,
 } from "lucide-react";
 import Link from "next/link";
@@ -28,6 +29,12 @@ export default function AdminSidebar() {
         { name: "Learner Mapping", icon: UserPlus, href: "/admin/mapping" },
         { name: "Learner Accounts", icon: UserCheck, href: "/admin/create-account" },
         { name: "Attendance", icon: ClipboardCheck, href: "/admin/attendance" },
+      ],
+    },
+    {
+      title: "ACADEMICS & ASSESSMENTS",
+      items: [
+        { name: "Analysis", icon: ChartNoAxesCombined, href: "/admin/analysis" },
       ],
     },
     {

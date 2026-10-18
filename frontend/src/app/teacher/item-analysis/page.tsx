@@ -1,5 +1,10 @@
-import ItemAnalysis from '@/src/components/layout/teacher/item-analysis/ItemAnalysis';
+import AssessmentAnalysisView from '@/src/components/layout/analysis/AssessmentAnalysisView';
+
+export const metadata = {
+  title: 'Assessment Analysis | ALS Teacher Portal',
+  description: 'Cohort struggle and diagnostic analysis across ALS quizzes and exams.',
+};
 
 export default function ItemAnalysisPage() {
-  return <ItemAnalysis />;
+  return <AssessmentAnalysisView role="teacher" />;
 }

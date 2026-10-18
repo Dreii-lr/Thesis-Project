@@ -18,10 +18,22 @@ export interface CohortAnalysis {
   created_at?: string | null;
 }
 
+export type AnalyzableTaskType = 'QUIZ' | 'EXAM' | 'TEST';
+
 export async function loadAnalysisOptions() {
   const [tasks, subjects, categories] = await Promise.all([listAssessmentRecords(), listSubjects(), listUserCategories()]);
-  return { tasks: tasks.filter(task => task.assessment_type === 'QUIZ' || task.assessment_type === 'EXAM'), subjects,
-    categories: categories.filter(category => ['ELEMENTARY', 'SECONDARY', 'BLP'].includes(category.code)) };
+  // Filter for analyzable tasks: QUIZ, EXAM, and TEST (with TEST being the last included type), strictly excluding ACTIVITY
+  const analyzableTasks = tasks.filter(
+    (task) =>
+      task.assessment_type &&
+      ['QUIZ', 'EXAM', 'TEST'].includes(String(task.assessment_type).toUpperCase()) &&
+      String(task.assessment_type).toUpperCase() !== 'ACTIVITY'
+  );
+  return {
+    tasks: analyzableTasks,
+    subjects,
+    categories: categories.filter((category) => ['ELEMENTARY', 'SECONDARY', 'BLP'].includes(category.code)),
+  };
 }
 
 function validateAnalysis(data: CohortAnalysis, id: string, program: string) {
@@ -47,16 +59,30 @@ export async function loadAssessmentAnalysis(task: AssessmentRow, program: Targe
   const [details, records] = await Promise.all([getAssessment(task.assessment_id), listAssessmentSubmissions(task.assessment_id)]);
   if (details.assessment_id !== task.assessment_id || details.assessment_type === 'ACTIVITY') throw new Error('This quiz or exam is unavailable. Refresh the assessment list.');
   const assessment: AnalysisAssessment = { ...details, assessment_id: task.assessment_id, target_category: program, subject_name: subjectName(subjects, task.subject_code, program), topics: [] };
-  const submissions: AnalysisSubmission[] = records.filter(record => record.assessment_id === task.assessment_id && record.student_category === program).map(record => ({
-    ...record, learner_id: record.account_id || record.submission_id,
-    answers_payload: { answers: Array.isArray(record.answers_payload?.answers) ? record.answers_payload.answers.flatMap((raw: unknown) => {
-      if (!raw || typeof raw !== 'object') return [];
-      const answer = raw as Record<string, unknown>;
-      if (typeof answer.question_id !== 'string') return [];
-      return [{ question_id: answer.question_id, student_answer: typeof answer.student_answer === 'string' ? answer.student_answer : '',
-        is_correct: typeof answer.is_correct === 'boolean' ? answer.is_correct : null, needs_teacher_review: answer.needs_teacher_review === true || answer.type === 'Essay' }];
-    }) : [] },
-  }));
+  const submissions: AnalysisSubmission[] = records
+    .filter(record =>
+      record.assessment_id === task.assessment_id &&
+      (!record.student_category || String(record.student_category).toUpperCase() === String(program).toUpperCase())
+    )
+    .map(record => ({
+      ...record,
+      learner_id: record.account_id || record.submission_id,
+      answers_payload: {
+        answers: Array.isArray(record.answers_payload?.answers)
+          ? record.answers_payload.answers.flatMap((raw: unknown) => {
+              if (!raw || typeof raw !== 'object') return [];
+              const answer = raw as Record<string, unknown>;
+              if (typeof answer.question_id !== 'string') return [];
+              return [{
+                question_id: answer.question_id,
+                student_answer: typeof answer.student_answer === 'string' ? answer.student_answer : '',
+                is_correct: typeof answer.is_correct === 'boolean' ? answer.is_correct : null,
+                needs_teacher_review: answer.needs_teacher_review === true || answer.type === 'Essay'
+              }];
+            })
+          : []
+      },
+    }));
   let analysis: CohortAnalysis | null = null;
   let analysisError: string | null = null;
   try { analysis = await getCohortAnalysis(task.assessment_id, program); }

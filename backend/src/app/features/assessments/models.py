@@ -35,6 +35,7 @@ class TaskType(str, Enum):
     ACTIVITY = "ACTIVITY"
     QUIZ = "QUIZ"
     EXAM = "EXAM"
+    TEST = "TEST"
 
 
 class TaskStatus(str, Enum):
