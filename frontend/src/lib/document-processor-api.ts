@@ -606,9 +606,10 @@ export function normalizeMaterialStatus(
  * Matches a material item to a category by program code, name, learning strand, or subjects.
  */
 export function matchMaterialToCategory(
-  mat: MaterialItem,
-  cat: { code?: string; name?: string; subjects?: { name: string }[] }
+  mat?: MaterialItem | null,
+  cat?: { code?: string; name?: string; subjects?: { name: string }[] } | null
 ): boolean {
+  if (!mat || !cat) return false;
   const code = (cat.code || "").toUpperCase();
   const name = (cat.name || "").toLowerCase();
 
@@ -657,6 +658,66 @@ export function matchMaterialToCategory(
       return strand.includes(subName) || goal.includes(subName);
     });
     if (matchesSubject) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Determines whether a MaterialItem corresponds to a specific Subject.
+ * Matches by exact or partial name/code, DepEd ALS strand indicators (LS1-LS6),
+ * and standard curriculum topic keywords.
+ */
+export function matchMaterialToSubject(
+  mat?: MaterialItem | null,
+  subject?: { name?: string; code?: string; subject_id?: string } | null,
+): boolean {
+  if (!mat || !subject) return false;
+  const sName = (subject.name || '').toLowerCase().trim();
+  const sCode = (subject.code || '').toLowerCase().trim();
+  const strand = (mat.learning_strand || '').toLowerCase().trim();
+  const goal = (mat.main_learning_goal || '').toLowerCase().trim();
+  const cls = (mat.cls_name || '').toLowerCase().trim();
+
+  // 1. Direct substring matching
+  if (sName && (strand.includes(sName) || goal.includes(sName) || cls.includes(sName))) return true;
+  if (sCode && (strand.includes(sCode) || goal.includes(sCode) || cls.includes(sCode))) return true;
+
+  // 2. DepEd ALS Strand Number matching (LS1, LS2, LS3, LS4, LS5, LS6)
+  const sLsMatch = sName.match(/ls\s*([1-6])/i) || sCode.match(/ls\s*([1-6])/i);
+  if (sLsMatch) {
+    const lsNum = sLsMatch[1];
+    const mLsMatch = strand.match(/ls\s*([1-6])/i) || goal.match(/ls\s*([1-6])/i) || cls.match(/ls\s*([1-6])/i);
+    if (mLsMatch && mLsMatch[1] === lsNum) return true;
+  }
+
+  // 3. Domain keyword fallbacks
+  if (sName.includes('filipino') || sName.includes('tagalog')) {
+    if (strand.includes('filipino') || goal.includes('filipino') || strand.includes('ls1') || goal.includes('ls1') || cls.includes('filipino')) return true;
+  }
+  if (sName.includes('english')) {
+    if (strand.includes('english') || goal.includes('english') || strand.includes('ls1') || goal.includes('ls1')) return true;
+  }
+  if (sName.includes('math') || sName.includes('problem solving') || sName.includes('arithmetic')) {
+    if (strand.includes('math') || strand.includes('ls3') || goal.includes('math') || goal.includes('fraction') || goal.includes('number')) return true;
+  }
+  if (sName.includes('scien') || sName.includes('critical thinking')) {
+    if (strand.includes('scien') || strand.includes('ls2') || goal.includes('scien') || goal.includes('plant') || goal.includes('ecosystem')) return true;
+  }
+  if (sName.includes('comm') || sName.includes('reading') || sName.includes('writing')) {
+    if (strand.includes('comm') || strand.includes('ls1') || goal.includes('comm') || goal.includes('reading')) return true;
+  }
+  if (sName.includes('digit') || sName.includes('computer') || sName.includes('ict') || sName.includes('technology')) {
+    if (strand.includes('digit') || strand.includes('ls6') || goal.includes('digit') || goal.includes('computer') || goal.includes('online')) return true;
+  }
+  if (sName.includes('life') || sName.includes('career') || sName.includes('employ')) {
+    if (strand.includes('life') || strand.includes('career') || strand.includes('ls4')) return true;
+  }
+  if (sName.includes('self') || sName.includes('society') || sName.includes('community')) {
+    if (strand.includes('self') || strand.includes('society') || strand.includes('ls5')) return true;
+  }
+  if (sName.includes('basic') || sName.includes('literacy') || sName.includes('foundational')) {
+    if (strand.includes('blp') || strand.includes('basic') || goal.includes('patinig') || goal.includes('sound')) return true;
   }
 
   return false;

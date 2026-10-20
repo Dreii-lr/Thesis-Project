@@ -29,6 +29,7 @@ from app.features.assessments.router import router as assessments_router
 from app.features.assessments.analysis.router import router as cohort_analysis_router
 from app.features.user_categories.router import router as user_categories_router
 from app.features.subjects.router import router as subjects_router
+from app.features.flashcards.router import router as flashcards_router
 
 
 @asynccontextmanager
@@ -36,6 +37,21 @@ async def lifespan(app: FastAPI):
     # Startup tasks
     initialize_firebase()
     Path("static/uploads/subjects").mkdir(parents=True, exist_ok=True)
+
+    # Ensure tables for isolated flashcards feature exist and match current schema
+    try:
+        from sqlmodel import SQLModel
+        from sqlalchemy import text
+        from app.core.database import engine
+        import app.features.flashcards.models  # noqa: F401
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+            await conn.execute(text("ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS program VARCHAR;"))
+            await conn.execute(text("ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS subject VARCHAR;"))
+            await conn.execute(text("ALTER TABLE flashcard_decks DROP COLUMN IF EXISTS subject_id;"))
+            await conn.execute(text("ALTER TABLE flashcard_decks DROP COLUMN IF EXISTS strand;"))
+    except Exception as exc:
+        print(f"[Lifespan Warning] Could not verify/create tables: {exc}")
 
     yield
     # Shutdown tasks if any
@@ -75,6 +91,7 @@ app.include_router(assessments_router, prefix=constants.API_V1_PREFIX)
 app.include_router(cohort_analysis_router, prefix=constants.API_V1_PREFIX)
 app.include_router(user_categories_router, prefix=constants.API_V1_PREFIX)
 app.include_router(subjects_router, prefix=constants.API_V1_PREFIX)
+app.include_router(flashcards_router, prefix=constants.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])

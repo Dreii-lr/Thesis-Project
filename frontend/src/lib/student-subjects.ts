@@ -4,7 +4,7 @@ import type { UserCategoryDetails } from './user-categories-api';
 import { scheduledEnd } from './assessment-timing';
 
 export function programSubjects(program: UserCategoryDetails): SubjectRecord[] {
-  return program.subjects.filter(subject => subject.is_active && subject.category_id === program.category_id);
+  return (program.subjects || []).filter(subject => subject.is_active && subject.category_id === program.category_id);
 }
 
 export function subjectTasks(tasks: StudentTask[], subject: SubjectRecord): StudentTask[] {

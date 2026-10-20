@@ -469,8 +469,9 @@ class UserService:
         uow: AbstractUnitOfWork,
         offset: int = 0,
         limit: int = 100,
+        role: Optional[UserRole] = None,
     ) -> SuccessfulResponseSchema:
-        data = await uow.users.list(offset=offset, limit=limit)
+        data = await uow.users.list(offset=offset, limit=limit, role=role)
         data_json = jsonable_encoder(data)
         return SuccessfulResponseSchema(
             message="Successfully retrieved users.",

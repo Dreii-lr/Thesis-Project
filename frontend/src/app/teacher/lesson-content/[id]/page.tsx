@@ -553,13 +553,23 @@ export default function DocumentViewPage({
                       </button>
                     </>
                   ) : (
-                    <button
-                      onClick={handleStartEdit}
-                      className="inline-flex h-9 shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3.5 text-[12px] font-semibold text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
-                    >
-                      <Edit2 size={14} className="text-slate-400" />
-                      Edit Content
-                    </button>
+                    <>
+                      <Link
+                        href={`/teacher/flashcards?lessonId=${encodeURIComponent(String(activeContent?.id || ''))}&topic=${encodeURIComponent(String(activeContent?.title || activeLesson?.title || ''))}&materialId=${encodeURIComponent(String(materialId || ''))}&program=${encodeURIComponent(String(material?.als_program || ''))}`}
+                        className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-indigo-200 bg-indigo-50/70 px-3.5 text-[12px] font-semibold text-indigo-700 shadow-2xs transition-colors hover:bg-indigo-100 hover:text-indigo-800"
+                        title="Generate study flashcards directly from this lesson module"
+                      >
+                        <Sparkles size={14} className="text-indigo-600" />
+                        Generate Flashcards
+                      </Link>
+                      <button
+                        onClick={handleStartEdit}
+                        className="inline-flex h-9 shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3.5 text-[12px] font-semibold text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+                      >
+                        <Edit2 size={14} className="text-slate-400" />
+                        Edit Content
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

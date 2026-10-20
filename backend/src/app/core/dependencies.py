@@ -21,6 +21,7 @@ from app.features.users.schemas import UserRead
 if TYPE_CHECKING:
     from app.features.assessments.service import AssessmentService
     from app.features.assessments.analysis.service import CohortAnalysisService
+    from app.features.flashcards.service import FlashcardService
     from app.features.subjects.service import SubjectService
     from app.features.user_categories.service import UserCategoryService
 
@@ -109,3 +110,11 @@ def get_cohort_analysis_service(
 ) -> CohortAnalysisService:
     from app.features.assessments.analysis.service import CohortAnalysisService
     return CohortAnalysisService(uow)
+
+
+def get_flashcard_service(
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> FlashcardService:
+    from app.features.flashcards.service import FlashcardService
+    return FlashcardService(uow)
+

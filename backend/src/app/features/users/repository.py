@@ -90,7 +90,7 @@ class UserRepository:
         stmt = _user_query().where(User.account_id == account_id)
         result = await self._session.execute(stmt)
         data = result.scalar_one_or_none()
-        print(data)
+
         if data is not None:
             user_read = UserRead.model_validate(data)
             return user_read
@@ -111,23 +111,34 @@ class UserRepository:
             return user_read
         return None
 
-    async def list(self, offset: int = 0, limit: int = 100) -> ListUserRead:
+    async def list(self, offset: int = 0, limit: int = 100, role: UserRole | None = UserRole.STUDENT) -> ListUserRead:
         """
         List users with pagination, including all normalized details (personal, contact, family)
         matching the ListUserRead response schema.
         """
-        count_stmt = select(func.count(User.user_id)).where(and_(User.role == UserRole.STUDENT,
-                                                                 or_(User.status == UserStatus.ACTIVE,
-                                                                     User.status == UserStatus.COMPLETED)))
+        filter_role = role or UserRole.STUDENT
+        if filter_role == UserRole.STUDENT:
+            count_stmt = select(func.count(User.user_id)).where(and_(User.role == UserRole.STUDENT,
+                                                                     or_(User.status == UserStatus.ACTIVE,
+                                                                         User.status == UserStatus.COMPLETED)))
+            statement = (
+                _user_query().where(and_(User.role == UserRole.STUDENT))
+                .order_by(User.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        else:
+            count_stmt = select(func.count(User.user_id)).where(User.role == filter_role)
+            statement = (
+                _user_query().where(User.role == filter_role)
+                .order_by(User.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+
         total_res = await self._session.execute(count_stmt)
         total = total_res.scalar_one()
 
-        statement = (
-            _user_query().where(and_(User.role == UserRole.STUDENT))
-            .order_by(User.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
         result = await self._session.execute(statement)
         users = result.scalars().all()
 

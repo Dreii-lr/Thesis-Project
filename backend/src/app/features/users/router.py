@@ -89,6 +89,21 @@ async def list_users(
     return SharedUtils.SuccessfulResponse(response)
 
 
+@router.get("/teachers", status_code=status.HTTP_200_OK)
+async def list_teachers(
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=500),
+        current_user: UserRead = Depends(require_admin_teacher),
+        uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    List teacher accounts with pagination.
+    Accessible to Admin and Teacher.
+    """
+    response = await UserService.list_users(uow, offset=offset, limit=limit, role=UserRole.TEACHER)
+    return SharedUtils.SuccessfulResponse(response)
+
+
 @router.post("/change-password", status_code=status.HTTP_200_OK)
 async def change_password(
         data: ChangePasswordRequest,

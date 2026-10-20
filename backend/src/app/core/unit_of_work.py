@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from app.features.assessments.repository import AssessmentRepository
     from app.features.attendance.repository import AttendanceRepository
     from app.features.auth.repository import SessionRepository
+    from app.features.flashcards.repository import FlashcardRepository
     from app.features.subjects.repository import SubjectRepository
     from app.features.user_categories.repository import UserCategoryRepository
     from app.features.users.repository import UserRepository
@@ -57,6 +58,7 @@ class AbstractUnitOfWork(ABC):
     assessments: "AssessmentRepository"
     user_categories: "UserCategoryRepository"
     subjects: "SubjectRepository"
+    flashcards: "FlashcardRepository"
 
     async def __aenter__(self) -> "AbstractUnitOfWork":
         return self
@@ -98,6 +100,7 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
         from app.features.assessments.repository import AssessmentRepository
         from app.features.attendance.repository import AttendanceRepository
         from app.features.auth.repository import SessionRepository
+        from app.features.flashcards.repository import FlashcardRepository
         from app.features.subjects.repository import SubjectRepository
         from app.features.user_categories.repository import UserCategoryRepository
         from app.features.users.repository import UserRepository
@@ -110,6 +113,7 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
         self.assessments = AssessmentRepository(self._session)
         self.user_categories = UserCategoryRepository(self._session)
         self.subjects = SubjectRepository(self._session)
+        self.flashcards = FlashcardRepository(self._session)
         return self
 
     async def __aexit__(
@@ -126,7 +130,6 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
 
 
     async def commit(self) -> None:
-        assert self._session is not None, "UoW not entered — use `async with uow:`"
         await self._session.commit()
 
     async def rollback(self) -> None:

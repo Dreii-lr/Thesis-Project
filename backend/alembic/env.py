@@ -13,6 +13,7 @@ from app.features.user_categories.models import *
 from app.features.assessments.models import *
 from app.features.attendance.models import *
 from app.features.users.models import *
+from app.features.flashcards.models import *
 
 
 

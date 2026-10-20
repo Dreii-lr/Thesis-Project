@@ -35,6 +35,7 @@ export default function StudentSidebar() {
   const pathname = usePathname();
   const { subjects, program, loading, error, reload } = useStudentSubjects();
   const [subjectsOpen, setSubjectsOpen] = useState(true);
+  const [flashcardsOpen, setFlashcardsOpen] = useState(true);
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(`${href}/`);
@@ -85,22 +86,172 @@ export default function StudentSidebar() {
             const Icon = item.icon;
 
             if (item.name === 'My Subjects') {
-              if (!isExpanded) return <Link key={item.name} href={item.href} title="My Subjects" aria-label="My Subjects" className={`flex h-11 items-center justify-center rounded-xl ${active ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100' : 'text-slate-400 hover:bg-slate-50'}`}><BookOpen size={18} /></Link>;
-              return <div key={item.name}>
-                <button type="button" aria-expanded={subjectsOpen} aria-controls="student-subject-list" onClick={() => setSubjectsOpen(value => !value)} className={`group relative flex min-h-11 w-full items-center rounded-xl px-3 text-left transition-all duration-200 ${active ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}>
-                  {active && <span className="absolute left-0 h-5 w-1 rounded-r-full bg-blue-600" />}
-                  <BookOpen size={18} className={`shrink-0 ${active ? 'text-blue-600' : 'text-slate-400'}`} />
-                  <span className="ml-3 flex-1 text-[12px] font-medium">My Subjects</span>
-                  <ChevronDown size={14} className={`transition-transform ${subjectsOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {subjectsOpen && <div id="student-subject-list" className="mb-2 ml-5 mt-1.5 space-y-0.5 border-l border-slate-100 pl-2.5">
-                  <div className="flex items-center justify-between gap-2 px-2 py-1.5">{program && <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-400">{program.name}</p>}<button type="button" aria-label="Refresh subjects" title="Refresh subjects" disabled={loading} onClick={reload} className="rounded-md p-1 text-slate-400 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50"><RefreshCw size={11} className={loading ? 'animate-spin' : ''} /></button></div>
-                  {loading && <p role="status" className="px-2 py-2 text-xs text-slate-400">Loading subjects...</p>}
-                  {error && <p role="alert" className="px-2 py-2 text-xs leading-5 text-rose-600">{error}</p>}
-                  {!loading && !error && subjects.map(subject => <Link key={subject.subject_id} href={subjectHref(subject.subject_id)} title={subject.name} aria-current={isActive(subjectHref(subject.subject_id)) ? 'page' : undefined} className={`flex items-start gap-2 rounded-lg px-2 py-2 text-[11px] leading-4 transition-colors ${isActive(subjectHref(subject.subject_id)) ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-current" /><span className="line-clamp-2 break-words">{subject.name}</span></Link>)}
-                  {!loading && !error && !subjects.length && <p className="px-2 py-2 text-xs leading-5 text-slate-400">No subjects are available for your learning program yet.</p>}
-                </div>}
-              </div>;
+              if (!isExpanded) {
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    title="My Subjects"
+                    aria-label="My Subjects"
+                    className={`flex h-11 items-center justify-center rounded-xl ${
+                      active
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100'
+                        : 'text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <BookOpen size={18} />
+                  </Link>
+                );
+              }
+              return (
+                <div key={item.name}>
+                  <button
+                    type="button"
+                    aria-expanded={subjectsOpen}
+                    aria-controls="student-subject-list"
+                    onClick={() => setSubjectsOpen((value) => !value)}
+                    className={`group relative flex min-h-11 w-full items-center rounded-xl px-3 text-left transition-all duration-200 ${
+                      active
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
+                    }`}
+                  >
+                    {active && <span className="absolute left-0 h-5 w-1 rounded-r-full bg-blue-600" />}
+                    <BookOpen
+                      size={18}
+                      className={`shrink-0 ${active ? 'text-blue-600' : 'text-slate-400'}`}
+                    />
+                    <span className="ml-3 flex-1 text-[12px] font-medium">My Subjects</span>
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform ${subjectsOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {subjectsOpen && (
+                    <div id="student-subject-list" className="mb-2 ml-5 mt-1.5 space-y-0.5 border-l border-slate-100 pl-2.5">
+                      <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                        {program && (
+                          <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+                            {program.name}
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          aria-label="Refresh subjects"
+                          title="Refresh subjects"
+                          disabled={loading}
+                          onClick={reload}
+                          className="rounded-md p-1 text-slate-400 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50"
+                        >
+                          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+                        </button>
+                      </div>
+                      {loading && <p role="status" className="px-2 py-2 text-xs text-slate-400">Loading subjects...</p>}
+                      {error && <p role="alert" className="px-2 py-2 text-xs leading-5 text-rose-600">{error}</p>}
+                      {!loading &&
+                        !error &&
+                        (subjects || []).map((subject) => (
+                          <Link
+                            key={subject.subject_id}
+                            href={subjectHref(subject.subject_id)}
+                            title={subject.name}
+                            aria-current={isActive(subjectHref(subject.subject_id)) ? 'page' : undefined}
+                            className={`flex items-start gap-2 rounded-lg px-2 py-2 text-[11px] leading-4 transition-colors ${
+                              isActive(subjectHref(subject.subject_id))
+                                ? 'bg-blue-50 font-medium text-blue-700'
+                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                            }`}
+                          >
+                            <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-current" />
+                            <span className="line-clamp-2 break-words">{subject.name}</span>
+                          </Link>
+                        ))}
+                      {!loading && !error && !(subjects || []).length && (
+                        <p className="px-2 py-2 text-xs leading-5 text-slate-400">
+                          No subjects are available for your learning program yet.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            if (item.name === 'Flashcards') {
+              if (!isExpanded) {
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    title="Flashcards"
+                    aria-label="Flashcards"
+                    className={`flex h-11 items-center justify-center rounded-xl ${
+                      active
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100'
+                        : 'text-slate-400 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Layers3 size={18} />
+                  </Link>
+                );
+              }
+              return (
+                <div key={item.name}>
+                  <div
+                    className={`group relative flex min-h-11 w-full items-center justify-between rounded-xl px-3 transition-all duration-200 ${
+                      active
+                        ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
+                    }`}
+                  >
+                    <Link href="/student/flashcards" className="flex flex-1 items-center min-w-0">
+                      {active && <span className="absolute left-0 h-5 w-1 rounded-r-full bg-blue-600" />}
+                      <Layers3
+                        size={18}
+                        className={`shrink-0 ${active ? 'text-blue-600' : 'text-slate-400'}`}
+                      />
+                      <span className="ml-3 truncate text-[12px] font-medium">Flashcards</span>
+                    </Link>
+                    <button
+                      type="button"
+                      aria-expanded={flashcardsOpen}
+                      onClick={() => setFlashcardsOpen((value) => !value)}
+                      className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+                    >
+                      <ChevronDown
+                        size={14}
+                        className={`transition-transform duration-200 ${
+                          flashcardsOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {flashcardsOpen && (
+                    <div className="mb-2 ml-5 mt-1.5 space-y-0.5 border-l border-slate-100 pl-2.5">
+                      <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                        {program && (
+                          <p className="truncate text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+                            {program.name}
+                          </p>
+                        )}
+                      </div>
+                      {loading && <p role="status" className="px-2 py-1 text-xs text-slate-400">Loading subjects...</p>}
+                      {!loading &&
+                        (subjects || []).map((subject) => (
+                          <Link
+                            key={subject.subject_id}
+                            href={`/student/flashcards?subject=${subject.subject_id}`}
+                            title={subject.name}
+                            className="flex items-start gap-2 rounded-lg px-2 py-1.5 text-[11px] leading-4 text-slate-500 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                          >
+                            <span aria-hidden="true" className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-current" />
+                            <span className="line-clamp-1 break-words">{subject.name}</span>
+                          </Link>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
             }
 
             return (
