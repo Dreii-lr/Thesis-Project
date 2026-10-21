@@ -61,6 +61,11 @@ class FlashcardAIGenerateRequest(BaseModel):
         validation_alias=AliasChoices("generation_scope", "generationScope", "scope"),
         description="'FULL_MODULE' or 'SINGLE_TOPIC'",
     )
+    force_regenerate: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("force_regenerate", "forceRegenerate"),
+        description="If true, bypasses existing cached deck check and generates afresh via AI.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -146,6 +151,18 @@ class FlashcardDeckCreatePayload(BaseModel):
         validation_alias=AliasChoices("author_role", "authorRole"),
     )
     cards: List[FlashcardCardCreatePayload] = Field(default_factory=list)
+    material_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("material_id", "materialId"),
+    )
+    lesson_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("lesson_id", "lessonId"),
+    )
+    generation_scope: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("generation_scope", "generationScope", "scope"),
+    )
 
 
 class FlashcardDeckUpdatePayload(BaseModel):
@@ -164,6 +181,18 @@ class FlashcardDeckUpdatePayload(BaseModel):
     )
     tags: Optional[List[str]] = None
     difficulty: Optional[str] = None
+    material_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("material_id", "materialId"),
+    )
+    lesson_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("lesson_id", "lessonId"),
+    )
+    generation_scope: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("generation_scope", "generationScope", "scope"),
+    )
     cards: Optional[List[FlashcardCardCreatePayload]] = None
 
 
@@ -231,6 +260,24 @@ class FlashcardDeckRead(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     cards: List[FlashcardCardRead] = Field(default_factory=list)
+    material_id: Optional[str] = None
+    lesson_id: Optional[str] = None
+    generation_scope: Optional[str] = None
+
+    @computed_field
+    @property
+    def materialId(self) -> Optional[str]:
+        return self.material_id
+
+    @computed_field
+    @property
+    def lessonId(self) -> Optional[str]:
+        return self.lesson_id
+
+    @computed_field
+    @property
+    def generationScope(self) -> Optional[str]:
+        return self.generation_scope
 
     @computed_field
     @property
@@ -325,7 +372,21 @@ class FlashcardDeckListRead(BaseModel):
 
 class FlashcardAIGenerateResponse(BaseModel):
     """Response returned when an AI deck is generated."""
+    model_config = ConfigDict(populate_by_name=True)
+
     title: str
     description: str
     tags: List[str] = Field(default_factory=list)
     cards: List[FlashcardCardRead]
+    is_existing: bool = False
+    existing_deck_id: Optional[str] = None
+
+    @computed_field
+    @property
+    def isExisting(self) -> bool:
+        return self.is_existing
+
+    @computed_field
+    @property
+    def existingDeckId(self) -> Optional[str]:
+        return self.existing_deck_id

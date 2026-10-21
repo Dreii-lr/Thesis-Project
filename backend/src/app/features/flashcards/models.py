@@ -36,6 +36,9 @@ class FlashcardDeck(SQLModel, table=True):
     created_by_user_id: Optional[str] = Field(default=None, index=True, nullable=True)
     author_name: Optional[str] = Field(default=None, nullable=True)
     author_role: Optional[str] = Field(default="teacher", nullable=True)
+    material_id: Optional[str] = Field(default=None, index=True, nullable=True)
+    lesson_id: Optional[str] = Field(default=None, index=True, nullable=True)
+    generation_scope: Optional[str] = Field(default=None, index=True, nullable=True)
 
     @property
     def program_code(self) -> str:

@@ -47,6 +47,15 @@ export default function StudentResultDetails({ record, subjectName, onClose, onR
           <div className="mt-4 space-y-3">{answers.map((answer, index) => <article key={`${answer.id}-${index}`} className="rounded-xl border border-slate-200 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Question {index + 1}</span><span className={`rounded-full px-2 py-1 text-[9px] font-semibold ${answer.essay ? graded ? 'bg-slate-100 text-slate-500' : 'bg-amber-50 text-amber-700' : answer.correct === true ? 'bg-emerald-50 text-emerald-700' : answer.correct === false ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>{answer.essay ? graded ? 'Included in final result' : 'Awaiting teacher review' : answer.correct === true ? 'Correct' : answer.correct === false ? 'Incorrect' : 'Not marked'}</span></div>
             <p className="mt-3 whitespace-pre-line break-words text-xs font-semibold leading-6 text-slate-700">{answer.question}</p>
+            {answer.imageUrl && (
+              <div className="mt-2.5 overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50 p-2 max-h-60 flex items-center justify-center">
+                <img
+                  src={answer.imageUrl}
+                  alt={`Question ${index + 1} illustration`}
+                  className="max-h-52 max-w-full rounded-lg object-contain"
+                />
+              </div>
+            )}
             <p className="mt-2 whitespace-pre-line break-words rounded-lg bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-500"><span className="font-medium text-slate-600">Your answer: </span>{answer.answer.trim() || 'No answer submitted'}</p>
             {answer.points !== null && answer.maxPoints !== null && <p className="mt-2 text-right text-[10px] font-semibold text-slate-400">{resultNumber(answer.points)} / {resultNumber(answer.maxPoints)} points</p>}
           </article>)}</div>

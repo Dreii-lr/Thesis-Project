@@ -83,7 +83,8 @@ async def create_flashcard_deck(
     Restricted to Teachers and Admins.
     """
     response = await service.create_deck(data, current_user)
-    response.status_code = status.HTTP_201_CREATED
+    if not response.status_code:
+        response.status_code = status.HTTP_201_CREATED
     return SharedUtils.SuccessfulResponse(response)
 
 

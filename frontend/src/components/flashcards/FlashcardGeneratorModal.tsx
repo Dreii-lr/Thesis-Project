@@ -77,6 +77,8 @@ export default function FlashcardGeneratorModal({
   const [generatedCards, setGeneratedCards] = useState<StudyCard[]>([]);
   const [generatedTitle, setGeneratedTitle] = useState('');
   const [generatedDescription, setGeneratedDescription] = useState('');
+  const [isExistingDeck, setIsExistingDeck] = useState(false);
+  const [existingDeckId, setExistingDeckId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   // Grounded Lesson and Module selection states
@@ -255,6 +257,8 @@ export default function FlashcardGeneratorModal({
 
     setError('');
     setIsGenerating(true);
+    setIsExistingDeck(false);
+    setExistingDeckId(null);
 
     try {
       const targetTopic =
@@ -279,6 +283,10 @@ export default function FlashcardGeneratorModal({
         setGeneratedCards(aiResult.cards);
         if (aiResult.title) setGeneratedTitle(aiResult.title);
         if (aiResult.description) setGeneratedDescription(aiResult.description);
+        if (aiResult.isExisting) {
+          setIsExistingDeck(true);
+          setExistingDeckId(aiResult.existingDeckId || null);
+        }
       } else {
         throw new Error('No cards were returned by the generator.');
       }
@@ -329,6 +337,7 @@ export default function FlashcardGeneratorModal({
     const finalDesc = generatedDescription.trim() || fallbackDesc;
 
     onGenerated({
+      id: existingDeckId || undefined,
       title: finalTitle,
       description: finalDesc,
       categoryId: activeCategory?.category_id,
@@ -337,6 +346,9 @@ export default function FlashcardGeneratorModal({
       subjectId,
       subject: subjectName,
       cards: generatedCards,
+      materialId: selectedMaterialId || activeMaterialObj?.id || null,
+      lessonId: generationScope === 'SINGLE_TOPIC' ? (selectedLessonId || null) : null,
+      generationScope: generationScope || null,
     });
     onClose();
   };
@@ -676,6 +688,13 @@ export default function FlashcardGeneratorModal({
               </div>
               <span className="text-[11px] text-emerald-600 font-semibold shrink-0">Ready to review</span>
             </div>
+
+            {isExistingDeck && (
+              <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800">
+                <Sparkles size={15} className="text-emerald-600 shrink-0" />
+                <span>⚡ Existing study set found in database (0 AI tokens used). Saving will update this set.</span>
+              </div>
+            )}
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
               {generatedCards.map((c, i) => (

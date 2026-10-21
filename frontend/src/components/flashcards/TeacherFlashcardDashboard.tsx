@@ -92,6 +92,9 @@ function FlashcardDashboardContent({
           subjectId?: string;
           subject: string;
           cards: StudyCard[];
+          materialId?: string | null;
+          lessonId?: string | null;
+          generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
         };
     initialCards?: StudyCard[];
     initialProgramCode?: string;
@@ -672,6 +675,7 @@ function FlashcardDashboardContent({
           onGenerated={(data) => {
             setEditor({
               existing: {
+                id: data.id,
                 title: data.title,
                 description: data.description,
                 categoryId: data.categoryId,
@@ -680,6 +684,9 @@ function FlashcardDashboardContent({
                 subjectId: data.subjectId,
                 subject: data.subject,
                 cards: data.cards,
+                materialId: data.materialId,
+                lessonId: data.lessonId,
+                generationScope: data.generationScope,
               },
             });
           }}

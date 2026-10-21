@@ -237,6 +237,16 @@ function AssessmentAttempt({ id }: { id: string }) {
         {question && <section key={question.id} className="flex min-h-[calc(100dvh-220px)] min-w-0 flex-col gap-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex items-center justify-between gap-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">Question {current + 1} of {delivery.questions.length}</p><span className="rounded-full bg-slate-50 px-3 py-1 text-[10px] font-medium text-slate-500">{question.points_per_item} pts</span></div>
           <label htmlFor={`answer-${question.id}`} className="block whitespace-pre-line text-lg font-semibold leading-8 text-slate-800 sm:text-xl">{question.category_type === 'Matching Type' ? question.premise : question.text}</label>
+          {question.image_url && (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/50 p-2 sm:p-3 flex items-center justify-center max-h-96">
+              <img
+                src={question.image_url}
+                alt={`Question ${current + 1} illustration`}
+                className="max-h-80 max-w-full rounded-xl object-contain shadow-2xs"
+                loading="eager"
+              />
+            </div>
+          )}
           {question.category_type === 'Essay' ? <textarea id={`answer-${question.id}`} value={answers[question.id] || ''} onChange={event => handleAnswer(question.id, event.target.value)} rows={5} className={inputClass} />
             : question.category_type === 'Matching Type' ? <select id={`answer-${question.id}`} value={answers[question.id] || ''} onChange={event => handleAnswer(question.id, event.target.value)} className={inputClass}><option value="">Choose a match</option>{question.matching_pool?.map(option => <option key={option} value={option}>{option}</option>)}</select>
             : <div id={`answer-${question.id}`} className="space-y-3" role="radiogroup" aria-label={`Answers for question ${current + 1}`}>

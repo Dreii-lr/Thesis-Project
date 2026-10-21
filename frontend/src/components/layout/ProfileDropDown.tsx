@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { ChevronDown, Loader2, LogOut, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -102,9 +103,21 @@ export default function ProfileDropdown() {
         aria-expanded={isOpen}
         aria-label="Open profile menu"
       >
-        <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-xs font-bold text-blue-700">
-          {displayName.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
-        </span>
+        {activeUser?.profile_url?.public_url ? (
+          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-xl border border-blue-100 bg-blue-50 shadow-sm">
+            <Image
+              src={activeUser.profile_url.public_url}
+              alt={displayName}
+              fill
+              unoptimized
+              className="object-cover"
+            />
+          </div>
+        ) : (
+          <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-xs font-bold text-blue-700">
+            {displayName.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
+          </span>
+        )}
 
         <div className="hidden min-w-0 text-left md:block">
           <p className="max-w-28 truncate text-[13px] font-semibold leading-4 text-slate-800">

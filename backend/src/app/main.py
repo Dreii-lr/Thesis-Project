@@ -22,6 +22,7 @@ from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
 from app.core.firebase import initialize_firebase
+from app.core.cloudinary import initialize_cloudinary
 from app.features.auth.router import router as auth_router
 from app.features.attendance.router import router as attendance_router
 from app.features.users.router import router as users_router
@@ -36,23 +37,7 @@ from app.features.flashcards.router import router as flashcards_router
 async def lifespan(app: FastAPI):
     # Startup tasks
     initialize_firebase()
-    Path("static/uploads/subjects").mkdir(parents=True, exist_ok=True)
-
-    # Ensure tables for isolated flashcards feature exist and match current schema
-    try:
-        from sqlmodel import SQLModel
-        from sqlalchemy import text
-        from app.core.database import engine
-        import app.features.flashcards.models  # noqa: F401
-        async with engine.begin() as conn:
-            await conn.run_sync(SQLModel.metadata.create_all)
-            await conn.execute(text("ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS program VARCHAR;"))
-            await conn.execute(text("ALTER TABLE flashcard_decks ADD COLUMN IF NOT EXISTS subject VARCHAR;"))
-            await conn.execute(text("ALTER TABLE flashcard_decks DROP COLUMN IF EXISTS subject_id;"))
-            await conn.execute(text("ALTER TABLE flashcard_decks DROP COLUMN IF EXISTS strand;"))
-    except Exception as exc:
-        print(f"[Lifespan Warning] Could not verify/create tables: {exc}")
-
+    initialize_cloudinary()
     yield
     # Shutdown tasks if any
 
@@ -63,9 +48,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Static file serving (e.g. uploaded subject images)
-Path("static/uploads/subjects").mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # CORS configuration
 if constants.ALLOWED_ORIGINS:

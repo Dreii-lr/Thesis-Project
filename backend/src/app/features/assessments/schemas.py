@@ -26,6 +26,7 @@ class QuestionItemSchema(BaseModel):
     correct_answer: Optional[str] = None
     premise: Optional[str] = None
     match: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class CategoryConfigSchema(BaseModel):
@@ -214,6 +215,7 @@ class QuestionStudentView(BaseModel):
     premise: Optional[str] = None
     match: Optional[str] = None
     matching_pool: Optional[List[str]] = None  # Shuffled Column B matches for selection
+    image_url: Optional[str] = None
 
 
 class StudentDeliveryPayload(BaseModel):

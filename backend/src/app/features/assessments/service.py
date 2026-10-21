@@ -160,12 +160,13 @@ class AssessmentService:
         assessment_id: str,
         teacher_id: str,
         data: AssessmentUpdateSchema,
+        is_admin: bool = False,
     ) -> SuccessfulResponseSchema:
         assessment = await self.uow.assessments.get_assessment_by_id(assessment_id)
         if not assessment:
             raise DomainEntityNotFoundException("Assessment not found.")
 
-        if assessment.teacher_id != teacher_id:
+        if not is_admin and assessment.teacher_id != teacher_id:
             raise DomainForbiddenDomainException("You are not authorized to update this assessment.")
 
         # Guard: check if assessment is completed or students are taking it
@@ -216,6 +217,7 @@ class AssessmentService:
                 questions_record.total_pool_items = total_pool
                 questions_record.total_required_items = total_required
                 questions_record.updated_at = utc_now()
+                flag_modified(questions_record, "categories_data")
             else:
                 new_q = AssessmentQuestions(
                     assessment_id=assessment_id,
@@ -473,6 +475,7 @@ class AssessmentService:
                         "premise": None if str(c_type).lower() == "essay" else q.get("premise"),
                         "match": None,  # Hide match answer!
                         "matching_pool": matching_pool if c_type == "Matching Type" else None,
+                        "image_url": q.get("image_url") or None,
                     }
                     delivered_questions.append(item_dict)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import date
 import logging
-from typing import Any
+from typing import Any, Optional
 import uuid
 
 from fastapi.encoders import jsonable_encoder
@@ -18,6 +18,7 @@ from app.core.exceptions import (
     DomainInvalidCredentialsException,
     DomainValidationDomainException,
 )
+from app.core.cloudinary import cloudinary_service
 from app.core.firebase import (
     create_firebase_new_user,
     check_email_in_firebase,
@@ -43,7 +44,7 @@ from app.features.users.schemas import (
     TeacherCreate,
     UserCreate,
     UserRead,
-    UserUpdate,
+    UserUpdate, ProfileUrl,
 )
 from app.features.users.utils import UsersUtils
 from app.shared.schema import AdditionalData, SuccessfulResponseSchema
@@ -648,4 +649,86 @@ class UserService:
             message_status="PASSWORD_CHANGED",
             status_code=200,
         )
+
+    @staticmethod
+    async def update_profile_picture(
+        uow: AbstractUnitOfWork,
+        user_id: str,
+        file_bytes: bytes,
+        filename: str,
+    ) -> SuccessfulResponseSchema:
+        """
+        Dedicated update operation for user profile picture.
+        Only operates on an already existing user entity (completely separated from creation/insertion).
+        """
+        user = await uow.users.get_entity_with_details(user_id)
+        if not user:
+            raise DomainEntityNotFoundException(f"User '{user_id}' not found.")
+
+        # Extract previous public_id to purge old asset from Cloudinary
+        old_public_id = None
+        if user.profile_url:
+            old_public_id = user.profile_url.public_id
+
+        # Upload as-is into organized folder 'profiles/{user_id}'
+        upload_result = await cloudinary_service.upload_image(
+            file_bytes=file_bytes,
+            filename=filename,
+            folder=f"profiles/{user_id}",
+        )
+
+        # Clean up old Cloudinary asset
+        if old_public_id:
+            try:
+                await cloudinary_service.delete_image(old_public_id)
+            except Exception as exc:
+                logger.warning("Failed to delete previous profile image %s: %s", old_public_id, exc)
+
+        # Update existing user entity JSON
+        user.updated_at = utc_now()
+        user.profile_url = ProfileUrl(
+            public_id= upload_result.public_id,
+            public_url= upload_result.secure_url,
+        )
+        user_dict = {"profile_url":{
+            "public_id": upload_result.public_id,
+            "public_url": upload_result.secure_url,
+        }}
+        user.password = None
+        await uow.users.update(user_id,user_dict)
+        return SuccessfulResponseSchema(
+            message="Profile picture updated successfully.",
+            message_status="SUCCESS_UPDATE",
+            status_code=200,
+            data = AdditionalData(resources=user.model_dump())
+        )
+
+    @staticmethod
+    async def delete_profile_picture(
+        uow: AbstractUnitOfWork,
+        user_id: str,
+    ) -> SuccessfulResponseSchema:
+        """
+        Dedicated removal operation for user profile picture.
+        """
+        user = await uow.users.get_entity_with_details(user_id)
+        if not user:
+            raise DomainEntityNotFoundException(f"User '{user_id}' not found.")
+
+        if user.profile_url and isinstance(user.profile_url, dict):
+            public_id = user.profile_url.get("public_id")
+            if public_id:
+                await cloudinary_service.delete_image(public_id)
+
+        user.profile_url = None
+        user.updated_at = utc_now()
+
+        updated_user = await uow.users.get_by_id_with_details(user_id)
+        return SuccessfulResponseSchema(
+            message="Profile picture removed successfully.",
+            message_status="SUCCESS_DELETE",
+            status_code=200,
+            data=AdditionalData(resources=jsonable_encoder(updated_user)),
+        )
+
 

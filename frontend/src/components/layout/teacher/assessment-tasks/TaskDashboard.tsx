@@ -58,7 +58,7 @@ export default function TaskDashboard({
                 ? !q.premise?.trim() || !q.match?.trim()
                 : category.type === "Essay"
                   ? !q.text?.trim()
-                  : !q.text?.trim() ||
+                  : (!q.text?.trim() && !q.image_url) ||
                     !q.correct_answer?.trim() ||
                     (category.type === "Multiple Choice" &&
                       (!q.options?.length ||

@@ -6,6 +6,7 @@ export type TaskStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'COMPLETED';
 export type TaskType = 'ACTIVITY' | 'QUIZ' | 'EXAM' | 'TEST' | (string & {});
 export interface QuestionPayload {
   id: string; text: string; options: string[]; correct_answer: string; premise: string; match: string;
+  image_url?: string | null;
 }
 export interface CategoryDataPayload {
   category_id: string; type: string; pool_size: number; required_count: number;
@@ -64,6 +65,15 @@ export function toAssessmentUpdatePayload(task: AssessmentPayload): AssessmentUp
   const { title, description, subject_code, target_category, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score } = task;
   return { title, description, subject_code, target_category, status, start_date, end_date, grace_period_minutes, duration_minutes, max_score,
     ...(task.assessment_type === 'ACTIVITY' ? {} : { categories_data: task.categories_data }) };
+}
+
+export function uploadAssessmentQuestionImage(file: File): Promise<{ image_url: string; public_id: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return teacherRequest<{ image_url: string; public_id: string }>('/question-image', {
+    method: 'POST',
+    body: formData,
+  });
 }
 
 export interface AssessmentRow {
@@ -180,6 +190,7 @@ export interface StudentQuestion {
   options?: string[] | null;
   premise?: string | null;
   matching_pool?: string[] | null;
+  image_url?: string | null;
 }
 
 export interface StudentDelivery {

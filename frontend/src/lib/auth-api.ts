@@ -4,6 +4,11 @@ export type UserRole = DemoRole;
 // Keep session cookies on the frontend origin; Next.js proxies to BACKEND_URL.
 export const API_BASE_URL = '/api/v1';
 
+export interface ProfileUrl {
+  public_id?: string | null;
+  public_url?: string | null;
+}
+
 export interface UserRead {
   id?: string | number;
   user_id?: string;
@@ -16,6 +21,7 @@ export interface UserRead {
   first_name?: string;
   last_name?: string;
   full_name?: string;
+  profile_url?: ProfileUrl | null;
   [key: string]: unknown;
 }
 
@@ -302,3 +308,50 @@ export async function authenticatedRequest<T>(
   }
   return data.resources as T;
 }
+
+export async function uploadProfilePictureApi(file: File, userId?: string): Promise<UserRead> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const path = userId
+    ? `/users/${encodeURIComponent(userId)}/profile-picture`
+    : '/users/profile-picture';
+
+  const response = await authenticatedFetch(path, {
+    method: 'PATCH',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new SessionError(
+      await extractErrorMessage(response, 'Unable to upload profile picture. Please try again.'),
+      response.status
+    );
+  }
+
+  const body = await response.json();
+  clearCurrentUserCache();
+  return body?.data?.resources as UserRead;
+}
+
+export async function deleteProfilePictureApi(userId?: string): Promise<UserRead> {
+  const path = userId
+    ? `/users/${encodeURIComponent(userId)}/profile-picture`
+    : '/users/profile-picture';
+
+  const response = await authenticatedFetch(path, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    throw new SessionError(
+      await extractErrorMessage(response, 'Unable to remove profile picture. Please try again.'),
+      response.status
+    );
+  }
+
+  const body = await response.json();
+  clearCurrentUserCache();
+  return body?.data?.resources as UserRead;
+}
+

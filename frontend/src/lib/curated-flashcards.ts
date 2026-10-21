@@ -71,6 +71,9 @@ export interface CuratedStudyDeck extends StudyDeck {
   authorRole: 'teacher' | 'admin' | 'system';
   createdAt: string;
   updatedAt: string;
+  materialId?: string | null;
+  lessonId?: string | null;
+  generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
 }
 
 export interface CuratedFlashcardInput {
@@ -83,6 +86,9 @@ export interface CuratedFlashcardInput {
   subjectId: string;
   subject: string;
   cards: StudyCard[];
+  materialId?: string | null;
+  lessonId?: string | null;
+  generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
 }
 
 export interface AuthorInfo {

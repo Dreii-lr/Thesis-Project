@@ -37,6 +37,11 @@ class User(SQLModel, table=True):
     role: UserRole = Field(default=UserRole.STUDENT, nullable=False)
     user_category: Optional[UserCategory] = Field(default=UserCategory.SECONDARY, nullable=True)
     status: UserStatus = Field(default=UserStatus.MAPPED, nullable=False)
+    # Profile image JSON {public_id, public_url} — updated separately from creation
+    profile_url: Optional[Dict[str, Any]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),

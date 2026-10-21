@@ -14,11 +14,14 @@ import {
   PenTool,
   Save,
   Lock,
+  ImageIcon,
+  Loader2,
 } from 'lucide-react';
 import {
   AssessmentPayload,
   TargetCategory,
   CategoryDataPayload,
+  uploadAssessmentQuestionImage,
 } from '@/src/lib/assessments-api';
 import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
 import { assessmentEnd, datePart, nextMinute, timePart, validateAssessmentSchedule } from '@/src/lib/assessment-timing';
@@ -102,6 +105,8 @@ export default function AssessmentForm({
   const [activeCategories, setActiveCategories] = useState<CategoryType[]>(initialData?.categories_data.length ? initialData.categories_data.map(category => (category.type === 'True/False' ? 'True or False' : category.type) as CategoryType) : ['Multiple Choice']);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
+  const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
+
   const [mcItems, setMcItems] = useState(mc?.questions.map(q => {
     const choices = {
       A: q.options?.[0] ?? '',
@@ -118,6 +123,7 @@ export default function AssessmentForm({
       question: q.text ?? '',
       choices,
       correctAnswer: resolvedCorrect as 'A' | 'B' | 'C' | 'D',
+      imageUrl: q.image_url ?? null,
     };
   }) ?? [
     {
@@ -125,20 +131,74 @@ export default function AssessmentForm({
       question: '',
       choices: { A: '', B: '', C: '', D: '' },
       correctAnswer: 'A' as 'A' | 'B' | 'C' | 'D',
+      imageUrl: null,
     },
   ]);
   const [mcRequiredDelivery, setMcRequiredDelivery] = useState<number>(mc?.required_count ?? 1);
   const [mcPointsEach, setMcPointsEach] = useState<number>(mc?.points_per_item ?? 1);
 
-  const [tfItems, setTfItems] = useState(tf?.questions.map(q => ({ id: q.id, statement: q.text ?? '', correctAnswer: (q.correct_answer === 'False' ? 'False' : 'True') as 'True' | 'False' })) ?? [
+  const [tfItems, setTfItems] = useState(tf?.questions.map(q => ({
+    id: q.id,
+    statement: q.text ?? '',
+    correctAnswer: (q.correct_answer === 'False' ? 'False' : 'True') as 'True' | 'False',
+    imageUrl: q.image_url ?? null,
+  })) ?? [
     {
       id: 'q_tf_1',
       statement: '',
       correctAnswer: 'True' as 'True' | 'False',
+      imageUrl: null,
     },
   ]);
   const [tfRequiredDelivery, setTfRequiredDelivery] = useState<number>(tf?.required_count ?? 1);
   const [tfPointsEach, setTfPointsEach] = useState<number>(tf?.points_per_item ?? 1);
+
+  const handleUploadQuestionImage = async (
+    questionId: string,
+    file: File,
+    itemType: 'MC' | 'TF'
+  ) => {
+    if (isLocked) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!allowed.includes(file.type.toLowerCase())) {
+      alert('Only JPEG, PNG, and WebP images are allowed.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image file size cannot exceed 5 MB.');
+      return;
+    }
+    setUploadingImageId(questionId);
+    try {
+      const res = await uploadAssessmentQuestionImage(file);
+      if (itemType === 'MC') {
+        setMcItems((prev) =>
+          prev.map((item) => (item.id === questionId ? { ...item, imageUrl: res.image_url } : item))
+        );
+      } else {
+        setTfItems((prev) =>
+          prev.map((item) => (item.id === questionId ? { ...item, imageUrl: res.image_url } : item))
+        );
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Unable to upload image. Please try again.');
+    } finally {
+      setUploadingImageId(null);
+    }
+  };
+
+  const handleRemoveQuestionImage = (questionId: string, itemType: 'MC' | 'TF') => {
+    if (isLocked) return;
+    if (itemType === 'MC') {
+      setMcItems((prev) =>
+        prev.map((item) => (item.id === questionId ? { ...item, imageUrl: null } : item))
+      );
+    } else {
+      setTfItems((prev) =>
+        prev.map((item) => (item.id === questionId ? { ...item, imageUrl: null } : item))
+      );
+    }
+  };
 
   const [matchingPairs, setMatchingPairs] = useState(mt?.questions.map(q => ({ id: q.id, premise: q.premise ?? '', match: q.match ?? '' })) ?? [
     { id: 'q_mt_1', premise: '', match: '' },
@@ -192,6 +252,7 @@ export default function AssessmentForm({
           question: '',
           choices: { A: '', B: '', C: '', D: '' },
           correctAnswer: 'A' as const,
+          imageUrl: null,
         },
       ];
       setMcRequiredDelivery(updated.length);
@@ -216,6 +277,7 @@ export default function AssessmentForm({
           id: `q_tf_${Date.now()}`,
           statement: '',
           correctAnswer: 'True' as const,
+          imageUrl: null,
         },
       ];
       setTfRequiredDelivery(updated.length);
@@ -323,6 +385,7 @@ export default function AssessmentForm({
           correct_answer: item.choices[item.correctAnswer] || item.correctAnswer,
           premise: '',
           match: '',
+          image_url: item.imageUrl?.trim() || null,
         })),
       });
     }
@@ -343,6 +406,7 @@ export default function AssessmentForm({
           correct_answer: item.correctAnswer,
           premise: '',
           match: '',
+          image_url: item.imageUrl?.trim() || null,
         })),
       });
     }
@@ -397,11 +461,11 @@ export default function AssessmentForm({
         if (category.type === 'Matching Type') {
           if (category.questions.some(q => !q.premise.trim() || !q.match.trim())) return alert('Complete all premises and matches before publishing.');
         } else if (category.type === 'Multiple Choice') {
-          if (category.questions.some(q => !q.text.trim() || q.options.some(opt => !opt.trim()))) return alert('Complete all questions and choices before publishing.');
+          if (category.questions.some(q => (!q.text.trim() && !q.image_url) || q.options.some(opt => !opt.trim()))) return alert('Complete all questions and choices before publishing.');
         } else if (category.type === 'Essay') {
           if (category.questions.some(q => !q.text.trim())) return alert('Complete all essay prompts before publishing.');
         } else {
-          if (category.questions.some(q => !q.text.trim())) return alert('Complete all statements before publishing.');
+          if (category.questions.some(q => !q.text.trim() && !q.image_url)) return alert('Complete all statements before publishing.');
         }
       }
     }
@@ -729,6 +793,64 @@ export default function AssessmentForm({
                       className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
                     />
 
+                    {item.imageUrl ? (
+                      <div className="relative inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <img
+                          src={item.imageUrl}
+                          alt={`Question ${idx + 1} illustration`}
+                          className="h-20 w-32 rounded-lg object-contain bg-white border border-slate-200"
+                        />
+                        <div className="flex flex-col gap-1 pr-2">
+                          <span className="text-xs font-semibold text-slate-700">Image attached</span>
+                          <span className="text-[10px] text-slate-400">Shown to students during the assessment</span>
+                          {!isLocked && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveQuestionImage(item.id, 'MC')}
+                              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700"
+                            >
+                              <Trash2 size={12} /> Remove image
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label
+                          className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors ${
+                            isLocked || uploadingImageId === item.id
+                              ? 'cursor-not-allowed opacity-50 bg-slate-50'
+                              : 'cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-600'
+                          }`}
+                        >
+                          {uploadingImageId === item.id ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin text-blue-600" />
+                              <span>Uploading image...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ImageIcon size={13} />
+                              <span>Attach image (optional)</span>
+                            </>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            disabled={isLocked || uploadingImageId === item.id}
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                void handleUploadQuestionImage(item.id, file, 'MC');
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                       {CHOICE_LETTERS.map((letter) => {
                         const isCorrect = item.correctAnswer === letter;
@@ -892,6 +1014,64 @@ export default function AssessmentForm({
                       }}
                       className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-600 focus:outline-none"
                     />
+
+                    {item.imageUrl ? (
+                      <div className="relative inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <img
+                          src={item.imageUrl}
+                          alt={`Question ${idx + 1} illustration`}
+                          className="h-20 w-32 rounded-lg object-contain bg-white border border-slate-200"
+                        />
+                        <div className="flex flex-col gap-1 pr-2">
+                          <span className="text-xs font-semibold text-slate-700">Image attached</span>
+                          <span className="text-[10px] text-slate-400">Shown to students during the assessment</span>
+                          {!isLocked && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveQuestionImage(item.id, 'TF')}
+                              className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700"
+                            >
+                              <Trash2 size={12} /> Remove image
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label
+                          className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors ${
+                            isLocked || uploadingImageId === item.id
+                              ? 'cursor-not-allowed opacity-50 bg-slate-50'
+                              : 'cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-600'
+                          }`}
+                        >
+                          {uploadingImageId === item.id ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin text-blue-600" />
+                              <span>Uploading image...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ImageIcon size={13} />
+                              <span>Attach image (optional)</span>
+                            </>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            disabled={isLocked || uploadingImageId === item.id}
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                void handleUploadQuestionImage(item.id, file, 'TF');
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2.5 sm:max-w-xs">
                       {(['True', 'False'] as const).map((option) => {

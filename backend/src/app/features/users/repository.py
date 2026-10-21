@@ -78,13 +78,17 @@ class UserRepository:
         """Select user including its other info matching UserRead response schema."""
         return await self.get_by_id_with_details(user_id)
 
-    async def get_entity_with_details(self, user_id: str) -> User | None:
+    async def get_entity_with_details(self, user_id: str) -> UserRead | None:
         """
         Select raw User ORM entity including its other info (personal_details, contact_details, family_details).
         """
         statement = _user_query().where(User.user_id == user_id)
         result = await self._session.execute(statement)
-        return result.scalar_one_or_none()
+        data = result.scalar_one_or_none()
+        if data:
+            data.password = None
+
+        return UserRead.model_validate(data) if data is not None else None
 
     async def get_by_account_id(self, account_id: str) -> UserRead | None:
         stmt = _user_query().where(User.account_id == account_id)
@@ -163,7 +167,7 @@ class UserRepository:
         self._session.add(user)
         return user
 
-    async def update(self, user_id, data: dict) -> UserRead:
+    async def update(self, user_id, data: dict):
         stmt = (update(User)
                 .values(**data)
                 .where(User.user_id == user_id))

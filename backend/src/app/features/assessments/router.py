@@ -5,10 +5,12 @@ and response formatting via SharedUtils.SuccessfulResponse.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from starlette.responses import JSONResponse
 
+from app.core.cloudinary import cloudinary_service
 from app.core.dependencies import (
     get_assessment_service,
     get_cohort_analysis_service,
@@ -16,6 +18,7 @@ from app.core.dependencies import (
     require_student,
     require_teacher,
 )
+from app.core.exceptions import DomainValidationDomainException
 from app.features.assessments.analysis.service import CohortAnalysisService
 from app.features.assessments.models import TaskStatus
 from app.features.assessments.schemas import (
@@ -27,19 +30,62 @@ from app.features.assessments.schemas import (
 from app.features.assessments.service import AssessmentService
 from app.features.users.models import UserCategory
 from app.features.users.schemas import UserRead, UserRole
+from app.shared.schema import SuccessfulResponseSchema, AdditionalData
 from app.shared.utils import SharedUtils
 
 router = APIRouter(prefix="/assessments", tags=["Assessments"])
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _validate_image_file(file: UploadFile) -> None:
+    if not file.content_type or file.content_type.lower() not in ALLOWED_IMAGE_TYPES:
+        raise DomainValidationDomainException(
+            "Only JPEG, PNG, and WebP image files are allowed for question images."
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEACHER / ADMIN ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
+@router.post("/question-image", status_code=status.HTTP_201_CREATED, tags=["Teacher Assessments"])
+async def upload_question_image(
+    file: UploadFile = File(...),
+    current_user: UserRead = Depends(require_admin_teacher),
+) -> JSONResponse:
+    """
+    Upload an optional question image directly to Cloudinary as-is.
+    Used for True/False and Multiple Choice question illustrations.
+    """
+    _validate_image_file(file)
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise DomainValidationDomainException("Question image file size cannot exceed 5 MB.")
+
+    upload_result = await cloudinary_service.upload_image(
+        file_bytes=file_bytes,
+        filename=file.filename or f"question_{uuid.uuid4().hex[:8]}.jpg",
+        folder="assessments/questions",
+    )
+
+    response = SuccessfulResponseSchema(
+        message="Question image uploaded successfully.",
+        message_status="SUCCESS_UPLOAD",
+        status_code=status.HTTP_201_CREATED,
+        data=AdditionalData(resources={
+            "image_url": upload_result.secure_url,
+            "public_id": upload_result.public_id,
+        }),
+    )
+    return SharedUtils.SuccessfulResponse(response)
+
+
 @router.post("/", status_code=status.HTTP_201_CREATED, tags=["Teacher Assessments"])
 async def create_assessment(
     data: AssessmentCreateSchema,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: AssessmentService = Depends(get_assessment_service),
 ) -> JSONResponse:
     """
@@ -55,13 +101,18 @@ async def create_assessment(
 async def update_assessment(
     assessment_id: str,
     data: AssessmentUpdateSchema,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: AssessmentService = Depends(get_assessment_service),
 ) -> JSONResponse:
     """
     In-Place update of assessment metadata, schedule, and multi-category question pools.
     """
-    response = await service.update_assessment(assessment_id, current_user.user_id, data)
+    response = await service.update_assessment(
+        assessment_id,
+        current_user.user_id,
+        data,
+        is_admin=(current_user.role == UserRole.ADMIN),
+    )
     response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 
@@ -126,7 +177,7 @@ async def list_assessment_submissions(
 async def get_assessment_submission_details(
     assessment_id: str,
     submission_id: str,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: AssessmentService = Depends(get_assessment_service),
 ) -> JSONResponse:
     """
@@ -146,7 +197,7 @@ async def grade_student_submission(
     assessment_id: str,
     submission_id: str,
     grade_data: ManualGradePayload,
-    current_user: UserRead = Depends(require_teacher),
+    current_user: UserRead = Depends(require_admin_teacher),
     service: AssessmentService = Depends(get_assessment_service),
 ) -> JSONResponse:
     """

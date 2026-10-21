@@ -50,6 +50,12 @@ export interface BackendFlashcardDeck {
   createdAt?: string | null;
   updated_at?: string | null;
   updatedAt?: string | null;
+  material_id?: string | null;
+  materialId?: string | null;
+  lesson_id?: string | null;
+  lessonId?: string | null;
+  generation_scope?: string | null;
+  generationScope?: string | null;
   cards: BackendFlashcardCard[];
 }
 
@@ -100,6 +106,9 @@ export function adaptBackendDeckToCuratedDeck(deck: BackendFlashcardDeck | any):
     programName: programMeta.label || program,
     createdAt: deck.createdAt || deck.created_at || new Date().toISOString(),
     updatedAt: deck.updatedAt || deck.updated_at || new Date().toISOString(),
+    materialId: deck.materialId || deck.material_id || undefined,
+    lessonId: deck.lessonId || deck.lesson_id || undefined,
+    generationScope: deck.generationScope || deck.generation_scope || undefined,
     cards: adaptedCards,
   };
 }
@@ -156,12 +165,16 @@ export async function createFlashcardDeckApi(
   author: AuthorInfo,
 ): Promise<CuratedStudyDeck> {
   const payload = {
+    ...(input.id ? { id: input.id } : {}),
     title: input.title,
     description: input.description,
     program: input.programName || input.programCode || 'Elementary',
     subject: input.subject || 'General Study',
     author_name: author.authorName,
     author_role: author.authorRole,
+    material_id: input.materialId ?? null,
+    lesson_id: input.lessonId ?? null,
+    generation_scope: input.generationScope ?? null,
     cards: input.cards.map((c, idx) => ({
       front: c.term,
       back: c.definition,
@@ -194,6 +207,9 @@ export async function updateFlashcardDeckApi(
     subject: input.subject || 'General Study',
     author_name: author.authorName,
     author_role: author.authorRole,
+    material_id: input.materialId !== undefined ? input.materialId : undefined,
+    lesson_id: input.lessonId !== undefined ? input.lessonId : undefined,
+    generation_scope: input.generationScope !== undefined ? input.generationScope : undefined,
     cards: input.cards.map((c, idx) => ({
       front: c.term,
       back: c.definition,
@@ -235,11 +251,14 @@ export async function generateFlashcardsAIApi(params: {
   subject?: string;
   numCards?: number;
   generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC';
+  forceRegenerate?: boolean;
 }): Promise<{
   title: string;
   description: string;
   tags: string[];
   cards: StudyCard[];
+  isExisting?: boolean;
+  existingDeckId?: string;
 }> {
   const payload = {
     topic: params.topic || undefined,
@@ -249,6 +268,7 @@ export async function generateFlashcardsAIApi(params: {
     program: params.program || params.programCode || 'Elementary',
     subject: params.subject || params.subjectName || undefined,
     num_cards: params.numCards || 5,
+    force_regenerate: params.forceRegenerate || false,
   };
 
   const raw = await authenticatedRequest<{
@@ -256,6 +276,10 @@ export async function generateFlashcardsAIApi(params: {
     description: string;
     tags?: string[];
     cards: BackendFlashcardCard[];
+    is_existing?: boolean;
+    isExisting?: boolean;
+    existing_deck_id?: string | null;
+    existingDeckId?: string | null;
   }>('/flashcards/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -274,5 +298,7 @@ export async function generateFlashcardsAIApi(params: {
     description: raw.description,
     tags: raw.tags || [],
     cards,
+    isExisting: raw.is_existing ?? raw.isExisting ?? false,
+    existingDeckId: raw.existing_deck_id ?? raw.existingDeckId ?? undefined,
   };
 }

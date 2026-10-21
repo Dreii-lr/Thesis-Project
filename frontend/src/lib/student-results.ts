@@ -74,6 +74,7 @@ export interface ReviewedAnswer {
   correct: boolean | null;
   points: number | null;
   maxPoints: number | null;
+  imageUrl?: string | null;
 }
 
 export function reviewedAnswers(submission: SubmissionDetail): ReviewedAnswer[] {
@@ -85,9 +86,10 @@ export function reviewedAnswers(submission: SubmissionDetail): ReviewedAnswer[] 
     if (!item || typeof item !== 'object') return [];
     const row = item as Record<string, unknown>;
     if (typeof row.question_id !== 'string') return [];
-    const question = delivered.find((value: unknown) => value && typeof value === 'object' && (value as Record<string, unknown>).id === row.question_id);
+    const question = delivered.find((value: unknown) => value && typeof value === 'object' && (value as Record<string, unknown>).id === row.question_id) as Record<string, unknown> | undefined;
     const prompt = row.question_text || question?.text || question?.premise;
     const essay = row.type === 'Essay' || question?.category_type === 'Essay';
+    const imageUrl = typeof question?.image_url === 'string' && question.image_url.trim() ? question.image_url.trim() : null;
     return [{
       id: row.question_id,
       question: typeof prompt === 'string' && prompt.trim() ? prompt : `Question ${index + 1}`,
@@ -96,6 +98,7 @@ export function reviewedAnswers(submission: SubmissionDetail): ReviewedAnswer[] 
       correct: !essay && typeof row.is_correct === 'boolean' ? row.is_correct : null,
       points: essay ? null : number(row.points_awarded),
       maxPoints: essay ? null : number(row.max_points),
+      imageUrl,
     }];
   });
 }

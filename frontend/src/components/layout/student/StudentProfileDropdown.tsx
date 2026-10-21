@@ -84,6 +84,8 @@ export default function StudentProfileDropdown() {
     router.push('/student/profile');
   };
 
+  const currentPhoto = activeUser?.profile_url?.public_url || profilePhoto;
+
   return (
     <div className="relative shrink-0" ref={dropdownRef}>
       {signOutError && <p role="alert" className="text-sm text-red-600">{signOutError}</p>}
@@ -94,9 +96,9 @@ export default function StudentProfileDropdown() {
         aria-label="Open student profile menu"
       >
         <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-xs font-bold text-white shadow-sm">
-          {profilePhoto ? (
+          {currentPhoto ? (
             <Image
-              src={profilePhoto}
+              src={currentPhoto}
               alt="Student profile"
               fill
               unoptimized

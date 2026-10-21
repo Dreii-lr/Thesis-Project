@@ -28,6 +28,9 @@ interface EditorProps {
     programCode?: string;
     programName?: string;
     cards: StudyCard[];
+    materialId?: string | null;
+    lessonId?: string | null;
+    generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
   };
   categories?: UserCategoryItem[];
   initialProgramCode?: string;
@@ -280,6 +283,9 @@ export default function FlashcardSetEditor({
       subjectId,
       subject: subjectName,
       cards,
+      materialId: (existing as any)?.materialId ?? null,
+      lessonId: (existing as any)?.lessonId ?? null,
+      generationScope: (existing as any)?.generationScope ?? null,
     };
 
     try {

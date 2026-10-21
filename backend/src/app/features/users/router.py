@@ -3,11 +3,11 @@ router.py — User management API endpoints supporting normalized learner detail
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from starlette.responses import JSONResponse
 
 from app.core.dependencies import require_admin_teacher
-from app.core.exceptions import DomainForbiddenDomainException
+from app.core.exceptions import DomainForbiddenDomainException, DomainValidationDomainException
 from app.core.security import clear_auth_cookies
 from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user, require_roles, require_teacher
@@ -27,8 +27,15 @@ router = APIRouter(prefix="/users", tags=["Users"])
 
 require_admin = require_roles(UserRole.ADMIN)
 
-@router.post("/teacher", status_code=status.HTTP_201_CREATED)
-@router.post("/teachers", status_code=status.HTTP_201_CREATED)
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _validate_image_file(file: UploadFile) -> None:
+    if not file.content_type or file.content_type.lower() not in ALLOWED_IMAGE_TYPES:
+        raise DomainValidationDomainException("Only JPEG, PNG, and WebP image files are allowed for profile pictures.")
+
+
 @router.post("/create-teacher-account", status_code=status.HTTP_201_CREATED)
 async def create_teacher_account(
         data: TeacherCreate,
@@ -44,6 +51,7 @@ async def create_teacher_account(
     response = await UserService.create_teacher_account(uow, data)
     return SharedUtils.SuccessfulResponse(response)
 
+
 @router.post("/mapping", status_code=status.HTTP_201_CREATED)
 async def mapping_student(
         data: UserCreate = Depends(MapStudent.get_map_student_dependency),
@@ -56,21 +64,6 @@ async def mapping_student(
     Accessible to both Admin and Teacher.
     """
     response = await UserService.map_student(uow, data)
-    return SharedUtils.SuccessfulResponse(response)
-
-
-@router.post("/{user_id}", status_code=status.HTTP_201_CREATED)
-async def create_user(
-        user_id: str,
-        current_user: UserRead = Depends(require_admin),
-        uow: AbstractUnitOfWork = Depends(get_uow),
-) -> JSONResponse:
-    """
-    Create a new user account / enroll mapped student with Firebase credentials.
-    Strictly restricted to ADMIN role only.
-    """
-    response = await UserService.create_user(uow, user_id)
-    response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -121,6 +114,49 @@ async def change_password(
     return json_response
 
 
+# ── Profile Picture Endpoints for Current User (Student, Teacher, Admin) ─────
+@router.patch("/profile-picture", status_code=status.HTTP_200_OK)
+async def update_current_user_profile_picture(
+    file: UploadFile = File(...),
+    current_user: UserRead = Depends(get_current_active_user),
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Update profile picture for currently authenticated user (Student, Teacher, Admin).
+    Accepts both POST and PATCH methods.
+    Strictly an update process; separated from account creation.
+    """
+    print("Hey")
+    _validate_image_file(file)
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise DomainValidationDomainException("Profile picture file size cannot exceed 5 MB.")
+
+    response = await UserService.update_profile_picture(
+        uow=uow,
+        user_id=current_user.user_id,
+        file_bytes=file_bytes,
+        filename=file.filename or f"profile_{current_user.user_id}.jpg",
+    )
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.delete("/profile-picture", status_code=status.HTTP_200_OK)
+async def delete_current_user_profile_picture(
+    current_user: UserRead = Depends(get_current_active_user),
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Remove profile picture for currently authenticated user (Student, Teacher, Admin).
+    """
+    response = await UserService.delete_profile_picture(uow=uow, user_id=current_user.user_id)
+    return SharedUtils.SuccessfulResponse(response)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Specific Parameterized Subpaths (/{user_id}/<subpath>)
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.patch("/{user_id}/change-password", status_code=status.HTTP_200_OK)
 async def change_password_by_id(
         user_id: str,
@@ -141,16 +177,82 @@ async def change_password_by_id(
     return json_response
 
 
-@router.get("/{user_id}", status_code=status.HTTP_200_OK)
-async def get_user(
+@router.patch("/{user_id}/profile-picture", status_code=status.HTTP_200_OK)
+async def update_user_profile_picture_by_id(
+    user_id: str,
+    file: UploadFile = File(...),
+    current_user: UserRead = Depends(get_current_active_user),
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Update profile picture by user ID.
+    Accessible to the account owner or an ADMIN.
+    Accepts both POST and PATCH methods.
+    """
+    if current_user.user_id != user_id and current_user.role != UserRole.ADMIN:
+        raise DomainForbiddenDomainException("You do not have permission to update another user's profile picture.")
+
+    _validate_image_file(file)
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise DomainValidationDomainException("Profile picture file size cannot exceed 5 MB.")
+
+    response = await UserService.update_profile_picture(
+        uow=uow,
+        user_id=user_id,
+        file_bytes=file_bytes,
+        filename=file.filename or f"profile_{user_id}.jpg",
+    )
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.delete("/{user_id}/profile-picture", status_code=status.HTTP_200_OK)
+async def delete_user_profile_picture(
+    user_id: str,
+    current_user: UserRead = Depends(get_current_active_user),
+    uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Remove profile picture by user ID.
+    Accessible to the account owner or an ADMIN.
+    """
+    if current_user.user_id != user_id and current_user.role != UserRole.ADMIN:
+        raise DomainForbiddenDomainException("You do not have permission to delete another user's profile picture.")
+
+    response = await UserService.delete_profile_picture(uow=uow, user_id=user_id)
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.patch("/{user_id}/unenroll", status_code=status.HTTP_200_OK)
+async def unenroll_student(
         user_id: str,
         current_user: UserRead = Depends(require_admin_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
-    Retrieve full user details, including personal_details, contact_details, and family_details.
-    Accessible to Admin and Teacher.
+    Dedicated endpoint to unenroll a student (soft delete).
     """
+    response = await UserService.soft_delete_user(uow, user_id)
+    return SharedUtils.SuccessfulResponse(response)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Wildcard Single-segment Parameterized Routes (/{user_id})
+#    (Registered LAST so they do not shadow static routes like /profile-picture)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/{user_id}", status_code=status.HTTP_200_OK)
+async def get_user(
+        user_id: str,
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Retrieve full user details, including personal_details, contact_details, and family_details.
+    Accessible to the account owner, Admin, or Teacher.
+    """
+    if current_user.user_id != user_id and current_user.role not in (UserRole.ADMIN, UserRole.TEACHER):
+        raise DomainForbiddenDomainException("You do not have permission to view another user's details.")
     response = await UserService.get_user_by_id(uow, user_id)
     return SharedUtils.SuccessfulResponse(response)
 
@@ -159,36 +261,50 @@ async def get_user(
 async def update_user(
         user_id: str,
         data: UserUpdate = Depends(UserUpdate.depends),
-        current_user: UserRead = Depends(require_admin_teacher),
+        current_user: UserRead = Depends(get_current_active_user),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     Update user information and related profile details.
-    Accessible to Admin and Teacher.
+    Accessible to the account owner, Admin, or Teacher.
+    Students cannot modify administrative status or user category fields.
     """
+    if current_user.user_id != user_id and current_user.role not in (UserRole.ADMIN, UserRole.TEACHER):
+        raise DomainForbiddenDomainException("You do not have permission to update another user's details.")
+
+    # Guard: Non-admin/teacher cannot modify system status or user category
+    if current_user.role not in (UserRole.ADMIN, UserRole.TEACHER):
+        data.status = None
+        data.user_category = None
+
     response = await UserService.update_user(uow, user_id, data)
+    return SharedUtils.SuccessfulResponse(response)
+
+
+@router.post("/{user_id}", status_code=status.HTTP_201_CREATED)
+async def create_user(
+        user_id: str,
+        current_user: UserRead = Depends(require_admin),
+        uow: AbstractUnitOfWork = Depends(get_uow),
+) -> JSONResponse:
+    """
+    Create a new user account / enroll mapped student with Firebase credentials.
+    Strictly restricted to ADMIN role only.
+    """
+    response = await UserService.create_user(uow, user_id)
+    response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_200_OK)
 async def delete_user(
         user_id: str,
+        current_user: UserRead = Depends(require_admin),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
     """
     Soft delete user: sets user status to 'unenroll' (preserving historical records and profile details).
+    Restricted to ADMIN.
     """
     response = await UserService.delete_user(uow, user_id)
-    return SharedUtils.SuccessfulResponse(response)
-
-
-@router.patch("/{user_id}/unenroll", status_code=status.HTTP_200_OK)
-async def unenroll_student(
-        user_id: str,
-        uow: AbstractUnitOfWork = Depends(get_uow),
-) -> JSONResponse:
-    """
-    Dedicated endpoint to unenroll a student (soft delete).
-    """
-    response = await UserService.soft_delete_user(uow, user_id)
     return SharedUtils.SuccessfulResponse(response)

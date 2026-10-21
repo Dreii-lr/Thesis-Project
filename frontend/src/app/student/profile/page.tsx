@@ -2,12 +2,16 @@
 
 import Image from 'next/image';
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
-import { Camera, ImagePlus, Trash2, UserRound } from 'lucide-react';
+import { Camera, ImagePlus, Loader2, Trash2, UserRound } from 'lucide-react';
 import { useOptionalAuth } from '@/src/context/AuthContext';
+import {
+  uploadProfilePictureApi,
+  deleteProfilePictureApi,
+} from '@/src/lib/auth-api';
 
 const PROFILE_PHOTO_KEY = 'als-student-profile-photo';
 const PROFILE_PHOTO_EVENT = 'als-student-profile-photo-updated';
-const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB (matching backend validation)
 
 export default function StudentProfilePage() {
   const auth = useOptionalAuth();
@@ -21,12 +25,18 @@ export default function StudentProfilePage() {
     : 'ALS Learner';
 
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setProfilePhoto(localStorage.getItem(PROFILE_PHOTO_KEY));
-  }, []);
+    // If user has a cloud photo, prefer it; otherwise check localStorage
+    if (user?.profile_url?.public_url) {
+      setProfilePhoto(user.profile_url.public_url);
+    } else {
+      setProfilePhoto(localStorage.getItem(PROFILE_PHOTO_KEY));
+    }
+  }, [user?.profile_url?.public_url]);
 
   const initials = identity
     .split(/\s+/)
@@ -36,50 +46,87 @@ export default function StudentProfilePage() {
     .join('') || 'AL';
 
   const notifyPhotoChanged = () => {
-    window.dispatchEvent(new Event(PROFILE_PHOTO_EVENT));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(PROFILE_PHOTO_EVENT));
+    }
   };
 
-  const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const currentPhoto = user?.profile_url?.public_url || profilePhoto;
+
+  const handlePhotoChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setMessage('');
 
     if (!file.type.startsWith('image/')) {
-      setMessage('Please choose an image file.');
+      setMessage('Please choose an image file (JPG, PNG, or WebP).');
       event.target.value = '';
       return;
     }
 
     if (file.size > MAX_IMAGE_SIZE) {
-      setMessage('Please choose an image smaller than 2 MB.');
+      setMessage('Please choose an image smaller than 5 MB.');
       event.target.value = '';
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : null;
-      if (!result) return;
+    setIsSubmitting(true);
 
-      try {
-        localStorage.setItem(PROFILE_PHOTO_KEY, result);
-        setProfilePhoto(result);
-        setMessage('Profile picture updated.');
-        notifyPhotoChanged();
-      } catch {
-        setMessage('The image could not be saved. Try a smaller file.');
+    try {
+      const updatedUser = await uploadProfilePictureApi(file);
+      const newUrl = updatedUser.profile_url?.public_url;
+      if (newUrl) {
+        setProfilePhoto(newUrl);
+        try {
+          localStorage.setItem(PROFILE_PHOTO_KEY, newUrl);
+        } catch {
+          /* ignore storage error */
+        }
       }
-    };
-    reader.readAsDataURL(file);
-    event.target.value = '';
+      if (auth?.refreshUser) {
+        await auth.refreshUser();
+      }
+      setMessage('Profile picture updated successfully.');
+      notifyPhotoChanged();
+    } catch (err: unknown) {
+      setMessage(
+        err instanceof Error
+          ? err.message
+          : 'Unable to upload profile picture. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
+      event.target.value = '';
+    }
   };
 
-  const removePhoto = () => {
-    localStorage.removeItem(PROFILE_PHOTO_KEY);
-    setProfilePhoto(null);
-    setMessage('Profile picture removed.');
-    notifyPhotoChanged();
+  const removePhoto = async () => {
+    setIsSubmitting(true);
+    setMessage('');
+
+    try {
+      await deleteProfilePictureApi();
+      setProfilePhoto(null);
+      try {
+        localStorage.removeItem(PROFILE_PHOTO_KEY);
+      } catch {
+        /* ignore storage error */
+      }
+      if (auth?.refreshUser) {
+        await auth.refreshUser();
+      }
+      setMessage('Profile picture removed.');
+      notifyPhotoChanged();
+    } catch (err: unknown) {
+      setMessage(
+        err instanceof Error
+          ? err.message
+          : 'Unable to remove profile picture. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -97,9 +144,9 @@ export default function StudentProfilePage() {
           <div className="-mt-14 flex flex-col gap-6 sm:-mt-16 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[26px] border-4 border-white bg-slate-100 shadow-lg sm:h-32 sm:w-32">
-                {profilePhoto ? (
+                {currentPhoto ? (
                   <Image
-                    src={profilePhoto}
+                    src={currentPhoto}
                     alt="Student profile picture"
                     fill
                     unoptimized
@@ -129,14 +176,15 @@ export default function StudentProfilePage() {
           <div className="mt-8 max-w-2xl rounded-2xl border border-slate-200 bg-slate-50/70 p-5 sm:p-6">
             <h3 className="text-sm font-bold text-slate-900">Profile picture</h3>
             <p className="mt-1 text-sm leading-6 text-slate-500">
-              Choose a JPG, PNG, or other image file up to 2 MB. This demo saves the picture only in this browser.
+              Choose a JPG, PNG, or WebP image file up to 5 MB. Your picture will be saved to your account.
             </p>
 
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp,image/jpg"
               onChange={handlePhotoChange}
+              disabled={isSubmitting}
               className="hidden"
             />
 
@@ -144,17 +192,28 @@ export default function StudentProfilePage() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                disabled={isSubmitting}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
               >
-                <ImagePlus size={17} />
-                {profilePhoto ? 'Change picture' : 'Upload picture'}
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={17} className="animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <ImagePlus size={17} />
+                    {currentPhoto ? 'Change picture' : 'Upload picture'}
+                  </>
+                )}
               </button>
 
-              {profilePhoto && (
+              {currentPhoto && (
                 <button
                   type="button"
                   onClick={removePhoto}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                  disabled={isSubmitting}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
                 >
                   <Trash2 size={17} />
                   Remove picture
@@ -163,7 +222,7 @@ export default function StudentProfilePage() {
             </div>
 
             {message && (
-              <p className={`mt-4 text-sm font-medium ${message.includes('updated') || message.includes('removed') ? 'text-emerald-600' : 'text-red-600'}`}>
+              <p className={`mt-4 text-sm font-medium ${message.includes('success') || message.includes('removed') || message.includes('updated') ? 'text-emerald-600' : 'text-red-600'}`}>
                 {message}
               </p>
             )}

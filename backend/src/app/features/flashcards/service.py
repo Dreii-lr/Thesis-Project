@@ -42,7 +42,48 @@ class FlashcardService:
     ) -> SuccessfulResponseSchema:
         """
         Request AI flashcard generation by invoking document-processing-ms (:9090).
+        Checks the database first: if a deck already exists for this lesson or module,
+        returns the existing cards immediately (0 LLM tokens).
         """
+        existing_deck: Optional[FlashcardDeck] = None
+        if not payload.force_regenerate:
+            existing_deck = await self._uow.flashcards.find_existing_deck(
+                lesson_id=payload.lesson_id,
+                material_id=payload.material_id,
+                generation_scope=payload.generation_scope,
+                topic=payload.topic,
+                program=payload.program,
+                subject=payload.subject,
+            )
+            if existing_deck and existing_deck.cards:
+                existing_cards = [
+                    FlashcardCardRead.model_validate(c)
+                    for c in existing_deck.cards
+                ]
+                ai_response = FlashcardAIGenerateResponse(
+                    title=existing_deck.title,
+                    description=existing_deck.description or "",
+                    tags=existing_deck.tags or [],
+                    cards=existing_cards,
+                    is_existing=True,
+                    existing_deck_id=existing_deck.id,
+                )
+                return SuccessfulResponseSchema(
+                    status_code=200,
+                    message="Found existing study set in database (0 AI tokens used)",
+                    data=AdditionalData(resources=ai_response.model_dump(mode="json")),
+                )
+        else:
+            # Force regenerate requested: check if an existing deck exists to preserve its ID
+            existing_deck = await self._uow.flashcards.find_existing_deck(
+                lesson_id=payload.lesson_id,
+                material_id=payload.material_id,
+                generation_scope=payload.generation_scope,
+                topic=payload.topic,
+                program=payload.program,
+                subject=payload.subject,
+            )
+
         service_url = f"{constants.DOCS_PROCESSING_SERVICE_URL.rstrip('/')}/api/v2/flashcard-generation/generate"
         req_body = {
             "topic": payload.topic,
@@ -112,6 +153,8 @@ class FlashcardService:
             description=data.get("description", fallback_desc),
             tags=data.get("tags", []),
             cards=generated_cards,
+            is_existing=existing_deck is not None,
+            existing_deck_id=existing_deck.id if existing_deck else None,
         )
 
         return SuccessfulResponseSchema(
@@ -146,6 +189,64 @@ class FlashcardService:
         is_curated = payload.is_system_curated or is_admin
         author_role = "admin" if is_admin else (payload.author_role or user_role_str)
 
+        # Intelligent Upsert: check if a study set already exists for this deck ID, lesson, module, or title
+        existing_deck: Optional[FlashcardDeck] = None
+        if payload.id:
+            existing_deck = await self._uow.flashcards.get_deck_by_id(payload.id)
+        if not existing_deck and payload.lesson_id:
+            existing_deck = await self._uow.flashcards.find_existing_deck(lesson_id=payload.lesson_id)
+        if not existing_deck and payload.material_id and payload.generation_scope == "FULL_MODULE":
+            existing_deck = await self._uow.flashcards.find_existing_deck(
+                material_id=payload.material_id,
+                generation_scope="FULL_MODULE",
+            )
+        if not existing_deck and payload.title:
+            existing_deck = await self._uow.flashcards.find_existing_deck(
+                topic=payload.title,
+                program=payload.program,
+                subject=payload.subject,
+            )
+
+        if existing_deck:
+            existing_deck.title = payload.title
+            existing_deck.description = payload.description
+            existing_deck.program = payload.program
+            existing_deck.subject = payload.subject
+            existing_deck.tags = payload.tags
+            existing_deck.difficulty = payload.difficulty or "medium"
+            if payload.material_id is not None:
+                existing_deck.material_id = payload.material_id
+            if payload.lesson_id is not None:
+                existing_deck.lesson_id = payload.lesson_id
+            if payload.generation_scope is not None:
+                existing_deck.generation_scope = payload.generation_scope
+            existing_deck.updated_at = datetime.now(timezone.utc)
+
+            await self._uow.flashcards.delete_cards_by_deck_id(existing_deck.id)
+            new_cards = [
+                FlashcardCard(
+                    id=c.id or str(uuid.uuid4()),
+                    deck_id=existing_deck.id,
+                    front=c.front or "",
+                    back=c.back or "",
+                    hint=c.hint,
+                    explanation=c.explanation,
+                    display_order=c.display_order if c.display_order is not None else idx,
+                    created_at=datetime.now(timezone.utc),
+                )
+                for idx, c in enumerate(payload.cards)
+            ]
+            await self._uow.flashcards.bulk_create_cards(new_cards)
+            await self._uow.flashcards.update_deck(existing_deck)
+            persisted = await self._uow.flashcards.get_deck_by_id(existing_deck.id)
+
+            read_dto = FlashcardDeckRead.model_validate(persisted)
+            return SuccessfulResponseSchema(
+                status_code=200,
+                message="Flashcard deck updated successfully",
+                data=AdditionalData(resources=read_dto.model_dump(mode="json")),
+            )
+
         deck = FlashcardDeck(
             id=deck_id,
             title=payload.title,
@@ -158,6 +259,9 @@ class FlashcardService:
             created_by_user_id=current_user.user_id,
             author_name=author_name,
             author_role=author_role,
+            material_id=payload.material_id,
+            lesson_id=payload.lesson_id,
+            generation_scope=payload.generation_scope,
             created_at=datetime.now(timezone.utc),
         )
 
@@ -291,6 +395,12 @@ class FlashcardService:
             deck.tags = payload.tags
         if payload.difficulty is not None:
             deck.difficulty = payload.difficulty
+        if payload.material_id is not None:
+            deck.material_id = payload.material_id
+        if payload.lesson_id is not None:
+            deck.lesson_id = payload.lesson_id
+        if payload.generation_scope is not None:
+            deck.generation_scope = payload.generation_scope
 
         deck.updated_at = datetime.now(timezone.utc)
 

@@ -334,6 +334,12 @@ class TeacherCreate(BaseModel):
         return value
 
 
+class ProfileUrl(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    public_id: Optional[str] = None
+    public_url: Optional[str] = None
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     user_id: str | None = None
@@ -348,6 +354,7 @@ class UserRead(BaseModel):
     role: UserRole | None = None
     user_category: UserCategory | None = None
     status: UserStatus | None = None
+    profile_url: Optional[ProfileUrl] = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -370,6 +377,7 @@ class UserReadLessData(BaseModel):
     role: UserRole | None = None
     user_category: UserCategory | None = None
     status: UserStatus | None = None
+    profile_url: Optional[ProfileUrl | Dict[str, Any]] = None
 
 
 class ListUserRead(BaseModel):

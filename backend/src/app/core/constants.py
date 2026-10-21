@@ -44,6 +44,50 @@ class Constants(BaseSettings):
         description="Base URL for document-processing microservice",
     )
 
+    # ── Cloudflare R2 Object Storage ──────────────────────────────
+    R2_ACCOUNT_ID: str | None = Field(
+        default=None,
+        description="Cloudflare Account ID for R2 storage",
+    )
+    R2_ACCESS_KEY_ID: str | None = Field(
+        default=None,
+        description="Cloudflare R2 Access Key ID",
+    )
+    R2_SECRET_ACCESS_KEY: str | None = Field(
+        default=None,
+        description="Cloudflare R2 Secret Access Key",
+    )
+    R2_BUCKET_NAME: str = Field(
+        default="als-curriculum-materials",
+        description="Cloudflare R2 Bucket Name",
+    )
+    R2_PUBLIC_DOMAIN: str | None = Field(
+        default=None,
+        description="Public CDN or Worker domain for direct R2 asset access (e.g. pub-xxx.r2.dev)",
+    )
+
+    # ── Cloudinary Image Storage ──────────────────────────────────
+    CLOUDINARY_CLOUD_NAME: str | None = Field(
+        default=None,
+        description="Cloudinary cloud name",
+    )
+    CLOUDINARY_API_KEY: str | None = Field(
+        default=None,
+        description="Cloudinary API key",
+    )
+    CLOUDINARY_API_SECRET: str | None = Field(
+        default=None,
+        description="Cloudinary API secret",
+    )
+    CLOUDINARY_URL: str | None = Field(
+        default=None,
+        description="Optional full Cloudinary connection URL",
+    )
+    CLOUDINARY_FOLDER_PREFIX: str = Field(
+        default="als_thesis",
+        description="Root folder name for organized assets in Cloudinary",
+    )
+
     # ── Firebase ──────────────────────────────────────────────────
     FIREBASE_TYPE: str
     FIREBASE_PROJECT_ID: str
