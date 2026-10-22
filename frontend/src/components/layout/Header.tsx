@@ -2,8 +2,9 @@
 
 import { useSidebar } from "@/src/context/SidebarContext";
 import { usePathname, useRouter } from "next/navigation";
-import { PanelLeft, Bell, Search, Home, ChevronRight } from "lucide-react";
+import { PanelLeft, Home, ChevronRight } from "lucide-react";
 import ProfileDropdown from "@/src/components/layout/ProfileDropDown";
+import NotificationBell from "@/src/components/notifications/NotificationBell";
 import Link from "next/link";
 
 export default function Header() {
@@ -48,7 +49,7 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-10 flex h-[72px] w-full shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur sm:px-6">
+    <header className="sticky top-0 z-[60] flex h-[72px] w-full shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <button
           onClick={toggleSidebar}
@@ -126,30 +127,7 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        {!isAdmin && (
-          <div className="hidden h-9 w-64 items-center rounded-xl border border-slate-200 bg-slate-50/80 px-3 transition-all focus-within:border-blue-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50 lg:flex xl:w-80">
-            <Search
-              size={15}
-              className="shrink-0 text-slate-400"
-              strokeWidth={1.8}
-            />
-            <input
-              type="text"
-              placeholder="Search anything"
-              className="ml-2.5 w-full border-none bg-transparent text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
-            />
-          </div>
-        )}
-
-        {!isAdmin && (
-          <button
-            className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-            aria-label="Notifications"
-          >
-            <Bell size={18} strokeWidth={1.8} />
-            <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-500 ring-2 ring-white" />
-          </button>
-        )}
+        <NotificationBell role={isAdmin ? "admin" : "teacher"} />
 
         <div className="hidden h-6 w-px bg-slate-200 sm:block" />
         <ProfileDropdown />

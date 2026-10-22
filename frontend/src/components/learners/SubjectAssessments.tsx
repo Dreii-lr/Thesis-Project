@@ -10,8 +10,9 @@ import { assessmentStartMessage, scheduledEnd } from '@/src/lib/assessment-timin
 import { useApiData } from '@/src/lib/use-api-data';
 import ApiState from '@/src/components/ui/ApiState';
 import { useAuth } from '@/src/context/AuthContext';
+import SubmissionRequestButton from '@/src/components/notifications/SubmissionRequestButton';
 
-const typeNames: Record<TaskType, string> = { ACTIVITY: 'Activity', QUIZ: 'Quiz', EXAM: 'Examination' };
+const typeNames: Record<TaskType, string> = { ACTIVITY: 'Activity', QUIZ: 'Quiz', EXAM: 'Examination', TEST: 'Test' };
 const formatDate = (value: string | number) => new Date(value).toLocaleString([], { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', hour: 'numeric', minute: '2-digit' });
 const statusStyles = {
   red: { card: 'border-rose-200 bg-gradient-to-br from-rose-50/70 to-white', icon: 'bg-rose-100 text-rose-600', badge: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500' },
@@ -107,6 +108,7 @@ function AssessmentPost({ task, now }: { task: StudentTask; now: number }) {
       <p className="text-[10px] text-slate-400">{task.max_score} points{timed && task.duration_minutes ? ` · ${task.duration_minutes} minutes` : ''}{timed ? ` · ${task.grace_period_minutes} min start grace` : ''}</p>
       {timed && <Link href={`/student/activities/assessment/${encodeURIComponent(task.assessment_id)}`} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-blue-700 transition-colors hover:border-blue-200 hover:bg-blue-50">{done ? 'View result' : inProgress ? 'Continue' : upcoming ? 'View schedule' : startMessage ? 'View details' : `Open ${typeNames[task.assessment_type]}`}<ArrowRight size={12} /></Link>}
       {timed && !done && !inProgress && startMessage && !upcoming && <p className="w-full text-[11px] text-slate-400">{startMessage}</p>}
+      {!done && (task.status === 'COMPLETED' || (Number.isFinite(deadline) && now >= deadline)) && <SubmissionRequestButton assessmentId={task.assessment_id} assessmentTitle={task.title} subject={task.subject_code} />}
       {task.submission_status === 'GRADED' && <p className="text-xs font-semibold text-emerald-700">Score: {task.final_score ?? 0} / {task.max_score}</p>}
       {task.submission_status === 'SUBMITTED' && <p className="text-xs font-medium text-slate-500">Submitted · Awaiting teacher review</p>}
     </div>

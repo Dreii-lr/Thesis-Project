@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3, Info, ListTo
 import { useAuth } from '@/src/context/AuthContext';
 import { useStudentSubjects } from '@/src/context/StudentSubjectsContext';
 import Modal from '@/src/components/ui/Modal';
+import SubmissionRequestButton from '@/src/components/notifications/SubmissionRequestButton';
 import { subjectHref, subjectTasks } from '@/src/lib/student-subjects';
 import { getStudentAssessmentResult, listStudentTasks, startStudentAssessment, submitStudentAssessment, type StudentDelivery, type StudentQuestion, type StudentTask, type SubmissionDetail } from '@/src/lib/assessments-api';
 import { assessmentStartMessage, attemptDeadline, remainingSeconds, scheduledEnd } from '@/src/lib/assessment-timing';
@@ -226,6 +227,7 @@ function AssessmentAttempt({ id }: { id: string }) {
         <div className="mt-4 grid grid-cols-3 gap-3">{[[`${task.duration_minutes ?? '—'} min`, 'Duration'], [`${task.grace_period_minutes} min`, 'Grace to start'], [`${task.max_score}`, 'Total points']].map(([value, label]) => <div key={label} className="rounded-xl border border-slate-100 p-3 text-center"><p className="text-base font-bold text-slate-800">{value}</p><p className="mt-1 text-[10px] text-slate-400">{label}</p></div>)}</div>
         <div className="mt-6 flex items-start gap-2.5 rounded-xl bg-slate-50 p-4 text-xs leading-6 text-slate-500"><Info size={15} className="mt-1 shrink-0 text-blue-500" /><p><strong className="text-slate-700">Note:</strong> Start within the {task.grace_period_minutes}-minute grace period. Leaving does not pause the timer. Return in this tab to continue with your saved answers and place. If time runs out while you are away, your saved answers are submitted when you return.</p></div>
         {startMessage && <p role="status" className="mt-5 rounded-xl bg-amber-50 p-3 text-xs font-medium text-amber-800">{startMessage}</p>}
+        {(task.status === 'COMPLETED' || (Number.isFinite(scheduledEnd(task)) && now >= scheduledEnd(task))) && <div className="mt-4"><SubmissionRequestButton assessmentId={task.assessment_id} assessmentTitle={task.title} subject={subject?.name || task.subject_code} /></div>}
         {!startMessage && <button type="button" disabled={pending || !!error} onClick={() => void begin()} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{pending ? 'Starting...' : `Start ${task.assessment_type === 'EXAM' ? 'Exam' : 'Quiz'}`}<ArrowRight size={15} /></button>}
       </div>
     </section>}

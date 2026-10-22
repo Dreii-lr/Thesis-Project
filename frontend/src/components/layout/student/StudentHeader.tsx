@@ -2,10 +2,11 @@
 
 import { useSidebar } from '@/src/context/SidebarContext';
 import { usePathname } from 'next/navigation';
-import { Bell, ChevronRight, Home, PanelLeft, Search } from 'lucide-react';
+import { ChevronRight, Home, PanelLeft } from 'lucide-react';
 import Link from 'next/link';
 import StudentProfileDropdown from './StudentProfileDropdown';
 import { useStudentSubjects } from '@/src/context/StudentSubjectsContext';
+import NotificationBell from '@/src/components/notifications/NotificationBell';
 
 export default function StudentHeader() {
   const { toggleSidebar } = useSidebar();
@@ -71,22 +72,7 @@ export default function StudentHeader() {
       </div>
 
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-        <div className="hidden h-9 w-52 items-center rounded-xl border border-slate-200 bg-slate-50/80 px-3 focus-within:border-blue-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50 lg:flex xl:w-64 2xl:w-72">
-          <Search size={15} className="shrink-0 text-slate-400" strokeWidth={1.8} />
-          <input
-            type="text"
-            placeholder="Search lessons or modules"
-            className="ml-2.5 min-w-0 flex-1 border-none bg-transparent text-[13px] text-slate-700 outline-none placeholder:text-slate-400"
-          />
-        </div>
-
-        <button
-          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-          aria-label="Notifications"
-        >
-          <Bell size={18} strokeWidth={1.8} />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-500 ring-2 ring-white" />
-        </button>
+        <NotificationBell role="student" />
 
         <div className="hidden h-6 w-px bg-slate-200 sm:block" />
         <StudentProfileDropdown />
