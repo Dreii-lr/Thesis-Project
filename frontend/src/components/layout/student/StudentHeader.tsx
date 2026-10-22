@@ -32,7 +32,7 @@ export default function StudentHeader() {
 
   return (
     <header className="sticky top-0 z-[60] flex h-[72px] w-full shrink-0 items-center justify-between border-b border-slate-200/80 bg-white px-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] sm:px-6">
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
         <button
           onClick={toggleSidebar}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
@@ -71,7 +71,7 @@ export default function StudentHeader() {
         </nav>
       </div>
 
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <NotificationBell role="student" />
 
         <div className="hidden h-6 w-px bg-slate-200 sm:block" />

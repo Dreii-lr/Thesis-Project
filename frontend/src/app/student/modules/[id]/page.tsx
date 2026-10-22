@@ -1,16 +1,10 @@
 "use client";
 
+import StudentLoading from '@/src/components/layout/student/StudentLoading';
+
 import { useState, useEffect, use, useCallback } from "react";
 import Link from "next/link";
-import {
-  ArrowLeft,
-  BookOpen,
-  Loader2,
-  AlertCircle,
-  Clock,
-  Sparkles,
-  FileText,
-} from "lucide-react";
+
 import ContentSidebar from "@/src/components/layout/teacher/lesson-content/ContentSidebar";
 import TiptapEditor from "@/src/components/ui/teacher/lesson-content/TiptapEditor";
 import { ContentFile, LessonFolder } from "@/src/data/mockModules";
@@ -201,10 +195,7 @@ export default function StudentModuleDetailPage({
   if (loading) {
     return (
       <div className="flex h-[calc(100vh-72px)] w-full items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-3 text-slate-500">
-          <Loader2 size={28} className="animate-spin text-blue-600" />
-          <p className="text-sm font-semibold">Loading learning module…</p>
-        </div>
+        <StudentLoading label="Loading learning module..." />
       </div>
     );
   }
@@ -213,29 +204,21 @@ export default function StudentModuleDetailPage({
     const isUnpublished = error?.includes("not published");
     return (
       <div className="flex h-[calc(100vh-72px)] w-full items-center justify-center bg-slate-50 p-6">
-        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <div
-            className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ring-inset ${
-              isUnpublished
-                ? "bg-amber-50 text-amber-600 ring-amber-100"
-                : "bg-red-50 text-red-600 ring-red-100"
-            }`}
-          >
-            <AlertCircle size={24} />
-          </div>
-          <h2 className="text-base font-bold text-slate-900">
+        <div className="max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+
+          <h2 className="text-sm font-semibold text-slate-900">
             {isUnpublished ? "Module Not Published Yet" : "Learning Module Not Found"}
           </h2>
           <p className="mt-1 text-xs text-slate-500">
             {error ||
               "The requested curriculum module could not be retrieved from the server."}
           </p>
-          <div className="mt-5 flex justify-center gap-2.5">
+          <div className="mt-6 flex justify-center gap-3">
             <Link
               href="/student/modules"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
-              <ArrowLeft size={13} /> Back to My Learning
+               Back to My Learning
             </Link>
             {!isUnpublished && (
               <button
@@ -263,21 +246,21 @@ export default function StudentModuleDetailPage({
         <div className="flex items-center gap-3 min-w-0">
           <Link
             href="/student/modules"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-colors shrink-0"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors shrink-0"
             title="Return to modules list"
           >
-            <ArrowLeft size={14} />
-            <span className="hidden sm:inline">My Learning</span>
+
+            <span className="inline">My Learning</span>
           </Link>
 
           <div className="h-4 w-px bg-slate-200 shrink-0" />
 
           <div className="flex items-center gap-2 min-w-0">
-            <h1 className="truncate text-xs sm:text-sm font-bold text-slate-900">
+            <h1 className="truncate text-xs sm:text-sm font-semibold text-slate-900">
               {moduleTitle}
             </h1>
             {material.als_program && (
-              <span className="hidden md:inline-flex shrink-0 rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-100">
+              <span className="hidden md:inline-flex shrink-0 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-100">
                 {material.als_program}
               </span>
             )}
@@ -285,15 +268,15 @@ export default function StudentModuleDetailPage({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
-            <BookOpen size={13} className="text-blue-600" />
+          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+
             <span className="hidden sm:inline">Student View •</span> Read Only
           </span>
         </div>
       </header>
 
       {/* Main Split Layout: Read-Only Sidebar + Reading Content Pane */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
         {/* Left Outline Sidebar in Read-Only Mode */}
         <ContentSidebar
           lessons={lessons}
@@ -307,31 +290,31 @@ export default function StudentModuleDetailPage({
         {/* Right Content Pane: View-Only Content Reader */}
         <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
           {activeContent && activeLesson ? (
-            <article className="min-h-0 flex-1 overflow-y-auto bg-white shadow-[0_10px_30px_rgba(15,23,42,0.04)] px-5 py-6 sm:px-8 sm:py-8 lg:px-12">
+            <article className="min-h-0 flex-1 overflow-y-auto bg-white  px-6 py-6 sm:px-8 sm:py-8 lg:px-12">
               {/* Header Title Area */}
-              <div className="mb-7 border-b border-slate-100 pb-5">
+              <div className="mb-6 border-b border-slate-100 pb-6">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-100">
+                  <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-100">
                     {activeLesson.title}
                   </span>
                   {activeLesson.delivery_mode && (
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                       {activeLesson.delivery_mode}
                     </span>
                   )}
                   {activeLesson.duration && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                      <Clock size={11} />
+                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+
                       {activeLesson.duration}
                     </span>
                   )}
                 </div>
 
-                <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   {activeContent.title}
-                </h1>
+                </h2>
 
-                <p className="mt-2 text-xs text-slate-400">
+                <p className="mt-2 text-xs text-slate-500">
                   Read through the explanations, examples, and try out the practice exercises.
                 </p>
               </div>
@@ -348,13 +331,11 @@ export default function StudentModuleDetailPage({
             /* Selected Topic Awaiting Publication */
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8 text-center bg-white">
               <div className="max-w-md">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
-                  <Clock size={24} />
-                </div>
-                <span className="inline-block rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-200 mb-2">
+
+                <span className="inline-block rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-200 mb-2">
                   Lesson In Preparation
                 </span>
-                <h2 className="text-xl font-bold text-slate-900">
+                <h2 className="text-lg font-semibold text-slate-900">
                   {activeLesson.title}
                 </h2>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
@@ -363,15 +344,15 @@ export default function StudentModuleDetailPage({
 
                 {activeLesson.sub_topics &&
                   activeLesson.sub_topics.length > 0 && (
-                    <div className="mt-5">
-                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    <div className="mt-6">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                         Included Subtopics
                       </p>
-                      <div className="flex flex-wrap justify-center gap-1.5">
+                      <div className="flex flex-wrap justify-center gap-2">
                         {activeLesson.sub_topics.map((sub, sIdx) => (
                           <span
                             key={sIdx}
-                            className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600"
+                            className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600"
                           >
                             {sub}
                           </span>
@@ -382,7 +363,7 @@ export default function StudentModuleDetailPage({
               </div>
             </div>
           ) : (
-            <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-slate-400">
+            <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-slate-500">
               Select a lesson or file from the outline to view content.
             </div>
           )}

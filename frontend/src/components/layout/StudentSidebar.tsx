@@ -25,7 +25,6 @@ const navItems = [
   { name: 'My Subjects', icon: BookOpen, href: '/student/subjects' },
   { name: 'Flashcards', icon: Layers3, href: '/student/flashcards' },
   { name: 'Calendar', icon: CalendarDays, href: '/student/calendar' },
-  { name: 'Progress', icon: BarChart3, href: '/student/progress' },
   { name: 'Attendance', icon: CalendarCheck2, href: '/student/attendance' },
   { name: 'My Results', icon: BadgeCheck, href: '/student/results' },
 ];

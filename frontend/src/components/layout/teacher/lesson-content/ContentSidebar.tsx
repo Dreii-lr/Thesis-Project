@@ -103,7 +103,7 @@ export default function ContentSidebar({
   };
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white">
+    <aside className={readOnly ? "flex max-h-48 w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-white xl:h-full xl:max-h-none xl:w-72 xl:border-b-0 xl:border-r" : "flex h-full w-72 shrink-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white"}>
       {/* Fixed Sidebar Header */}
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4">
         <div>

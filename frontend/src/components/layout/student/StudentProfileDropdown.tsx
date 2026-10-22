@@ -95,7 +95,7 @@ export default function StudentProfileDropdown() {
         aria-expanded={isOpen}
         aria-label="Open student profile menu"
       >
-        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-xs font-bold text-white shadow-sm">
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-blue-100 bg-blue-50 text-xs font-semibold text-blue-700">
           {currentPhoto ? (
             <Image
               src={currentPhoto}
@@ -109,7 +109,7 @@ export default function StudentProfileDropdown() {
           )}
         </div>
 
-        <div className="hidden min-w-0 text-left md:block">
+        <div className="hidden min-w-0 text-left xl:block">
           <p className="max-w-28 truncate text-[13px] font-semibold leading-4 text-slate-800 xl:max-w-32">
             {identity}
           </p>
@@ -118,12 +118,12 @@ export default function StudentProfileDropdown() {
 
         <ChevronDown
           size={14}
-          className={`hidden shrink-0 text-slate-400 transition-transform md:block ${isOpen ? 'rotate-180' : ''}`}
+          className={`hidden shrink-0 text-slate-400 transition-transform duration-150 xl:block ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-[calc(100%+10px)] z-[80] w-52 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_20px_55px_rgba(15,23,42,0.18)]">
+        <div className="absolute right-0 top-[calc(100%+10px)] z-[80] w-52 overflow-hidden rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
           <button
             type="button"
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
