@@ -23,6 +23,7 @@ import { generateFlashcardsAIApi } from '@/src/lib/curated-flashcards-api';
 
 interface GeneratorProps {
   categories?: UserCategoryItem[];
+  activeCategory?: UserCategoryItem;
   initialProgramCode?: string;
   subjects: SubjectRecord[];
   initialSubjectId?: string;
@@ -30,6 +31,7 @@ interface GeneratorProps {
   initialMaterialId?: string;
   initialTopic?: string;
   onGenerated: (data: {
+    id?: string;
     title: string;
     description: string;
     categoryId?: string;
@@ -38,12 +40,16 @@ interface GeneratorProps {
     subjectId: string;
     subject: string;
     cards: StudyCard[];
+    materialId?: string | null;
+    lessonId?: string | null;
+    generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
   }) => void;
   onClose: () => void;
 }
 
 export default function FlashcardGeneratorModal({
   categories,
+  activeCategory: passedActiveCategory,
   initialProgramCode = 'SECONDARY',
   subjects,
   initialSubjectId,
@@ -63,11 +69,8 @@ export default function FlashcardGeneratorModal({
       (c) => (c.code || '').toUpperCase() === (initialProgramCode || 'SECONDARY').toUpperCase(),
     ) || availableCategories[0];
 
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
-    defaultCat?.category_id || '',
-  );
   const activeCategory =
-    availableCategories.find((c) => c.category_id === selectedCategoryId) ||
+    passedActiveCategory ||
     defaultCat ||
     availableCategories[0];
 
@@ -383,67 +386,26 @@ export default function FlashcardGeneratorModal({
       </div>
 
       <div className="p-6 space-y-5">
-        {/* STEP 1: DYNAMIC LEARNING PROGRAMS */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-2">
-            1. Target Learning Program <span className="text-red-500">*</span>
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {availableCategories.map((cat) => {
-              const isSelected = cat.category_id === activeCategory?.category_id;
-              const code = (cat.code || '').toUpperCase();
-              const isElem = code.includes('ELEM');
-              const isBLP = code.includes('BLP') || code.includes('BASIC');
-
-              const activeClass = isElem
-                ? 'border-emerald-500 bg-emerald-50/40 text-emerald-950 ring-1 ring-emerald-500 shadow-sm'
-                : isBLP
-                ? 'border-amber-500 bg-amber-50/40 text-amber-950 ring-1 ring-amber-500 shadow-sm'
-                : 'border-indigo-500 bg-indigo-50/40 text-indigo-950 ring-1 ring-indigo-500 shadow-sm';
-
-              return (
-                <label
-                  key={cat.category_id}
-                  className={`flex flex-col p-3 rounded-xl cursor-pointer border transition ${
-                    isSelected
-                      ? activeClass
-                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="genProgram"
-                    value={cat.category_id}
-                    checked={isSelected}
-                    onChange={() => {
-                      setSelectedCategoryId(cat.category_id);
-                      setSubjectId('');
-                      setSelectedMaterialId('');
-                      setSelectedLessonId('');
-                      setMaterials([]);
-                      setMaterialLessonsMap({});
-                      setLessons([]);
-                      setGeneratedCards([]);
-                      setGeneratedTitle('');
-                      setGeneratedDescription('');
-                      setError('');
-                    }}
-                    className="sr-only"
-                  />
-                  <span className="text-xs font-bold">{cat.name}</span>
-                  <span className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
-                    {cat.description || (isElem ? 'Elementary Level' : isBLP ? 'Foundational Program' : 'Junior High')}
-                  </span>
-                </label>
-              );
-            })}
+        {/* Active Learning Program Context (Read-Only) */}
+        <div className="flex items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700 font-bold">
+              <Layers size={16} />
+            </span>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Target Learning Program</p>
+              <p className="text-xs font-bold text-slate-900">{activeCategory.name}</p>
+            </div>
           </div>
+          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-indigo-700 shadow-xs border border-indigo-100">
+            Active Program
+          </span>
         </div>
 
-        {/* STEP 2: SUBJECT SELECTION (MANDATORY) */}
+        {/* STEP 1: SUBJECT SELECTION (MANDATORY) */}
         <div>
           <label className="block text-xs font-semibold text-slate-700">
-            2. Subject <span className="text-red-500">*</span>
+            1. Subject <span className="text-red-500">*</span>
           </label>
           <select
             value={subjectId}
@@ -468,10 +430,10 @@ export default function FlashcardGeneratorModal({
           </select>
         </div>
 
-        {/* STEP 3: GROUNDED MODULE & LESSON CONTENTS SCOPE */}
+        {/* STEP 2: GROUNDED MODULE & LESSON CONTENTS SCOPE */}
         <div className="space-y-3 pt-1">
           <label className="block text-xs font-semibold text-slate-700">
-            3. Grounded Lesson Contents & Scope <span className="text-red-500">*</span>
+            2. Grounded Lesson Contents & Scope <span className="text-red-500">*</span>
           </label>
 
           {!subjectId ? (

@@ -4,7 +4,6 @@ Handles direct image uploading as-is with folder organization and without automa
 Direct cloud upload only; uninitialized service or errors raise DomainException to the base application.
 """
 from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
