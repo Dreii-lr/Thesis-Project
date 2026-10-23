@@ -36,25 +36,16 @@ class AuthService:
         ip_address: str | None = None,
     ) -> SuccessfulResponseSchema:
         try:
-            # The request owns this transaction. Let failures reach its rollback
-            # instead of retrying queries on an already-aborted transaction.
-
-            # A local hash can be stale after an email reset. Never use it to bypass
-            # Firebase's current password, disabled-account checks, or reset flow.
-
             account_id = data.account_id.strip()
-            if "@" in account_id:
-                user = await uow.users.get_by_email(account_id.lower())
-            else:
-                user = await uow.users.get_by_account_id(account_id)
-                if not user:
-                    user = await uow.users.get_by_id(account_id)
+
+            user = await uow.users.get_by_account_id(account_id)
+
             if not user:
                 raise DomainUnauthorizedDomainException(
                     "Your account is not registered in this application. Please contact your administrator.")
 
             identifier = user.account_id
-            firebase_email = f"{identifier}@gmail.com" #if not user.email else user.email
+            firebase_email = f"{identifier}@gmail.com" if not user.email else user.email
             firebase_data = await sign_in_with_password(firebase_email, data.password)
 
             if not firebase_data:

@@ -344,15 +344,17 @@ function FlashcardDashboardContent({
           {/* Quick / AI Generator CTA */}
           <button
             type="button"
-            disabled={!hasLessons}
+            disabled={!hasLessons || isCheckingLessons}
             onClick={() => setIsGeneratorOpen(true)}
             title={
-              !hasLessons
+              isCheckingLessons
+                ? 'Checking available lesson modules in Document Processing…'
+                : !hasLessons
                 ? `Flashcard generation is disabled: No generated lessons found for ${activeCategory?.name} in Document Processing.`
                 : 'Generate study set grounded in DepEd ALS module content'
             }
             className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-xs font-semibold shadow-sm transition ${
-              !hasLessons
+              !hasLessons || isCheckingLessons
                 ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
                 : 'border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100'
             }`}
@@ -363,18 +365,9 @@ function FlashcardDashboardContent({
           {/* Create Study Set CTA */}
           <button
             type="button"
-            disabled={!hasLessons}
             onClick={() => setEditor({ initialProgramCode: activeCategory?.code })}
-            title={
-              !hasLessons
-                ? `Manual creation is disabled: No curriculum lessons found for ${activeCategory?.name} in Document Processing.`
-                : 'Create study set manually'
-            }
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-3 text-xs font-semibold shadow-sm transition ${
-              !hasLessons
-                ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                : 'bg-blue-600 text-white shadow-blue-600/15 hover:bg-blue-700'
-            }`}
+            title="Create study set manually"
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 hover:bg-blue-700 transition"
           >
             <Plus size={16} /> Create study set
           </button>
@@ -401,9 +394,9 @@ function FlashcardDashboardContent({
         <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 flex items-start gap-3">
           <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
           <div>
-            <p className="font-bold text-amber-950">Curriculum Grounding Required</p>
+            <p className="font-bold text-amber-950">Curriculum Grounding Notice</p>
             <p className="mt-0.5 leading-relaxed text-amber-800">
-              No generated lessons were found in Document Processing for <strong>{activeCategory?.name}{selectedSubjectObj ? ` · ${selectedSubjectObj.name}` : ''}</strong>. Flashcard creation and AI generation are disabled until curriculum modules are uploaded and lesson contents are generated.
+              No generated lessons were found in Document Processing for <strong>{activeCategory?.name}{selectedSubjectObj ? ` · ${selectedSubjectObj.name}` : ''}</strong>. AI flashcard generation is disabled until curriculum modules are uploaded and lesson contents are generated. You can still create flashcard study sets manually using <strong>Create study set</strong>.
             </p>
           </div>
         </div>
@@ -651,6 +644,7 @@ function FlashcardDashboardContent({
         <FlashcardSetEditor
           existing={editor.existing}
           categories={categories}
+          activeCategory={activeCategory}
           initialProgramCode={editor.initialProgramCode || activeCategory?.code}
           initialCards={editor.initialCards}
           subjects={subjects}
@@ -666,6 +660,7 @@ function FlashcardDashboardContent({
       {isGeneratorOpen && (
         <FlashcardGeneratorModal
           categories={categories}
+          activeCategory={activeCategory}
           initialProgramCode={activeCategory?.code}
           subjects={subjects}
           initialSubjectId={selectedSubjectId !== 'ALL' ? selectedSubjectId : undefined}

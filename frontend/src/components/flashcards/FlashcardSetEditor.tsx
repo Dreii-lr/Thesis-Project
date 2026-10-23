@@ -1,18 +1,13 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CheckCircle2, Eye, Layers3, Plus, Save, Trash2, X, AlertTriangle } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, Eye, Layers3, Plus, Save, Trash2, X } from 'lucide-react';
 import type { StudyCard } from '@/src/data/mockStudentFlashcards';
 import type { SubjectRecord } from '@/src/lib/subjects-api';
 import {
   DEFAULT_USER_CATEGORIES,
   type UserCategoryItem,
 } from '@/src/lib/user-categories-api';
-import {
-  getMaterials,
-  getLessonsByMaterial,
-  matchMaterialToCategory,
-} from '@/src/lib/document-processor-api';
 import { createFlashcardId } from '@/src/lib/personal-flashcards';
 import type { CuratedFlashcardInput, CuratedStudyDeck } from '@/src/lib/curated-flashcards';
 import FlipCard from './FlipCard';
@@ -33,6 +28,7 @@ interface EditorProps {
     generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
   };
   categories?: UserCategoryItem[];
+  activeCategory?: UserCategoryItem;
   initialProgramCode?: string;
   initialCards?: StudyCard[];
   subjects: SubjectRecord[];
@@ -49,6 +45,7 @@ const blankCard = (): StudyCard => ({ id: createFlashcardId(), term: '', definit
 export default function FlashcardSetEditor({
   existing,
   categories,
+  activeCategory: passedActiveCategory,
   initialProgramCode = 'SECONDARY',
   initialCards,
   subjects,
@@ -64,12 +61,13 @@ export default function FlashcardSetEditor({
   const availableCategories =
     categories && categories.length > 0 ? categories : DEFAULT_USER_CATEGORIES;
 
-  // Determine initial selected category
-  const initialCategory = (() => {
+  // Determine active category
+  const activeCategory = (() => {
     if (existing && 'categoryId' in existing && existing.categoryId) {
       const match = availableCategories.find((c) => c.category_id === existing.categoryId);
       if (match) return match;
     }
+    if (passedActiveCategory) return passedActiveCategory;
     const codeToFind = (existing as CuratedStudyDeck)?.programCode || initialProgramCode;
     if (codeToFind) {
       const match = availableCategories.find(
@@ -83,13 +81,6 @@ export default function FlashcardSetEditor({
     );
   })();
 
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
-    initialCategory?.category_id || '',
-  );
-  const activeCategory =
-    availableCategories.find((c) => c.category_id === selectedCategoryId) ||
-    availableCategories[0];
-
   const [title, setTitle] = useState(existing?.title || '');
   const [description, setDescription] = useState(existing?.description || '');
   const [subjectId, setSubjectId] = useState(existing?.subjectId || '');
@@ -102,50 +93,6 @@ export default function FlashcardSetEditor({
   const [flipped, setFlipped] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-
-  // Check if lessons exist in document-processing for activeCategory
-  const [availableLessonsCount, setAvailableLessonsCount] = useState<number | null>(null);
-  const [checkingLessons, setCheckingLessons] = useState<boolean>(true);
-
-  useEffect(() => {
-    let isCancelled = false;
-    async function checkLessons() {
-      if (!activeCategory || existing) return;
-      setCheckingLessons(true);
-      try {
-        const allMaterials = await getMaterials({ pageSize: 50 }).catch(() => []);
-        const matchedMaterials = (allMaterials || []).filter((m) =>
-          m && m.id && matchMaterialToCategory(m, activeCategory),
-        );
-        if (matchedMaterials.length === 0) {
-          if (!isCancelled) setAvailableLessonsCount(0);
-          return;
-        }
-        const lessonPromises = matchedMaterials.slice(0, 10).map((m) =>
-          getLessonsByMaterial(m.id).catch(() => null),
-        );
-        const results = await Promise.all(lessonPromises);
-        let count = 0;
-        for (const res of results) {
-          if (res && Array.isArray(res.lessons)) {
-            count += res.lessons.length;
-          }
-        }
-        if (!isCancelled) setAvailableLessonsCount(count);
-      } catch (err) {
-        console.warn('Could not check lessons from document-processor:', err);
-        if (!isCancelled) setAvailableLessonsCount(null);
-      } finally {
-        if (!isCancelled) setCheckingLessons(false);
-      }
-    }
-    checkLessons();
-    return () => {
-      isCancelled = true;
-    };
-  }, [activeCategory, existing]);
-
-  const hasLessons = existing ? true : (availableLessonsCount ?? 1) > 0;
 
   const card = cards.find((item) => item.id === previewId) || cards[0];
   const ready = cards.filter((item) => item.term.trim() && item.definition.trim()).length;
@@ -190,7 +137,7 @@ export default function FlashcardSetEditor({
     JSON.stringify({
       title: existing?.title || '',
       description: existing?.description || '',
-      categoryId: initialCategory?.category_id,
+      categoryId: activeCategory?.category_id,
       subjectId: existing?.subjectId || '',
       cards: existing?.cards || cards,
     }),
@@ -256,10 +203,6 @@ export default function FlashcardSetEditor({
     }
     if (!activeCategory) {
       setError('Please choose a Learning Program.');
-      return;
-    }
-    if (!existing && !hasLessons) {
-      setError('Cannot create study set: No generated lessons exist in Document Processing for this learning program.');
       return;
     }
     if (cards.length < 2) {
@@ -333,17 +276,6 @@ export default function FlashcardSetEditor({
 
         <div className="grid items-start gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="min-w-0 space-y-5">
-            {!hasLessons && !checkingLessons && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 flex items-start gap-3">
-                <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-bold text-amber-950">Curriculum Grounding Required</p>
-                  <p className="mt-0.5 text-amber-800 leading-relaxed">
-                    There are no generated lessons in Document Processing for <strong>{activeCategory?.name}</strong>. Flashcard creation is disabled until curriculum modules are uploaded and lessons generated.
-                  </p>
-                </div>
-              </div>
-            )}
             <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">01 / Set details</p>
 
@@ -363,53 +295,20 @@ export default function FlashcardSetEditor({
                 />
               </label>
 
-              {/* DYNAMIC LEARNING PROGRAMS FROM BACKEND */}
-              <div className="mt-4">
-                <span className="block text-xs font-semibold text-slate-600 mb-2">
-                  Target Learning Program <span className="text-red-500">*</span>
-                  <span className="ml-1 font-normal text-slate-400">(Learners in this program will see this set)</span>
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {availableCategories.map((cat) => {
-                    const isSelected = cat.category_id === activeCategory?.category_id;
-                    const code = (cat.code || '').toUpperCase();
-                    const isElem = code.includes('ELEM');
-                    const isBLP = code.includes('BLP') || code.includes('BASIC');
-
-                    const activeClass = isElem
-                      ? 'border-emerald-500 bg-emerald-50/40 text-emerald-900 shadow-sm ring-1 ring-emerald-500'
-                      : isBLP
-                      ? 'border-amber-500 bg-amber-50/40 text-amber-900 shadow-sm ring-1 ring-amber-500'
-                      : 'border-blue-500 bg-blue-50/40 text-blue-900 shadow-sm ring-1 ring-blue-500';
-
-                    return (
-                      <label
-                        key={cat.category_id}
-                        className={`flex flex-col p-3 rounded-xl cursor-pointer border transition ${
-                          isSelected
-                            ? activeClass
-                            : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="learningProgram"
-                          value={cat.category_id}
-                          checked={isSelected}
-                          onChange={() => {
-                            setSelectedCategoryId(cat.category_id);
-                            setError('');
-                          }}
-                          className="sr-only"
-                        />
-                        <span className="text-xs font-bold">{cat.name}</span>
-                        <span className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
-                          {cat.description || (isElem ? 'Elementary Level' : isBLP ? 'Foundational Program' : 'Junior High Level')}
-                        </span>
-                      </label>
-                    );
-                  })}
+              {/* Target Learning Program Badge (Read-Only) */}
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 text-blue-700 text-xs font-bold">
+                    <Layers3 size={15} />
+                  </span>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Target Learning Program</p>
+                    <p className="text-xs font-bold text-slate-800">{activeCategory.name}</p>
+                  </div>
                 </div>
+                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-blue-700 shadow-xs border border-blue-100">
+                  Active Program
+                </span>
               </div>
 
               <label className="mt-4 block text-xs font-semibold text-slate-600">
@@ -609,13 +508,8 @@ export default function FlashcardSetEditor({
               </button>
               <button
                 type="submit"
-                disabled={saving || (!existing && !hasLessons)}
-                title={
-                  !existing && !hasLessons
-                    ? `Cannot create study set: No generated lessons exist in Document Processing for ${activeCategory?.name}.`
-                    : undefined
-                }
-                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 hover:bg-blue-700 disabled:opacity-50"
               >
                 <Save size={14} />
                 {saving ? 'Saving…' : existing ? 'Save changes' : 'Create study set'}
