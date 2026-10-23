@@ -16,7 +16,7 @@ from app.core.exceptions import (
     DomainEntityAlreadyExistsException,
     DomainEntityNotFoundException,
     DomainInvalidCredentialsException,
-    DomainValidationDomainException,
+    DomainValidationDomainException, DomainUnprocessableEntity,
 )
 from app.core.cloudinary import cloudinary_service
 from app.core.firebase import (
@@ -77,6 +77,8 @@ class UserService:
                 next_value += 1
             account_id = data.account_id or UsersUtils.generate_account_id(UserRole.STUDENT, next_value)
 
+            if not data.email:
+                raise DomainUnprocessableEntity("Please enter an email. Email is required.")
             user = User(
                 email=data.email,
                 first_name=data.first_name,
@@ -297,7 +299,7 @@ class UserService:
                 raise DomainEntityNotFoundException("This Mapped student is not exists.")
 
             account_id = data.account_id
-            email_for_firebase = f"{account_id}@gmail.com" if not data.email else data.email
+            email_for_firebase = data.email
             #if existing then it must not create user.
             existing = check_email_in_firebase(email_for_firebase)
             if existing:
