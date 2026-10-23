@@ -34,7 +34,7 @@ class UserRepository:
 
     async def get_by_lrn(self, lrn: str) -> UserRead | None:
         """Retrieve user by ID including all normalized details (personal, contact, family)."""
-        statement = _user_query().where(PersonalDetails.lrn_number == lrn)
+        statement = _user_query().join(PersonalDetails, PersonalDetails.user_id == User.user_id).where(PersonalDetails.lrn_number == lrn)
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
         return UserRead.model_validate(data) if data is not None else None
@@ -103,6 +103,11 @@ class UserRepository:
     async def get_entity_by_account_id(self, account_id: str) -> User | None:
         statement = _user_query().where(User.account_id == account_id)
         result = await self._session.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def get_entity_by_id(self, user_id: str) -> User | None:
+        """Return a tracked entity so nested profile edits are persisted."""
+        result = await self._session.execute(_user_query().where(User.user_id == user_id))
         return result.scalar_one_or_none()
 
     async def get_by_firebase_uid(self, firebase_uid: str) -> UserRead | None:

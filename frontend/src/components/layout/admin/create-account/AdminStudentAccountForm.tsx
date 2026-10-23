@@ -74,10 +74,15 @@ function AdminStudentAccountAction({
           <div className="flex items-center gap-2.5 text-blue-900">
             <ShieldCheck size={22} className="shrink-0 text-blue-600" />
             <div>
-              <p className="font-semibold text-blue-900">Learner Ready for Account Activation</p>
+              <p className="font-semibold text-blue-900">Learner Login Not Activated</p>
               <p className="text-xs text-blue-700 mt-0.5">
-                This learner record is mapped. Verify any student details and create their official student account.
+                Mapping saved the learner record. Create the learner account below to enable student login.
               </p>
+              {dirty && (
+                <p className="mt-1 text-xs font-semibold text-blue-800">
+                  Save your changes before creating the learner account.
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -95,17 +100,30 @@ function AdminStudentAccountAction({
           </button>
         </div>
       )}
-      {created && (
+      {(created || student.status === "ACTIVE") && (
         <div
           role="status"
           className="mb-6 flex items-start gap-2.5 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900 shadow-sm"
         >
           <CheckCircle2 size={18} className="shrink-0 text-green-600 mt-0.5" />
           <div>
-            <p className="font-semibold text-green-800">Student Account Created Successfully!</p>
-            <p className="text-xs text-green-700 mt-0.5">
-              The learner account is now active and enrolled. Login credentials have been provisioned on Firebase.
+            <p className="font-semibold text-green-800">
+              {created
+                ? "Student Account Created Successfully!"
+                : "Learner Account Is Active"}
             </p>
+            <p className="text-xs text-green-700 mt-0.5">
+              The learner can sign in using account ID{" "}
+              <strong>{student.account_id}</strong>.
+            </p>
+            {created && (
+              <p className="mt-1 text-xs leading-5 text-green-700">
+                The initial password is the learner&apos;s birth date in{" "}
+                <strong>YYYYMMDD</strong> format. For example, November 30, 2005
+                becomes <strong>20051130</strong>. Use the current password if it
+                has since been changed.
+              </p>
+            )}
           </div>
         </div>
       )}

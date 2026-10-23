@@ -195,7 +195,7 @@ export default function StudentProfileView({
                 <div className="grid grid-cols-[100px_1fr]">
                   <span className="text-gray-500">Barangay</span>
                   <span className="font-medium text-gray-900">
-                    : {student.contact_details.municipality || "-"}
+                    : {student.contact_details.barangay || "-"}
                   </span>
                 </div>
                 <div className="grid grid-cols-[100px_1fr]">

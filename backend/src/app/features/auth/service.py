@@ -53,19 +53,30 @@ class AuthService:
                 raise DomainUnauthorizedDomainException(
                     "Your account is not registered in this application. Please contact your administrator.")
 
-            identifier = user.account_id
-            firebase_email = f"{identifier}@gmail.com" #if not user.email else user.email
+            if user.status == UserStatus.MAPPED:
+                raise DomainUnauthorizedDomainException(
+                    "This learner is mapped but cannot sign in yet. Ask an administrator to create the learner account.")
+            if user.status != UserStatus.ACTIVE:
+                raise DomainUnauthorizedDomainException(
+                    "User account is inactive. Please contact your administrator.")
+            if not user.firebase_uid:
+                raise DomainUnauthorizedDomainException(
+                    "Your sign-in account is not activated yet. Please contact your administrator.")
+
+            # Match the email used when creating student and staff accounts.
+            firebase_email = (
+                user.email
+                if user.role == UserRole.STUDENT and user.email
+                else f"{user.account_id}@gmail.com"
+            )
             firebase_data = await sign_in_with_password(firebase_email, data.password)
 
             if not firebase_data:
                 raise DomainInvalidCredentialsException("Invalid ID or password.")
 
             firebase_uid = firebase_data["localId"]
-            if user is not None and user.firebase_uid != firebase_uid:
+            if user.firebase_uid != firebase_uid:
                 raise DomainInvalidCredentialsException("Invalid email/ID or password.")
-
-            if user.status != UserStatus.ACTIVE:
-                raise DomainUnauthorizedDomainException("User account is not activated yet.")
 
             tokens = TokenResponse(idToken=firebase_data["idToken"], refreshToken=firebase_data["refreshToken"])
             return SuccessfulResponseSchema(message="Successfully logged in.", data=AdditionalData(token=tokens))

@@ -24,6 +24,9 @@ import {
 } from "@/src/lib/user-categories-api";
 import type { StudentMappingPayload } from "@/src/lib/students-api";
 import type { TargetCategory } from "@/src/lib/assessments-api";
+import StudentAddressFields from './StudentAddressFields';
+import ContactNumberInput from './ContactNumberInput';
+import { digitsOnly, todayInPhilippines, validateStudentForm } from '@/src/lib/student-validation';
 
 interface SiblingRow {
   id: string;
@@ -141,6 +144,12 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
       return;
     }
 
+    const validationError = validateStudentForm(formData);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     pending.current = true;
     setIsSubmitting(true);
 
@@ -158,7 +167,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
       }));
 
     const payload: StudentMappingPayload = {
-      email: email || null,
+      email,
       first_name: firstName,
       last_name: lastName,
       middle_name:
@@ -178,11 +187,15 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
           (formData.get("learning_modalities") as string as
             | "FTF"
             | "BLENDED") || "FTF",
-        lrn_number: lrnNumber || null,
+        lrn_number: lrnNumber,
       },
       contact_details: {
         street_building_no:
           ((formData.get("street_building_no") as string) || "").trim() || null,
+        barangay: String(formData.get('barangay') || '').trim() || null,
+        province_code: String(formData.get('province_code') || '') || null,
+        municipality_code: String(formData.get('municipality_code') || '') || null,
+        barangay_code: String(formData.get('barangay_code') || '') || null,
         municipality:
           ((formData.get("municipality") as string) || "").trim() || null,
         province: ((formData.get("province") as string) || "").trim() || null,
@@ -465,6 +478,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                     id="birth_date"
                     name="birth_date"
                     type="date"
+                    max={todayInPhilippines()}
                     required
                     className={inputClass}
                   />
@@ -527,19 +541,23 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
 
                 <div className="sm:col-span-2 lg:col-span-3">
                   <label htmlFor="lrn_number" className={labelClass}>
-                    Learner Reference Number (LRN)
+                    Learner Reference Number (LRN) <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="lrn_number"
                     name="lrn_number"
                     type="text"
-                    placeholder="12-digit LRN (if available)"
+                    placeholder="Enter the 12-digit LRN"
+                    required
+                    inputMode="numeric"
+                    pattern="[0-9]{12}"
+                    title="Enter exactly 12 digits."
+                    onInput={event => { event.currentTarget.value = digitsOnly(event.currentTarget.value, 12); }}
                     maxLength={12}
                     className={inputClass}
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Standard 12-digit DepEd reference number. Leave blank if the
-                    student is a new enrollee without prior records.
+                    Required. Enter the student&apos;s 12-digit DepEd reference number.
                   </p>
                 </div>
               </div>
@@ -575,54 +593,32 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                   />
                 </div>
 
-                <div>
-                  <label htmlFor="municipality" className={labelClass}>
-                    Barangay / Municipality / City
-                  </label>
-                  <input
-                    id="municipality"
-                    name="municipality"
-                    type="text"
-                    placeholder="e.g., San Jose, Pasig"
-                    className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="province" className={labelClass}>
-                    Province
-                  </label>
-                  <input
-                    id="province"
-                    name="province"
-                    type="text"
-                    placeholder="e.g., Metro Manila / Rizal"
-                    className={inputClass}
-                  />
-                </div>
+                <StudentAddressFields inputClass={inputClass} labelClass={labelClass} />
 
                 <div>
                   <label htmlFor="contact_no" className={labelClass}>
                     Primary Contact Number
                   </label>
-                  <input
+                  <ContactNumberInput
                     id="contact_no"
                     name="contact_no"
                     type="tel"
                     placeholder="e.g., 09123456789"
                     className={inputClass}
                   />
+                  <p className="mt-1 text-[11px] text-slate-500">Digits only, up to 11 characters.</p>
                 </div>
 
-                <div className="sm:col-span-2">
+                <div>
                   <label htmlFor="email" className={labelClass}>
-                    Email Address
+                    Email Address <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="email"
                     name="email"
                     type="email"
-                    placeholder="e.g., student@example.com (optional)"
+                    required
+                    placeholder="e.g., student@example.com"
                     className={inputClass}
                   />
                 </div>
@@ -653,7 +649,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                   </h3>
                   <div>
                     <label htmlFor="mother_name" className={labelClass}>
-                      Mother's Name
+                      Mother&apos;s Name
                     </label>
                     <input
                       id="mother_name"
@@ -667,7 +663,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                     <label htmlFor="mother_contact_no" className={labelClass}>
                       Contact Number
                     </label>
-                    <input
+                    <ContactNumberInput
                       id="mother_contact_no"
                       name="mother_contact_no"
                       type="tel"
@@ -684,7 +680,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                   </h3>
                   <div>
                     <label htmlFor="father_name" className={labelClass}>
-                      Father's Name
+                      Father&apos;s Name
                     </label>
                     <input
                       id="father_name"
@@ -698,7 +694,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                     <label htmlFor="father_contact_no" className={labelClass}>
                       Contact Number
                     </label>
-                    <input
+                    <ContactNumberInput
                       id="father_contact_no"
                       name="father_contact_no"
                       type="tel"
@@ -715,7 +711,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                   </h3>
                   <div>
                     <label htmlFor="guardian_name" className={labelClass}>
-                      Guardian's Name
+                      Guardian&apos;s Name
                     </label>
                     <input
                       id="guardian_name"
@@ -729,7 +725,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                     <label htmlFor="guardian_contact_no" className={labelClass}>
                       Contact Number
                     </label>
-                    <input
+                    <ContactNumberInput
                       id="guardian_contact_no"
                       name="guardian_contact_no"
                       type="tel"
@@ -770,7 +766,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                 <div className="text-center py-6 px-4 border border-dashed border-slate-200 rounded-lg text-slate-500 text-xs">
                   No siblings added. Click{" "}
                   <span className="font-semibold text-purple-700">
-                    "Add Sibling"
+                    &quot;Add Sibling&quot;
                   </span>{" "}
                   if the learner has sibling details to record.
                 </div>
@@ -882,8 +878,8 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
               </h2>
               <p className="text-slate-500 text-sm mb-6 leading-relaxed max-w-sm mx-auto">
                 {isAdmin
-                  ? "The student details have been saved to the database. You can now review their record and create their official student account, or return to the directory."
-                  : "The student details have been inserted into the database. You can now review their record, or return to the directory. An administrator will review and activate their student account."}
+                  ? "The learner record is saved. Login is not activated yet. Select Review & Create Learner Account, then Create Learner Account to enable student login."
+                  : "The learner record is saved. Login is not activated yet. An administrator must review the record and create the learner account before the student can sign in."}
               </p>
 
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 text-left mb-6 space-y-3">

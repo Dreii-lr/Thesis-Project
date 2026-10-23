@@ -18,8 +18,12 @@ export interface PersonalDetailsInput {
 }
 export interface ContactDetailsInput {
   street_building_no?: string | null;
+  barangay?: string | null;
   municipality?: string | null;
   province?: string | null;
+  province_code?: string | null;
+  municipality_code?: string | null;
+  barangay_code?: string | null;
   contact_no?: string | null;
 }
 export interface ParentGuardianInfo {
@@ -101,8 +105,12 @@ export interface PersonalDetails {
 }
 export interface ContactDetails {
   street_building_no: string;
+  barangay?: string;
   municipality: string;
   province: string;
+  province_code?: string | null;
+  municipality_code?: string | null;
+  barangay_code?: string | null;
   contact_no: string;
 }
 export interface FamilyDetails extends FamilyDetailsInput {
@@ -127,7 +135,7 @@ export interface Student {
   family_details: FamilyDetails;
 }
 export interface StudentMappingPayload {
-  email: string | null;
+  email: string;
   first_name: string;
   last_name: string;
   middle_name?: string | null;
@@ -207,8 +215,12 @@ export function normalizeStudentRecord(raw: UserRecord): Student {
     },
     contact_details: {
       street_building_no: contact?.street_building_no ?? "",
+      barangay: contact?.barangay ?? "",
       municipality: contact?.municipality ?? "",
       province: contact?.province ?? "",
+      province_code: contact?.province_code ?? null,
+      municipality_code: contact?.municipality_code ?? null,
+      barangay_code: contact?.barangay_code ?? null,
       contact_no: contact?.contact_no ?? "",
     },
     family_details: {

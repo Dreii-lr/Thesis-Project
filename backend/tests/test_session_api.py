@@ -22,8 +22,13 @@ def setup_test_db():
 
 @pytest_asyncio.fixture
 async def session_client(monkeypatch):
-    user = UserRead(user_id="user-1", firebase_uid="firebase-1", email="user@example.com", role="STUDENT", status="ACTIVE")
-    uow = SimpleNamespace(users=SimpleNamespace(get_by_firebase_uid=AsyncMock(return_value=user)))
+    user = UserRead(user_id="user-1", account_id="226-00001", firebase_uid="firebase-1", email="user@example.com", role="STUDENT", status="ACTIVE")
+    uow = SimpleNamespace(users=SimpleNamespace(
+        get_by_email=AsyncMock(return_value=user),
+        get_by_account_id=AsyncMock(return_value=user),
+        get_by_id=AsyncMock(return_value=user),
+        get_by_firebase_uid=AsyncMock(return_value=user),
+    ))
     async def provide_uow():
         yield uow
     app.dependency_overrides[get_uow] = provide_uow
