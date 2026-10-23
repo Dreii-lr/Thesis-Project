@@ -55,7 +55,7 @@ class AuthService:
                     "Your sign-in account is not activated yet. Please contact your administrator.")
 
             # Match the email used when creating student and staff accounts.
-            firebase_email = user.email
+            firebase_email = f"{user.account_id}@gmail.com"#user.email
 
             firebase_data = await sign_in_with_password(firebase_email, data.password)
 
