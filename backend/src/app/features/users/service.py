@@ -44,9 +44,10 @@ from app.features.users.schemas import (
     TeacherCreate,
     UserCreate,
     UserRead,
-    UserUpdate, ProfileUrl,
+    UserUpdate, ProfileUrl, MapStudent,
 )
 from app.features.users.utils import UsersUtils
+from app.features.locations.service import LocationService
 from app.shared.schema import AdditionalData, SuccessfulResponseSchema
 from app.shared.utils import SharedUtils
 
@@ -56,8 +57,11 @@ logger = logging.getLogger(__name__)
 class UserService:
 
     @staticmethod
-    async def map_student(uow: AbstractUnitOfWork, data: UserCreate) -> SuccessfulResponseSchema:
+    async def map_student(uow: AbstractUnitOfWork, data: MapStudent) -> SuccessfulResponseSchema:
         try:
+            if not data.email or not data.personal_details or not data.personal_details.lrn_number:
+                raise DomainValidationDomainException("Email and a 12-digit LRN are required.")
+            await LocationService.validate_address(data.contact_details)
             #check the email if already exist
             if data.email:
                 is_email_exists = await uow.users.get_by_email(data.email)
@@ -118,20 +122,24 @@ class UserService:
                     contact_details_id=str(uuid.uuid4()),
                     user_id=user.user_id,
                     street_building_no=data.contact_details.street_building_no,
+                    barangay=data.contact_details.barangay,
                     municipality=data.contact_details.municipality,
                     province=data.contact_details.province,
+                    province_code=data.contact_details.province_code,
+                    municipality_code=data.contact_details.municipality_code,
+                    barangay_code=data.contact_details.barangay_code,
                     contact_no=data.contact_details.contact_no,
                 )
             else:
                 user.contact_details = None
 
 
-            normalize_siblings = SharedUtils.to_json_list(data.family_details.siblings)
-            normalize_mother = SharedUtils.to_json_dict(data.family_details.mother)
-            normalize_father = SharedUtils.to_json_dict(data.family_details.father)
-            normalized_guardian = SharedUtils.to_json_dict(data.family_details.guardian)
             # Attach normalized family_details
             if data.family_details:
+                normalize_siblings = SharedUtils.to_json_list(data.family_details.siblings)
+                normalize_mother = SharedUtils.to_json_dict(data.family_details.mother)
+                normalize_father = SharedUtils.to_json_dict(data.family_details.father)
+                normalized_guardian = SharedUtils.to_json_dict(data.family_details.guardian)
                 user.family_details = FamilyDetails(
                     family_details_id=str(uuid.uuid4()),
                     user_id=user.user_id,
@@ -489,15 +497,27 @@ class UserService:
         user_id: str,
         data: UserUpdate,
     ) -> SuccessfulResponseSchema:
-        user = await uow.users.get_entity_with_details(user_id)
+        user = await uow.users.get_entity_by_id(user_id)
         if not user:
             raise DomainEntityNotFoundException(f"User '{user_id}' not found.")
+
+        await LocationService.validate_address(data.contact_details)
+        if user.role == UserRole.STUDENT and data.personal_details:
+            if "lrn_number" in data.personal_details.model_fields_set:
+                lrn = data.personal_details.lrn_number
+                if not lrn:
+                    raise DomainValidationDomainException("A 12-digit LRN is required.")
+                existing = await uow.users.get_by_lrn(lrn)
+                if existing and existing.user_id != user_id:
+                    raise DomainEntityAlreadyExistsException("This LRN is already recorded for another student.")
 
         update_dict = data.model_dump(exclude_unset=True)
 
         # 1. Update personal_details
         pd_data = update_dict.pop("personal_details", None)
         if pd_data is not None:
+            pd_data.pop("user_id", None)
+            pd_data.pop("account_id", None)
             if "birth_date" in pd_data and isinstance(pd_data["birth_date"], str) and pd_data["birth_date"]:
                 try:
                     pd_data["birth_date"] = date.fromisoformat(pd_data["birth_date"][:10])

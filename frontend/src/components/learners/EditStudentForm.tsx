@@ -5,6 +5,9 @@ import { useEffect, useRef, useState, type ComponentType } from 'react';
 import ApiState from '@/src/components/ui/ApiState';
 import { ArrowLeft, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { useStudents } from '@/src/context/StudentContext';
+import StudentAddressFields from './StudentAddressFields';
+import ContactNumberInput from './ContactNumberInput';
+import { digitsOnly, todayInPhilippines, validateStudentForm } from '@/src/lib/student-validation';
 import {
   fetchStudentByIdFromApi,
   type Student,
@@ -47,18 +50,17 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
   const [siblings, setSiblings] = useState<SiblingRow[]>([]);
 
   useEffect(() => {
-    if (student?.family_details?.siblings) {
-      setSiblings(
-        student.family_details.siblings.map((s) => ({
-          id: crypto.randomUUID(),
-          name: s.name || '',
-          last_grade_level_completed: s.last_grade_level_completed || '',
-          occupation: s.occupation || '',
-        }))
-      );
-    } else {
-      setSiblings([]);
-    }
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setSiblings((student?.family_details?.siblings || []).map(s => ({
+        id: crypto.randomUUID(),
+        name: s.name || '',
+        last_grade_level_completed: s.last_grade_level_completed || '',
+        occupation: s.occupation || '',
+      })));
+    });
+    return () => { active = false; };
   }, [student, formVersion]);
 
   const addSibling = () => {
@@ -141,12 +143,16 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (pending.current || isActionPending) return;
+    const formData = new FormData(e.currentTarget);
+    const validationError = validateStudentForm(formData, false);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     pending.current = true;
     setIsSubmitting(true);
     setSaved(false);
     setError(null);
-
-    const formData = new FormData(e.currentTarget);
 
     const validSiblings = siblings
       .filter((s) => s.name.trim() !== '')
@@ -181,6 +187,10 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
         ).trim(),
         municipality: ((formData.get('municipality') as string) || '').trim(),
         province: ((formData.get('province') as string) || '').trim(),
+        barangay: String(formData.get('barangay') || '').trim(),
+        province_code: String(formData.get('province_code') || '') || null,
+        municipality_code: String(formData.get('municipality_code') || '') || null,
+        barangay_code: String(formData.get('barangay_code') || '') || null,
         contact_no: ((formData.get('contact_no') as string) || '').trim(),
       },
       family_details: {
@@ -353,6 +363,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                   defaultValue={student.personal_details.birth_date}
                   required
                   type="date"
+                  max={todayInPhilippines()}
                   className={inputClass}
                 />
               </div>
@@ -392,12 +403,18 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
               
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="lrn_number" className="text-sm text-gray-600 font-medium">
-                  Learner Ref No. (LRN)
+                  Learner Ref No. (LRN) <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="lrn_number" name="lrn_number"
                   defaultValue={student.personal_details.lrn_number}
                   type="text"
+                  required
+                  inputMode="numeric"
+                  maxLength={12}
+                  pattern="[0-9]{12}"
+                  title="Enter exactly 12 digits."
+                  onInput={event => { event.currentTarget.value = digitsOnly(event.currentTarget.value, 12); }}
                   className={inputClass}
                 />
               </div>
@@ -412,7 +429,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="street_building_no" className="text-sm text-gray-600 font-medium">
-                  Street/Building Number
+                  Street / Building / House No.
                 </label>
                 <input
                   id="street_building_no" name="street_building_no"
@@ -421,40 +438,20 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                   className={inputClass}
                 />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="municipality" className="text-sm text-gray-600 font-medium">
-                  City/Municipality
-                </label>
-                <input
-                  id="municipality" name="municipality"
-                  defaultValue={student.contact_details.municipality}
-                  type="text"
-                  className={inputClass}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="province" className="text-sm text-gray-600 font-medium">
-                  Province
-                </label>
-                <input
-                  id="province" name="province"
-                  defaultValue={student.contact_details.province}
-                  type="text"
-                  className={inputClass}
-                />
-              </div>
+              <StudentAddressFields initial={student.contact_details} inputClass={inputClass} labelClass="mb-1.5 block text-sm font-medium text-gray-600" />
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="contact_no" className="text-sm text-gray-600 font-medium">
                   Contact Number
                 </label>
-                <input
+                <ContactNumberInput
                   id="contact_no" name="contact_no"
                   defaultValue={student.contact_details.contact_no}
                   type="text"
                   className={inputClass}
                 />
+                <p className="text-xs text-slate-500">Digits only, up to 11 characters.</p>
               </div>
-              <div className="flex flex-col gap-1.5 lg:col-span-2">
+              <div className="flex flex-col gap-1.5">
                 <label htmlFor="email" className="text-sm text-gray-600 font-medium">
                   Email <span className="text-red-500">*</span>
                 </label>
@@ -482,7 +479,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                 </h3>
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="mother_name" className="text-sm text-gray-600 font-medium">
-                    Mother's Name
+                    Mother&apos;s Name
                   </label>
                   <input
                     id="mother_name"
@@ -497,7 +494,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                   <label htmlFor="mother_contact_no" className="text-sm text-gray-600 font-medium">
                     Contact Number
                   </label>
-                  <input
+                  <ContactNumberInput
                     id="mother_contact_no"
                     name="mother_contact_no"
                     defaultValue={student.family_details.mother?.contact_no || ''}
@@ -515,7 +512,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                 </h3>
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="father_name" className="text-sm text-gray-600 font-medium">
-                    Father's Name
+                    Father&apos;s Name
                   </label>
                   <input
                     id="father_name"
@@ -530,7 +527,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                   <label htmlFor="father_contact_no" className="text-sm text-gray-600 font-medium">
                     Contact Number
                   </label>
-                  <input
+                  <ContactNumberInput
                     id="father_contact_no"
                     name="father_contact_no"
                     defaultValue={student.family_details.father?.contact_no || ''}
@@ -548,7 +545,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                 </h3>
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="guardian_name" className="text-sm text-gray-600 font-medium">
-                    Guardian's Name
+                    Guardian&apos;s Name
                   </label>
                   <input
                     id="guardian_name"
@@ -563,7 +560,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
                   <label htmlFor="guardian_contact_no" className="text-sm text-gray-600 font-medium">
                     Contact Number
                   </label>
-                  <input
+                  <ContactNumberInput
                     id="guardian_contact_no"
                     name="guardian_contact_no"
                     defaultValue={student.family_details.guardian?.contact_no || student.family_details.contact_no || ''}
@@ -597,7 +594,7 @@ export default function EditStudentForm({ id: decodedId, basePath, heading = 'Up
 
               {siblings.length === 0 ? (
                 <div className="text-center py-6 px-4 border border-dashed border-slate-200 rounded-lg text-slate-500 text-xs">
-                  No siblings added. Click <span className="font-semibold text-purple-700">"Add Sibling"</span> if the learner has sibling details to record.
+                  No siblings added. Click <span className="font-semibold text-purple-700">&quot;Add Sibling&quot;</span> if the learner has sibling details to record.
                 </div>
               ) : (
                 <div className="space-y-3">

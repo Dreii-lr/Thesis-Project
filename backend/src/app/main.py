@@ -31,6 +31,7 @@ from app.features.assessments.analysis.router import router as cohort_analysis_r
 from app.features.user_categories.router import router as user_categories_router
 from app.features.subjects.router import router as subjects_router
 from app.features.flashcards.router import router as flashcards_router
+from app.features.locations.router import router as locations_router
 
 
 @asynccontextmanager
@@ -75,6 +76,7 @@ app.include_router(cohort_analysis_router, prefix=constants.API_V1_PREFIX)
 app.include_router(user_categories_router, prefix=constants.API_V1_PREFIX)
 app.include_router(subjects_router, prefix=constants.API_V1_PREFIX)
 app.include_router(flashcards_router, prefix=constants.API_V1_PREFIX)
+app.include_router(locations_router, prefix=constants.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])

@@ -20,13 +20,13 @@ dependencies = [
     "tenacity>=9.1.4",
     "aioboto3>=15.5.0",
     "cloudinary>=1.41.0",
+    "httpx>=0.28.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
-    "httpx>=0.28.0",
     "aiosqlite>=0.22.1",
 ]
 

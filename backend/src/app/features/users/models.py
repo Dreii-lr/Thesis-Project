@@ -123,8 +123,12 @@ class ContactDetails(SQLModel, table=True):
         nullable=False,
     )
     street_building_no: Optional[str] = Field(default=None, nullable=True)
+    barangay: Optional[str] = Field(default=None, nullable=True)
     municipality: Optional[str] = Field(default=None, nullable=True)
     province: Optional[str] = Field(default=None, nullable=True)
+    province_code: Optional[str] = Field(default=None, nullable=True)
+    municipality_code: Optional[str] = Field(default=None, nullable=True)
+    barangay_code: Optional[str] = Field(default=None, nullable=True)
     contact_no: Optional[str] = Field(default=None, nullable=True)
 
     created_at: datetime = Field(

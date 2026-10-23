@@ -71,7 +71,6 @@ export async function loginAndFetchUser(
       cache: 'no-store',
       body: JSON.stringify({
         account_id: identity.trim(),
-        student_id: identity.trim(),
         password,
       }),
     });

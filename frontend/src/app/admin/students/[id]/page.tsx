@@ -74,7 +74,7 @@ function StudentDetails({ id }: { id: string }) {
           ]} />
           <DetailSection title="Contact information" fields={[
             ['Email', student.email], ['Contact number', student.contact_details.contact_no], ['Street / building', student.contact_details.street_building_no],
-            ['Municipality', student.contact_details.municipality], ['Province', student.contact_details.province],
+            ['Barangay', student.contact_details.barangay || ''], ['Municipality / city', student.contact_details.municipality], ['Province', student.contact_details.province],
           ]} />
           <DetailSection title="Family information" fields={[
             ['Mother', student.family_details.mother_name], ['Mother contact', student.family_details.mother?.contact_no || ''],

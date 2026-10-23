@@ -3,14 +3,17 @@ schemas.py — Pydantic DTOs for User operations including normalized profile de
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, List, Optional, Dict
+from typing import Annotated, Any, List, Optional, Dict
 
 from fastapi import Form, Body
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.shared.utils import SharedUtils
+
+ContactNumber = Annotated[str, Field(pattern=r"^[0-9]{1,11}$")]
+PSGCCode = Annotated[str, Field(pattern=r"^[0-9]{9}$")]
 
 
 class UserRole(str, Enum):
@@ -45,22 +48,29 @@ class PersonalDetailsInput(BaseModel):
     account_id: str | None = None
     is_interested: bool | None = True
     gender: str | None = None
-    birth_date: date | str | None = None
+    birth_date: date | None = None
     nationality: str | None = "Filipino"
     civil_status: str | None = None
     religion: str | None = None
     learning_modalities: LearningModality | None = LearningModality.FTF
-    lrn_number: str | None = None
+    lrn_number: Annotated[str, Field(pattern=r"^[0-9]{12}$")] | None = None
 
     @field_validator("birth_date", mode="before")
     @classmethod
     def parse_birth_date(cls, data: Any) -> Any:
-        if isinstance(data, str) and data:
-            try:
-                return datetime.strptime(data[:10], "%Y-%m-%d").date()
-            except Exception:
-                return data
-        return data
+        return None if data == "" else data
+
+    @field_validator("birth_date")
+    @classmethod
+    def validate_birth_date(cls, value: date | None) -> date | None:
+        if value and value > datetime.now(timezone(timedelta(hours=8))).date():
+            raise ValueError("Birth date cannot be in the future.")
+        return value
+
+    @field_validator("lrn_number", mode="before")
+    @classmethod
+    def normalize_lrn(cls, value: Any) -> Any:
+        return value.strip() or None if isinstance(value, str) else value
 
 
 class PersonalDetailsRead(BaseModel):
@@ -83,12 +93,28 @@ class PersonalDetailsRead(BaseModel):
 
 class ContactDetailsInput(BaseModel):
     street_building_no: str | None = None
+    barangay: str | None = None
     municipality: str | None = None
     province: str | None = None
-    contact_no: str | None = None
+    province_code: PSGCCode | None = None
+    municipality_code: PSGCCode | None = None
+    barangay_code: PSGCCode | None = None
+    contact_no: ContactNumber | None = None
+
+    @field_validator("contact_no", mode="before")
+    @classmethod
+    def normalize_contact_no(cls, value: Any) -> Any:
+        return value.strip() or None if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_address_codes(self):
+        codes = (self.province_code, self.municipality_code, self.barangay_code)
+        if any(codes) and not all(codes):
+            raise ValueError("Select a province, municipality/city, and barangay to complete the address.")
+        return self
 
     @field_validator(
-        "street_building_no", "municipality", "province", mode="before"
+        "street_building_no", "barangay", "municipality", "province", mode="before"
     )
     @classmethod
     def capitalize_first_letter(cls, value: str | None) -> str | None:
@@ -100,8 +126,12 @@ class ContactDetailsRead(BaseModel):
     contact_details_id: str | None = None
     user_id: str | None = None
     street_building_no: str | None = None
+    barangay: str | None = None
     municipality: str | None = None
     province: str | None = None
+    province_code: str | None = None
+    municipality_code: str | None = None
+    barangay_code: str | None = None
     contact_no: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -110,7 +140,12 @@ class ContactDetailsRead(BaseModel):
 class ParentGuardianInfo(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
     name: Optional[str] = None
-    contact_no: Optional[str] = Field(default=None)
+    contact_no: ContactNumber | None = None
+
+    @field_validator("contact_no", mode="before")
+    @classmethod
+    def normalize_contact_no(cls, value: Any) -> Any:
+        return value.strip() or None if isinstance(value, str) else value
 
 
 class SiblingInfo(BaseModel):
@@ -225,7 +260,7 @@ class FamilyDetailsRead(BaseModel):
 class MapStudent(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    email: EmailStr | None = None
+    email: EmailStr
     password: str | None = None
     first_name: str = Field()
     last_name: str = Field()
@@ -236,9 +271,15 @@ class MapStudent(BaseModel):
     user_category: UserCategory = Field(default=UserCategory.SECONDARY, )
     status: UserStatus = UserStatus.ACTIVE
     firebase_uid: str | None = None
-    personal_details: PersonalDetailsInput | None = Field(default=None, )
+    personal_details: PersonalDetailsInput
     contact_details: ContactDetailsInput | None = Field(default=None, )
     family_details: FamilyDetailsInput | None = Field(default=None, )
+
+    @model_validator(mode="after")
+    def require_student_lrn(self):
+        if not self.personal_details.lrn_number:
+            raise ValueError("A 12-digit Learner Reference Number (LRN) is required.")
+        return self
 
     @field_validator("first_name", "last_name", "middle_name", "suffix", )
     @classmethod

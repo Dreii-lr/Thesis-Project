@@ -54,7 +54,7 @@ async def create_teacher_account(
 
 @router.post("/mapping", status_code=status.HTTP_201_CREATED)
 async def mapping_student(
-        data: UserCreate = Depends(MapStudent.get_map_student_dependency),
+        data: MapStudent,
         current_user: UserRead = Depends(require_admin_teacher),
         uow: AbstractUnitOfWork = Depends(get_uow),
 ) -> JSONResponse:
