@@ -12,6 +12,8 @@ export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const isAdmin = pathname.startsWith("/admin");
+  const isFlashcardDraft =
+    /^\/(?:teacher|admin)\/flashcards\/drafts\/[^/]+\/?$/.test(pathname);
   const homeHref = isAdmin ? "/admin/dashboard" : "/teacher/dashboard";
   const mobileLinks = isAdmin
     ? [
@@ -37,9 +39,11 @@ export default function Header() {
       ];
 
   const pathSegments = pathname?.split("/").filter(Boolean) || [];
-  const breadcrumbSegments = pathSegments.filter(
-    (segment) => segment !== "teacher" && segment !== "admin",
-  );
+  const breadcrumbSegments = isFlashcardDraft
+    ? ["flashcards", "draft-editor"]
+    : pathSegments.filter(
+        (segment) => segment !== "teacher" && segment !== "admin",
+      );
 
   const formatSegment = (segment: string) => {
     return segment
@@ -67,7 +71,20 @@ export default function Header() {
                 pathname === href || pathname.startsWith(`${href}/`),
             )?.[1] || ""
           }
-          onChange={(event) => router.push(event.target.value)}
+          onChange={(event) => {
+            const href = event.target.value;
+            if (
+              isFlashcardDraft &&
+              !window.dispatchEvent(
+                new CustomEvent("als-flashcard-draft-navigate", {
+                  detail: { href },
+                  cancelable: true,
+                }),
+              )
+            )
+              return;
+            router.push(href);
+          }}
           className="max-w-44 rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-700 md:hidden"
         >
           <option value="" disabled>

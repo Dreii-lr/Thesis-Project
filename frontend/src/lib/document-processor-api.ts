@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import type { JSONContent } from "@tiptap/react";
 import { getCurrentUser } from "./auth-api";
 import type { WorkspaceModule, LibraryModule } from "../data/mockTeacher";
 import { CATEGORY_LABELS, type TargetCategory } from "../data/mockAssessment";
@@ -48,6 +49,7 @@ export interface UploadModuleOptions {
   userId?: string | null;
   baseUrl?: string; // Allows targeting document-processing-ms (:9090) or thesis backend (:8989)
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface DocumentDeleteResponse {
@@ -132,18 +134,76 @@ function extractErrorMessage(body: unknown, status: number): string {
   if (body && typeof body === "object") {
     const detail = (body as { detail?: unknown }).detail;
     if (Array.isArray(detail)) {
-      return detail
-        .map(
-          (item: { loc?: string[]; msg: string }) =>
-            `${item.loc?.slice(1).join(".") || "field"}: ${item.msg}`,
+      const messages = detail.flatMap((item: unknown) => {
+        if (
+          !item ||
+          typeof item !== "object" ||
+          !("msg" in item) ||
+          typeof item.msg !== "string"
         )
-        .join("; ");
+          return [];
+        const location =
+          "loc" in item && Array.isArray(item.loc)
+            ? item.loc.slice(1).join(".")
+            : "field";
+        return [`${location || "field"}: ${item.msg}`];
+      });
+      if (messages.length) return messages.join("; ");
     }
     if (typeof detail === "string") return detail;
     const message = (body as { message?: string }).message;
     if (typeof message === "string") return message;
   }
   return `Document processing failed with status ${status}.`;
+}
+
+export class DocumentServiceError extends Error {
+  constructor(
+    message: string,
+    public status = 0,
+    public outcomeUnknown = false,
+  ) {
+    super(message);
+    this.name = "DocumentServiceError";
+  }
+}
+
+// Bound both the request and response-body read. Component cleanup may cancel a
+// read, but a disconnected write must be reconciled rather than called a failure.
+async function requestDocumentJson(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 15000,
+): Promise<{ response: Response; body: unknown }> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) abort();
+  else init.signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    const body = await response.json().catch((error: unknown) => {
+      if (controller.signal.aborted) throw error;
+      return null;
+    });
+    return { response, body };
+  } catch (error) {
+    if (init.signal?.aborted) throw error;
+    throw new DocumentServiceError(
+      controller.signal.aborted
+        ? "The document service took too long to respond."
+        : "The document service could not be reached. Please check your connection.",
+      0,
+      true,
+    );
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener("abort", abort);
+  }
 }
 
 /**
@@ -294,7 +354,11 @@ export async function parseModuleDocument(
   const targetUrl = `${baseUrl}/document-processor/parser`;
 
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append(
+    "file",
+    file,
+    file.name.replace(/\.[^.]+$/, (extension) => extension.toLowerCase()),
+  );
 
   const effectiveUserId = await resolveEffectiveUserId(options.userId);
   const headers: Record<string, string> = {};
@@ -302,19 +366,34 @@ export async function parseModuleDocument(
     headers["X-User-Id"] = effectiveUserId;
   }
 
-  const response = await fetch(targetUrl, {
-    method: "POST",
-    headers,
-    body: formData,
-    signal: options.signal,
-  });
-
-  const body = await response.json().catch(() => null);
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "POST",
+      headers,
+      body: formData,
+      signal: options.signal,
+    },
+    options.timeoutMs ?? 180000,
+  );
 
   if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
   }
-
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("records" in body) ||
+    !Array.isArray(body.records)
+  )
+    throw new DocumentServiceError(
+      "The upload response could not be verified. Refresh the module library before uploading again.",
+      0,
+      true,
+    );
   return body as StructuresProcessedLessons;
 }
 
@@ -501,17 +580,13 @@ export interface GeneratedLessonItem {
   main_topic: string;
   module_title: string;
   lesson_title: string;
-  content: {
-    type: string;
-    content?: any[];
-    [key: string]: any;
-  };
+  content: JSONContent;
   keywords?: string[];
   sub_topics_breakdown?: Array<{
     sub_topic_title: string;
-    explanation: any;
-    concrete_example: any;
-    sub_topic_summary?: any;
+    explanation: unknown;
+    concrete_example: unknown;
+    sub_topic_summary?: unknown;
   }>;
   created_at?: string | null;
   updated_at?: string | null;
@@ -530,7 +605,7 @@ export interface GeneratedLessonUpdatePayload {
   lesson_title?: string;
   main_topic?: string;
   sub_topics?: string[];
-  content: any;
+  content: JSONContent;
   sync_to_material?: boolean;
 }
 
@@ -560,19 +635,23 @@ export async function getMaterials(
   const queryString = params.toString();
   const targetUrl = `${baseUrl}/document-processor/${queryString ? `?${queryString}` : ""}`;
 
-  const response = await fetch(targetUrl, {
+  const { response, body } = await requestDocumentJson(targetUrl, {
     method: "GET",
     headers: { Accept: "application/json" },
     signal: options.signal,
   });
 
-  const body = await response.json().catch(() => null);
-
   if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
   }
-
-  return (Array.isArray(body) ? body : []) as MaterialItem[];
+  if (!Array.isArray(body))
+    throw new DocumentServiceError(
+      "The module library returned an invalid response.",
+    );
+  return body as MaterialItem[];
 }
 
 /** Read the full library, including services that ignore pagination parameters. */
@@ -596,44 +675,106 @@ export async function getAllMaterials(
  */
 export async function deleteMaterialById(
   materialId: string,
-  options: { baseUrl?: string; signal?: AbortSignal } = {},
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<void> {
   if (!materialId.trim()) throw new Error("Select a module to delete.");
   const baseUrl = options.baseUrl || DOCS_MS_URL;
-  const response = await fetch(
-    `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}`,
-    {
-      method: "DELETE",
-      headers: { Accept: "application/json" },
-      signal: options.signal,
-    },
-  );
-  const body = await response.json().catch(() => null);
-  if (!response.ok || body?.success === false) {
-    throw new Error(extractErrorMessage(body, response.status));
+  try {
+    const { response, body } = await requestDocumentJson(
+      `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}`,
+      {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+        signal: options.signal,
+      },
+      options.timeoutMs ?? 20000,
+    );
+    if (
+      !response.ok ||
+      (body &&
+        typeof body === "object" &&
+        "success" in body &&
+        body.success === false)
+    ) {
+      throw new DocumentServiceError(
+        extractErrorMessage(body, response.status),
+        response.status,
+      );
+    }
+    if (response.status !== 204 && (!body || typeof body !== "object"))
+      throw new DocumentServiceError(
+        "The deletion response could not be confirmed.",
+        0,
+        true,
+      );
+  } catch (error) {
+    if (
+      !(error instanceof DocumentServiceError) ||
+      (!error.outcomeUnknown && error.status !== 404 && error.status < 500)
+    )
+      throw error;
+    // A timed-out DELETE may already have committed. Only a confirmed missing
+    // material permits removing the card; never fall back to deleting its document.
+    try {
+      await getMaterialById(materialId, { ...options, timeoutMs: 8000 });
+    } catch (checkError) {
+      if (
+        checkError instanceof DocumentServiceError &&
+        checkError.status === 404
+      )
+        return;
+      throw new DocumentServiceError(
+        "Deletion could not be confirmed. Check the module's status before trying again.",
+        0,
+        true,
+      );
+    }
+    // A received server rejection plus a confirmed existing item is a failed
+    // deletion, not an unknown outcome. Preserve its reason so it can be fixed.
+    if (!error.outcomeUnknown) throw error;
+    throw new DocumentServiceError(
+      "The module is still available, but deletion has not been confirmed. Check its status before trying again.",
+      error.status,
+      true,
+    );
   }
 }
 
 /** Retrieves a material with its structured main topics and subtopics. */
 export async function getMaterialById(
   materialId: string,
-  options: { baseUrl?: string; signal?: AbortSignal } = {},
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<MaterialItem> {
   const baseUrl = options.baseUrl || DOCS_MS_URL;
   const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}`;
 
-  const response = await fetch(targetUrl, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    signal: options.signal,
-  });
-
-  const body = await response.json().catch(() => null);
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: options.signal,
+    },
+    options.timeoutMs,
+  );
 
   if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
   }
-
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("id" in body) ||
+    body.id !== materialId ||
+    !("structured_records" in body) ||
+    !Array.isArray(body.structured_records)
+  )
+    throw new DocumentServiceError(
+      "The document service returned an invalid module response.",
+    );
   return body as MaterialItem;
 }
 
@@ -644,28 +785,61 @@ export async function getMaterialById(
 export async function updateMaterialStatus(
   materialId: string,
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED" | string,
-  options: { baseUrl?: string; signal?: AbortSignal } = {},
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<MaterialItem> {
   const baseUrl = options.baseUrl || DOCS_MS_URL;
   const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}/status`;
 
-  const response = await fetch(targetUrl, {
-    method: "PATCH",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ status }),
-    signal: options.signal,
-  });
-
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
+  try {
+    const { response, body } = await requestDocumentJson(
+      targetUrl,
+      {
+        method: "PATCH",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status }),
+        signal: options.signal,
+      },
+      options.timeoutMs ?? 20000,
+    );
+    if (!response.ok)
+      throw new DocumentServiceError(
+        extractErrorMessage(body, response.status),
+        response.status,
+      );
+    if (
+      !body ||
+      typeof body !== "object" ||
+      !("id" in body) ||
+      body.id !== materialId ||
+      !("status" in body) ||
+      body.status !== status
+    )
+      throw new DocumentServiceError(
+        "The publication response could not be verified.",
+        0,
+        true,
+      );
+    return body as MaterialItem;
+  } catch (error) {
+    if (
+      !(error instanceof DocumentServiceError) ||
+      (!error.outcomeUnknown && error.status < 500)
+    )
+      throw error;
+    try {
+      const saved = await getMaterialById(materialId, {
+        ...options,
+        timeoutMs: 8000,
+      });
+      if (saved.status === status) return saved;
+    } catch {
+      /* Keep the original error when verification is unavailable. */
+    }
+    throw error;
   }
-
-  return body as MaterialItem;
 }
 
 /**
@@ -906,23 +1080,38 @@ export function matchMaterialToSubject(
  */
 export async function getLessonsByMaterial(
   materialsId: string,
-  options: { baseUrl?: string; signal?: AbortSignal } = {},
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<MaterialLessonsResponse> {
   const baseUrl = options.baseUrl || DOCS_MS_URL;
   const targetUrl = `${baseUrl}/document-processor/lessons/${encodeURIComponent(materialsId)}`;
 
-  const response = await fetch(targetUrl, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    signal: options.signal,
-  });
-
-  const body = await response.json().catch(() => null);
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: options.signal,
+    },
+    options.timeoutMs,
+  );
 
   if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
   }
-
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("materials_id" in body) ||
+    body.materials_id !== materialsId ||
+    !("lessons" in body) ||
+    !Array.isArray(body.lessons)
+  )
+    throw new DocumentServiceError(
+      "Saved lesson content could not be verified. Please check again.",
+    );
   return body as MaterialLessonsResponse;
 }
 
@@ -938,7 +1127,7 @@ export async function generateLessonForMaterial(
     signal?: AbortSignal;
     preferEnhanced?: boolean;
   } = {},
-): Promise<any> {
+): Promise<unknown> {
   const preferEnhanced = options.preferEnhanced ?? true;
   const baseUrl = options.baseUrl || DOCS_MS_URL;
   const msHost = baseUrl.replace(/\/api\/v1\/?$/, "");
@@ -961,7 +1150,10 @@ export async function generateLessonForMaterial(
     }
     // Only an unavailable route justifies a second generation request.
     if (response.status !== 404 && response.status !== 405) {
-      throw new Error(extractErrorMessage(body, response.status));
+      throw new DocumentServiceError(
+        extractErrorMessage(body, response.status),
+        response.status,
+      );
     }
   }
 
@@ -977,7 +1169,10 @@ export async function generateLessonForMaterial(
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
   }
 
   return body;
@@ -994,6 +1189,7 @@ export async function updateGeneratedLesson(
     baseUrl?: string;
     signal?: AbortSignal;
     preferEnhanced?: boolean;
+    timeoutMs?: number;
   } = {},
 ): Promise<GeneratedLessonItem> {
   const preferEnhanced = options.preferEnhanced ?? true;
@@ -1002,41 +1198,107 @@ export async function updateGeneratedLesson(
   const enhancedUrl = `${msHost}/api/v2/enhanced-lesson-generation/lessons/${encodeURIComponent(lessonId)}`;
   const legacyUrl = `${baseUrl}/document-processor/lessons/${encodeURIComponent(lessonId)}`;
 
-  if (preferEnhanced) {
-    const response = await fetch(enhancedUrl, {
-      method: "PUT",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: options.signal,
-    });
-
-    const body = await response.json().catch(() => null);
-    if (response.ok) {
-      return body as GeneratedLessonItem;
+  const matches = (value: unknown): value is GeneratedLessonItem => {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("id" in value) ||
+      value.id !== lessonId
+    )
+      return false;
+    const saved = value as GeneratedLessonItem;
+    return (
+      sameJson(saved.content, payload.content) &&
+      (payload.lesson_title === undefined ||
+        saved.lesson_title === payload.lesson_title) &&
+      (payload.main_topic === undefined ||
+        saved.main_topic === payload.main_topic)
+    );
+  };
+  try {
+    const urls = preferEnhanced ? [enhancedUrl, legacyUrl] : [legacyUrl];
+    for (let index = 0; index < urls.length; index++) {
+      const { response, body } = await requestDocumentJson(
+        urls[index],
+        {
+          method: "PUT",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          signal: options.signal,
+        },
+        options.timeoutMs ?? 30000,
+      );
+      if (!response.ok) {
+        if (
+          index === 0 &&
+          urls.length > 1 &&
+          [404, 405].includes(response.status)
+        )
+          continue;
+        throw new DocumentServiceError(
+          extractErrorMessage(body, response.status),
+          response.status,
+        );
+      }
+      if (!matches(body))
+        throw new DocumentServiceError(
+          "The lesson save could not be verified. Your edits are still open.",
+          0,
+          true,
+        );
+      return body;
     }
-    if (response.status !== 404 && response.status !== 405) {
-      throw new Error(extractErrorMessage(body, response.status));
+    throw new DocumentServiceError("The lesson save endpoint is unavailable.");
+  } catch (error) {
+    if (
+      !(error instanceof DocumentServiceError) ||
+      (!error.outcomeUnknown && error.status < 500)
+    )
+      throw error;
+    try {
+      const { response, body } = await requestDocumentJson(
+        `${baseUrl}/document-processor/lessons/detail/${encodeURIComponent(lessonId)}`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: options.signal,
+        },
+        8000,
+      );
+      if (response.ok && matches(body)) return body;
+    } catch {
+      /* A failed read must not discard unsaved editor content. */
     }
+    throw error;
   }
+}
 
-  const response = await fetch(legacyUrl, {
-    method: "PUT",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal: options.signal,
-  });
-
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
-  }
-
-  return body as GeneratedLessonItem;
+function sameJson(first: unknown, second: unknown): boolean {
+  if (first === second) return true;
+  if (
+    !first ||
+    !second ||
+    typeof first !== "object" ||
+    typeof second !== "object"
+  )
+    return false;
+  if (Array.isArray(first) || Array.isArray(second))
+    return (
+      Array.isArray(first) &&
+      Array.isArray(second) &&
+      first.length === second.length &&
+      first.every((item, index) => sameJson(item, second[index]))
+    );
+  const left = first as Record<string, unknown>;
+  const right = second as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every(
+      (key) => Object.hasOwn(right, key) && sameJson(left[key], right[key]),
+    )
+  );
 }

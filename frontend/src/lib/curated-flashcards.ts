@@ -125,7 +125,7 @@ export function readCuratedFlashcards(storage?: Storage): CuratedStudyDeck[] {
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.filter((d: any) => d && !LEGACY_MOCK_IDS.has(d.id)) as CuratedStudyDeck[];
+      return parsed.filter((deck: unknown) => deck && typeof deck === 'object' && 'id' in deck && typeof deck.id === 'string' && !LEGACY_MOCK_IDS.has(deck.id)) as CuratedStudyDeck[];
     }
     return [];
   } catch {

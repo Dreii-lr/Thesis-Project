@@ -57,7 +57,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    loadUser();
+    void Promise.resolve().then(() => {
+      if (active) return loadUser();
+    });
     return () => {
       active = false;
     };

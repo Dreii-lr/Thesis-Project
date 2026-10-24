@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use, useCallback, useRef } from "react";
+import { useState, useEffect, use, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { JSONContent } from "@tiptap/react";
 import DocumentSidebar from "@/src/components/layout/teacher/lesson-content/ContentSidebar";
@@ -23,18 +23,21 @@ import {
 } from "@/src/utils/tiptapJsonHelpers";
 import {
   getMaterialById,
-  getLessonsByMaterial,
-  generateLessonForMaterial,
   updateGeneratedLesson,
   updateMaterialStatus,
   normalizeMaterialStatus,
   matchMaterialToSubject,
   type MaterialItem,
   type MaterialTopic,
-  type GeneratedLessonItem,
 } from "@/src/lib/document-processor-api";
 
 import GenerationReader from "@/src/components/lessons/GenerationReader";
+import {
+  checkLessonGeneration,
+  lessonMatchesTopic,
+  startLessonGeneration,
+  useLessonGeneration,
+} from "@/src/lib/lesson-generation";
 import { listSubjects, type SubjectRecord } from "@/src/lib/subjects-api";
 import {
   getUserCategories,
@@ -45,16 +48,6 @@ import {
   programMatches,
   subjectsForProgram,
 } from "@/src/lib/lesson-workflow";
-
-function normalizeTopicForMatch(str?: string | null): string {
-  if (!str) return "";
-  return str
-    .trim()
-    .toLowerCase()
-    .replace(/^\d+\.\s*/, "")
-    .replace(/[:.,;]+$/, "")
-    .trim();
-}
 
 export default function DocumentViewPage({
   params,
@@ -71,6 +64,13 @@ export default function DocumentViewPage({
 
   const [activeFileId, setActiveFileId] = useState<string>("");
   const [activeLessonId, setActiveLessonId] = useState("");
+  const activeSelection = useRef({ lessonId: "", fileId: "" });
+  useEffect(() => {
+    activeSelection.current = {
+      lessonId: activeLessonId,
+      fileId: activeFileId,
+    };
+  }, [activeLessonId, activeFileId]);
   const activeLesson =
     lessons.find((lesson) => lesson.id === activeLessonId) || null;
   const activeContent =
@@ -85,19 +85,30 @@ export default function DocumentViewPage({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
-    const screen = window.matchMedia('(min-width: 1024px)');
+    const screen = window.matchMedia("(min-width: 1024px)");
     let active = true;
     const update = () => setIsSidebarOpen(screen.matches);
-    void Promise.resolve().then(() => { if (active) update(); });
-    screen.addEventListener('change', update);
-    return () => { active = false; screen.removeEventListener('change', update); };
+    void Promise.resolve().then(() => {
+      if (active) update();
+    });
+    screen.addEventListener("change", update);
+    return () => {
+      active = false;
+      screen.removeEventListener("change", update);
+    };
   }, []);
 
   // Status update state
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   // Generation state
-  const [isGenerating, setIsGenerating] = useState(false);
+  const { owner, state: generation } = useLessonGeneration(material);
+  const isGenerating = generation?.phase === "processing";
+  const generationBlocked =
+    !generation ||
+    generation.pending ||
+    generation.phase === "checking" ||
+    generation.phase === "unknown";
   const [generationMessage, setGenerationMessage] = useState<string | null>(
     null,
   );
@@ -107,15 +118,13 @@ export default function DocumentViewPage({
   const [subjectId, setSubjectId] = useState("");
   const [subjectError, setSubjectError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [liveLessons, setLiveLessons] = useState<GeneratedLessonItem[]>([]);
-  const generationAbort = useRef<AbortController | null>(null);
-  const generationLock = useRef(false);
   const category = categories.find((item) =>
     programMatches(material?.als_program, item),
   );
-  const programSubjects = category
-    ? subjectsForProgram(subjects, category)
-    : [];
+  const programSubjects = useMemo(
+    () => (category ? subjectsForProgram(subjects, category) : []),
+    [subjects, category],
+  );
   const selectedSubject = programSubjects.find(
     (subject) => subject.subject_id === subjectId,
   );
@@ -126,7 +135,7 @@ export default function DocumentViewPage({
   );
   const allTopicsGenerated =
     lessons.length > 0 && lessons.every((lesson) => lesson.files.length > 0);
-  const busy = isGenerating || isSaving || isUpdatingStatus;
+  const busy = Boolean(generation?.pending) || isSaving || isUpdatingStatus;
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -148,7 +157,6 @@ export default function DocumentViewPage({
     });
     return () => {
       active = false;
-      generationAbort.current?.abort();
     };
   }, [loadSubjects]);
   useEffect(() => {
@@ -161,40 +169,30 @@ export default function DocumentViewPage({
   }, [isEditing]);
 
   // Load actual material and its generated lessons from backend
-  const loadMaterialData = useCallback(async () => {
+  const loadVersion = useRef(0);
+  const loadMaterialData = useCallback(async (automatic = false) => {
+    const version = ++loadVersion.current;
     try {
       // 1. Fetch the material record with structured topics
       const mat = await getMaterialById(materialId);
+      if (version !== loadVersion.current) return;
+      setError(null);
       const normalizedStatus = normalizeMaterialStatus(mat.status);
       setMaterial({ ...mat, status: normalizedStatus });
 
       // 2. Fetch any already-generated lessons for this material from database
-      let generatedLessons: GeneratedLessonItem[] = [];
-      try {
-        const genRes = await getLessonsByMaterial(materialId);
-        generatedLessons = genRes?.lessons || [];
-      } catch {
-        // No generated lessons yet or endpoint returned empty
-        generatedLessons = [];
-      }
+      const snapshot = await checkLessonGeneration(owner, mat, { automatic });
+      if (version !== loadVersion.current) return;
+      const generatedLessons = snapshot.lessons;
 
       // Map structured_records into LessonFolder[]
       const mappedLessons: LessonFolder[] = (mat.structured_records || []).map(
         (rec: MaterialTopic, idx: number) => {
           const lessonId = `topic-${idx + 1}`;
           // Match with any generated lesson for this topic using resilient normalization
-          const recNorm = normalizeTopicForMatch(rec.main_topic);
-          const matchingGen = generatedLessons.find((g) => {
-            const mainNorm = normalizeTopicForMatch(g.main_topic);
-            const titleNorm = normalizeTopicForMatch(g.lesson_title);
-            return (
-              (recNorm && (mainNorm === recNorm || titleNorm === recNorm)) ||
-              g.main_topic?.trim().toLowerCase() ===
-                rec.main_topic?.trim().toLowerCase() ||
-              g.lesson_title?.trim().toLowerCase() ===
-                rec.main_topic?.trim().toLowerCase()
-            );
-          });
+          const matchingGen = generatedLessons.find((g) =>
+            lessonMatchesTopic(g, rec.main_topic),
+          );
 
           if (matchingGen && matchingGen.content) {
             const paragraphs = tiptapJsonToParagraphs(matchingGen.content);
@@ -206,7 +204,7 @@ export default function DocumentViewPage({
             };
             return {
               id: lessonId,
-              title: rec.main_topic,
+              title: matchingGen.lesson_title || rec.main_topic,
               sub_topics: rec.sub_topics || [],
               recognize_competencies: rec.recognize_competencies
                 ? "true"
@@ -232,7 +230,7 @@ export default function DocumentViewPage({
             expected_output: rec.expected_output,
             start_date: rec.start_date,
             finished_date: rec.finished_date,
-            status: "NOT_GENERATED",
+            status: snapshot.phase === "unknown" ? "UNKNOWN" : "NOT_GENERATED",
             files: [],
           };
         },
@@ -242,24 +240,54 @@ export default function DocumentViewPage({
 
       // Default select the first lesson and its first file (if available)
       if (mappedLessons.length > 0) {
-        const first = mappedLessons[0];
-        setActiveLessonId(first.id);
-        if (first.files.length > 0) {
-          setActiveFileId(first.files[0].id);
-        } else {
-          setActiveFileId("");
-        }
+        const selected =
+          mappedLessons.find(
+            (lesson) => lesson.id === activeSelection.current.lessonId,
+          ) || mappedLessons[0];
+        setActiveLessonId(selected.id);
+        setActiveFileId(
+          selected.files.find(
+            (file) => file.id === activeSelection.current.fileId,
+          )?.id ||
+            selected.files[0]?.id ||
+            "",
+        );
       }
     } catch (err) {
+      if (version !== loadVersion.current) return;
       const msg =
         err instanceof Error
           ? err.message
           : "Failed to load material from the server.";
       setError(msg);
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
-  }, [materialId]);
+  }, [materialId, owner]);
+
+  const previousGenerationPhase = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previous = previousGenerationPhase.current;
+    previousGenerationPhase.current = generation?.phase;
+    if (generation?.phase === "ready" && previous && previous !== "ready")
+      void Promise.resolve().then(() => loadMaterialData(true));
+  }, [generation?.phase, loadMaterialData]);
+
+  useEffect(() => {
+    let active = true;
+    const savedSubject = generation?.subjectId;
+    if (
+      !subjectId &&
+      savedSubject &&
+      programSubjects.some((subject) => subject.subject_id === savedSubject)
+    )
+      void Promise.resolve().then(() => {
+        if (active) setSubjectId(savedSubject);
+      });
+    return () => {
+      active = false;
+    };
+  }, [generation?.subjectId, subjectId, programSubjects]);
 
   useEffect(() => {
     let active = true;
@@ -268,13 +296,17 @@ export default function DocumentViewPage({
     });
     return () => {
       active = false;
+      loadVersion.current += 1;
     };
   }, [loadMaterialData]);
 
   // Update material status handler (Publish or Save as Draft)
   const handleUpdateStatus = async (newStatus: "DRAFT" | "PUBLISHED") => {
     if (!material || busy || isEditing) return;
-    if (newStatus === "PUBLISHED" && (!allTopicsGenerated || !validSubject)) {
+    if (
+      newStatus === "PUBLISHED" &&
+      (!allTopicsGenerated || !validSubject || generationBlocked)
+    ) {
       setActionError(
         "Generate all topics, save your edits, and select a matching publication subject first.",
       );
@@ -309,74 +341,30 @@ export default function DocumentViewPage({
     }
   };
 
-  // Poll the existing read endpoint while the JSON generation request is in flight.
+  // The shared workflow owns the POST, so route navigation only detaches this view.
   const handleGenerateContent = async () => {
-    if (!material || busy || generationLock.current) return;
+    if (
+      !material ||
+      busy ||
+      generationBlocked ||
+      isEditing ||
+      normalizeMaterialStatus(material.status) !== "DRAFT"
+    )
+      return;
     if (!validSubject) {
       setActionError(
         "Select a subject matching the document's learning strand before generating.",
       );
       return;
     }
-    generationLock.current = true;
-    const controller = new AbortController();
-    generationAbort.current = controller;
-    setIsGenerating(true);
     setGenerationMessage(null);
     setActionError("");
-    setLiveLessons([]);
-    let polling = false;
-    let finished = false;
-    const poll = async () => {
-      if (polling || finished) return;
-      polling = true;
-      try {
-        const snapshot = await getLessonsByMaterial(material.id, {
-          signal: controller.signal,
-        });
-        if (!finished && !controller.signal.aborted)
-          setLiveLessons(snapshot.lessons || []);
-      } catch {
-        /* The final read below reports failures; early snapshots may not exist yet. */
-      } finally {
-        polling = false;
-      }
-    };
-    void poll();
-    const timer = window.setInterval(() => {
-      void poll();
-    }, 1800);
     try {
-      await generateLessonForMaterial(material.id, {
-        signal: controller.signal,
-      });
-      const generated = await getLessonsByMaterial(material.id, {
-        signal: controller.signal,
-      });
-      if (!generated.lessons?.length)
-        throw new Error(
-          "Generation returned no saved lessons. Your draft is safe; try again.",
-        );
-      if (!controller.signal.aborted) {
-        setLiveLessons(generated.lessons);
-        await loadMaterialData();
-        setGenerationMessage(
-          "Lesson content is ready. Review each topic and save your edits before publishing.",
-        );
-      }
+      await startLessonGeneration(owner, material, subjectId);
     } catch (err) {
-      if (!controller.signal.aborted)
-        setActionError(
-          err instanceof Error
-            ? err.message
-            : "Generation failed. Your draft is still available.",
-        );
-    } finally {
-      finished = true;
-      window.clearInterval(timer);
-      controller.abort();
-      generationLock.current = false;
-      setIsGenerating(false);
+      setActionError(
+        err instanceof Error ? err.message : "Generation could not be started.",
+      );
     }
   };
 
@@ -402,6 +390,10 @@ export default function DocumentViewPage({
   const handleRenameLesson = async (lessonId: string, newTitle: string) => {
     const target = lessons.find((lesson) => lesson.id === lessonId);
     if (!target || busy || isEditing) return;
+    if (!newTitle.trim() || newTitle.trim().length > 255) {
+      setActionError("Enter a lesson title between 1 and 255 characters.");
+      return;
+    }
     if (!target.files.length) {
       setActionError("Generate this topic before renaming it.");
       return;
@@ -411,10 +403,8 @@ export default function DocumentViewPage({
     try {
       for (const file of target.files)
         await updateGeneratedLesson(file.id, {
-          lesson_title: newTitle,
-          main_topic: newTitle,
+          lesson_title: newTitle.trim(),
           content: getFileTiptapJson(file),
-          sync_to_material: true,
         });
       await loadMaterialData();
     } catch (err) {
@@ -434,12 +424,15 @@ export default function DocumentViewPage({
     const target = lessons.find((lesson) => lesson.id === lessonId);
     const file = target?.files.find((item) => item.id === fileId);
     if (!target || !file || busy || isEditing) return;
+    if (!newTitle.trim() || newTitle.trim().length > 255) {
+      setActionError("Enter a lesson title between 1 and 255 characters.");
+      return;
+    }
     setIsSaving(true);
     setActionError("");
     try {
       await updateGeneratedLesson(file.id, {
-        lesson_title: newTitle,
-        main_topic: target.title,
+        lesson_title: newTitle.trim(),
         content: getFileTiptapJson(file),
       });
       setLessons((previous) =>
@@ -486,7 +479,6 @@ export default function DocumentViewPage({
       // Only update the local editor after persistence succeeds.
       await updateGeneratedLesson(activeContent.id, {
         lesson_title: activeContent.title,
-        main_topic: activeLesson.title,
         content: cleanJsonWithCloudinaryUrls,
       });
 
@@ -545,7 +537,7 @@ export default function DocumentViewPage({
             <AlertCircle size={24} />
           </div>
           <h2 className="text-base font-bold text-slate-900">
-            Material Not Found
+            Module unavailable
           </h2>
           <p className="mt-1 text-xs text-slate-500">
             {error ||
@@ -616,12 +608,17 @@ export default function DocumentViewPage({
             hasGeneratedContent={allTopicsGenerated}
             generationDisabled={
               !validSubject ||
+              generationBlocked ||
               busy ||
               isEditing ||
               normalizeMaterialStatus(material.status) !== "DRAFT"
             }
             publishDisabled={
-              !allTopicsGenerated || !validSubject || busy || isEditing
+              !allTopicsGenerated ||
+              !validSubject ||
+              busy ||
+              isEditing ||
+              generationBlocked
             }
             actionsDisabled={busy || isEditing}
             backHref={
@@ -701,6 +698,32 @@ export default function DocumentViewPage({
               </button>
             </div>
           )}
+          {generation &&
+            ["checking", "unknown", "failed", "partial"].includes(
+              generation.phase,
+            ) && (
+              <div
+                role="status"
+                className="mx-5 mt-3 flex items-start justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-6 text-blue-900"
+              >
+                <span>
+                  {generation.message}
+                  {generation.completed > 0
+                    ? ` ${generation.completed} of ${generation.total} topics saved.`
+                    : ""}
+                </span>
+                <button
+                  type="button"
+                  disabled={isEditing || isSaving}
+                  onClick={() => {
+                    void loadMaterialData();
+                  }}
+                  className="shrink-0 font-semibold underline underline-offset-2"
+                >
+                  Check progress
+                </button>
+              </div>
+            )}
           {generationMessage && (
             <div className="mx-6 mt-4 flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-800 ring-1 ring-inset ring-emerald-200 animate-in fade-in">
               <span>{generationMessage}</span>
@@ -713,8 +736,13 @@ export default function DocumentViewPage({
             </div>
           )}
 
-          {isGenerating ? (
-            <GenerationReader lessons={liveLessons} />
+          {generation?.pending ? (
+            <GenerationReader
+              lessons={generation.lessons}
+              message={generation.message}
+              processing={isGenerating}
+              checking={generation.phase === "checking"}
+            />
           ) : activeContent && activeLesson ? (
             <article className="min-h-0 flex-1 overflow-y-auto bg-white shadow-[0_10px_30px_rgba(15,23,42,0.04)] sm:px-8 sm:py-8 lg:px-10">
               <div className="mb-7 flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start sm:justify-between">
@@ -762,7 +790,7 @@ export default function DocumentViewPage({
                           title="Generate study flashcards directly from this lesson module"
                         >
                           <Sparkles size={14} className="text-indigo-600" />
-                          Generate Flashcards
+                          Create flashcards
                         </Link>
                       )}
                       <button
@@ -797,15 +825,17 @@ export default function DocumentViewPage({
                   <Sparkles size={24} />
                 </div>
                 <span className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 mb-2">
-                  Awaiting Content Generation
+                  {generationBlocked
+                    ? "Content status unavailable"
+                    : "Awaiting Content Generation"}
                 </span>
                 <h2 className="text-xl font-bold text-slate-900">
                   {activeLesson.title}
                 </h2>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                  This curriculum topic does not have generated reading or
-                  presentation content yet. Click below to generate lesson
-                  materials tailored for ALS learners.
+                  {generationBlocked
+                    ? "Saved content could not be confirmed. Check progress before starting another generation request."
+                    : "This curriculum topic does not have saved lesson content yet. Generate lesson materials tailored for ALS learners."}
                 </p>
 
                 {activeLesson.sub_topics &&
@@ -827,6 +857,7 @@ export default function DocumentViewPage({
                     onClick={handleGenerateContent}
                     disabled={
                       isGenerating ||
+                      generationBlocked ||
                       !validSubject ||
                       normalizeMaterialStatus(material.status) !== "DRAFT"
                     }

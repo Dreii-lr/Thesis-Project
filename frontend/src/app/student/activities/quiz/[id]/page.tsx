@@ -24,8 +24,8 @@ export default function QuizPage() {
     if (phase !== 'taking' || seconds === null) return;
 
     if (seconds <= 0) {
-      setPhase('results');
-      return;
+      const timer = window.setTimeout(() => setPhase('results'), 0);
+      return () => window.clearTimeout(timer);
     }
 
     const timer = window.setInterval(

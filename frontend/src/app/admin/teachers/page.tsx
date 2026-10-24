@@ -52,7 +52,11 @@ export default function AdminTeachersPage() {
   };
 
   useEffect(() => {
-    void loadTeachers();
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) return loadTeachers();
+    });
+    return () => { active = false; };
   }, []);
 
   const handleTeacherCreated = (newTeacher: UserRecord) => {

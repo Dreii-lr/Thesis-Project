@@ -2,7 +2,7 @@
 
 import StudentLoading from '@/src/components/layout/student/StudentLoading';
 
-import { useState, useEffect, use, useCallback } from "react";
+import { useState, useEffect, use, useCallback, useRef } from "react";
 import Link from "next/link";
 
 import ContentSidebar from "@/src/components/layout/teacher/lesson-content/ContentSidebar";
@@ -18,7 +18,6 @@ import {
   normalizeMaterialStatus,
   type MaterialItem,
   type MaterialTopic,
-  type GeneratedLessonItem,
 } from "@/src/lib/document-processor-api";
 
 function normalizeTopicForMatch(str?: string | null): string {
@@ -45,16 +44,20 @@ export default function StudentModuleDetailPage({
   const [error, setError] = useState<string | null>(null);
 
   const [activeFileId, setActiveFileId] = useState<string>("");
-  const [activeLesson, setActiveLesson] = useState<LessonFolder | null>(null);
-  const [activeContent, setActiveContent] = useState<ContentFile | null>(null);
+  const [activeLessonId, setActiveLessonId] = useState("");
+  const activeLesson = lessons.find((lesson) => lesson.files.some((file) => file.id === activeFileId)) || lessons.find((lesson) => lesson.id === activeLessonId) || null;
+  const activeContent = activeLesson?.files.find((file) => file.id === activeFileId) || null;
+  const loadVersion = useRef(0);
 
   // Load actual material and its generated lessons from backend
   const loadMaterialData = useCallback(async () => {
+    const version = ++loadVersion.current;
     setLoading(true);
     setError(null);
     try {
       // 1. Fetch material record with structured topics
       const mat = await getMaterialById(materialId);
+      if (version !== loadVersion.current) return;
 
       // Verify that this material is published by the teacher
       const materialStatus = normalizeMaterialStatus(mat?.status);
@@ -69,13 +72,9 @@ export default function StudentModuleDetailPage({
       setMaterial(mat);
 
       // 2. Fetch generated lessons for this material from database
-      let generatedLessons: GeneratedLessonItem[] = [];
-      try {
-        const genRes = await getLessonsByMaterial(materialId);
-        generatedLessons = genRes?.lessons || [];
-      } catch {
-        generatedLessons = [];
-      }
+      const genRes = await getLessonsByMaterial(materialId);
+      if (version !== loadVersion.current) return;
+      const generatedLessons = genRes.lessons;
 
       // Map structured_records into LessonFolder[]
       const mappedLessons: LessonFolder[] = (mat.structured_records || []).map(
@@ -104,7 +103,7 @@ export default function StudentModuleDetailPage({
             };
             return {
               id: lessonId,
-              title: rec.main_topic,
+              title: matchingGen.lesson_title || rec.main_topic,
               sub_topics: rec.sub_topics || [],
               recognize_competencies: rec.recognize_competencies
                 ? "true"
@@ -141,53 +140,39 @@ export default function StudentModuleDetailPage({
       // Default select the first lesson and its first file (if available)
       if (mappedLessons.length > 0) {
         const first = mappedLessons[0];
-        setActiveLesson(first);
+        setActiveLessonId(first.id);
         if (first.files.length > 0) {
-          setActiveContent(first.files[0]);
           setActiveFileId(first.files[0].id);
         } else {
-          setActiveContent(null);
           setActiveFileId("");
         }
       }
     } catch (err) {
+      if (version !== loadVersion.current) return;
       const msg =
         err instanceof Error
           ? err.message
           : "Failed to load curriculum module from the server.";
       setError(msg);
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   }, [materialId]);
 
   useEffect(() => {
-    loadMaterialData();
+    let active = true;
+    void Promise.resolve().then(() => { if (active) return loadMaterialData(); });
+    return () => { active = false; loadVersion.current += 1; };
   }, [loadMaterialData]);
-
-  // Keep activeLesson and activeContent synchronized when activeFileId changes
-  useEffect(() => {
-    if (!activeFileId) return;
-    for (const lesson of lessons) {
-      const foundFile = lesson.files.find((file) => file.id === activeFileId);
-      if (foundFile) {
-        setActiveLesson(lesson);
-        setActiveContent(foundFile);
-        break;
-      }
-    }
-  }, [activeFileId, lessons]);
 
   // Select lesson folder from sidebar
   const handleSelectLesson = (lessonId: string) => {
     const target = lessons.find((l) => l.id === lessonId);
     if (!target) return;
-    setActiveLesson(target);
+    setActiveLessonId(target.id);
     if (target.files.length > 0) {
-      setActiveContent(target.files[0]);
       setActiveFileId(target.files[0].id);
     } else {
-      setActiveContent(null);
       setActiveFileId("");
     }
   };

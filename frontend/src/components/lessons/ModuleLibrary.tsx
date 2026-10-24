@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   ArrowRight,
@@ -20,6 +21,9 @@ import {
 import Modal from "@/src/components/ui/Modal";
 import {
   deleteMaterialById,
+  DocumentServiceError,
+  getMaterialById,
+  getLessonsByMaterial,
   matchMaterialToSubject,
   normalizeMaterialStatus,
   type MaterialItem,
@@ -27,6 +31,13 @@ import {
 import type { SubjectRecord } from "@/src/lib/subjects-api";
 import type { UserCategoryItem } from "@/src/lib/user-categories-api";
 import { flashcardHref } from "@/src/lib/lesson-workflow";
+import { useOptionalAuth } from "@/src/context/AuthContext";
+import {
+  forgetLessonGeneration,
+  hasPendingLessonGeneration,
+  isLessonGenerationActive,
+  useLessonGeneration,
+} from "@/src/lib/lesson-generation";
 import {
   emptyModuleFilters,
   filterCount,
@@ -57,6 +68,7 @@ export default function ModuleLibrary({
   initialSubjectId,
   onUpload,
   onDeleted,
+  onUpdated,
   onNotice,
   renderHeader,
 }: {
@@ -69,6 +81,7 @@ export default function ModuleLibrary({
   initialSubjectId?: string;
   onUpload: () => void;
   onDeleted: (id: string) => void;
+  onUpdated: (material: MaterialItem) => void;
   onNotice: (notice: ModuleActionNotice) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -81,7 +94,35 @@ export default function ModuleLibrary({
   const [deleting, setDeleting] = useState<MaterialItem | null>(null);
   const [pending, setPending] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [deleteUncertain, setDeleteUncertain] = useState(false);
+  const [deleteStillExists, setDeleteStillExists] = useState(false);
+  const user = useOptionalAuth()?.user;
+  const owner = String(user?.user_id || user?.id || "");
   const deleteLock = useRef(false);
+  const uncertainDeletes = useRef(new Set<string>());
+  function deletionKey(id: string) {
+    return `als-module-delete:v1:${encodeURIComponent(owner)}:${encodeURIComponent(id)}`;
+  }
+  function rememberDeletion(id: string, unconfirmed: boolean) {
+    if (unconfirmed) uncertainDeletes.current.add(id);
+    else uncertainDeletes.current.delete(id);
+    try {
+      if (unconfirmed) localStorage.setItem(deletionKey(id), "pending");
+      else localStorage.removeItem(deletionKey(id));
+    } catch {
+      /* The current page still prevents repeated deletion requests. */
+    }
+  }
+  function deletionPending(id: string) {
+    try {
+      return (
+        uncertainDeletes.current.has(id) ||
+        localStorage.getItem(deletionKey(id)) === "pending"
+      );
+    } catch {
+      return uncertainDeletes.current.has(id);
+    }
+  }
   const results = useMemo(
     () =>
       sortLibraryModules(
@@ -100,10 +141,17 @@ export default function ModuleLibrary({
     if (!deleteLock.current) {
       setDeleting(null);
       setDeleteError("");
+      setDeleteUncertain(false);
     }
   }
   async function confirmDelete() {
     if (!deleting || deleteLock.current) return;
+    if (isLessonGenerationActive(owner, deleting)) {
+      setDeleteError(
+        "Content generation is still running in this browser. Wait for it to finish before deleting this module.",
+      );
+      return;
+    }
     if (!deleting.id?.trim()) {
       setDeleteError(
         "This module has no valid ID. Refresh your library and try again.",
@@ -114,7 +162,48 @@ export default function ModuleLibrary({
     setPending(true);
     setDeleteError("");
     try {
-      await deleteMaterialById(deleting.id);
+      if (deleteUncertain || deletionPending(deleting.id)) {
+        setDeleteUncertain(true);
+        try {
+          await getMaterialById(deleting.id, { timeoutMs: 8000 });
+          setDeleteStillExists(true);
+          setDeleteError(
+            "The server still lists this module. The earlier delete may still be waiting on generation. Check again after processing finishes; if it remains blocked, the document service needs attention.",
+          );
+          return;
+        } catch (error) {
+          if (!(error instanceof DocumentServiceError) || error.status !== 404)
+            throw error;
+        }
+      } else {
+        const submit = async () => {
+          if (deletionPending(deleting.id))
+            throw new DocumentServiceError(
+              "Another deletion is awaiting confirmation. Check its status first.",
+              0,
+              true,
+            );
+          rememberDeletion(deleting.id, true);
+          await deleteMaterialById(deleting.id);
+        };
+        if (navigator.locks)
+          await navigator.locks.request(
+            `als-module-delete:${deleting.id}`,
+            { ifAvailable: true },
+            async (lock) => {
+              if (!lock)
+                throw new DocumentServiceError(
+                  "Deletion is already running in another tab. Check its status before trying again.",
+                  0,
+                  true,
+                );
+              await submit();
+            },
+          );
+        else await submit();
+      }
+      rememberDeletion(deleting.id, false);
+      forgetLessonGeneration(owner, deleting.id);
       onDeleted(deleting.id);
       onNotice({
         kind: "success",
@@ -122,7 +211,13 @@ export default function ModuleLibrary({
         message: `“${moduleTitle(deleting)}” was removed from your module library.`,
       });
       setDeleting(null);
+      setDeleteUncertain(false);
     } catch (err) {
+      const uncertain =
+        deleteUncertain ||
+        (err instanceof DocumentServiceError && err.outcomeUnknown);
+      rememberDeletion(deleting.id, uncertain);
+      setDeleteUncertain(uncertain);
       setDeleteError(
         err instanceof Error
           ? err.message
@@ -361,7 +456,14 @@ export default function ModuleLibrary({
                       title="Delete module"
                       disabled={pending}
                       onClick={() => {
-                        setDeleteError("");
+                        const uncertain = deletionPending(material.id);
+                        setDeleteError(
+                          uncertain
+                            ? "A previous deletion is awaiting server confirmation. Check its status before sending another request."
+                            : "",
+                        );
+                        setDeleteUncertain(uncertain);
+                        setDeleteStillExists(false);
                         setDeleting(material);
                       }}
                       className="-mr-1 -mt-1 shrink-0 rounded-lg p-2 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-2 focus-visible:outline-rose-400 disabled:opacity-40"
@@ -370,6 +472,10 @@ export default function ModuleLibrary({
                     </button>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100/80 pt-3.5">
+                    <ModuleGenerationStatus
+                      material={material}
+                      onUpdated={onUpdated}
+                    />
                     <div className="flex min-w-0 flex-wrap gap-1.5">
                       {topics.slice(0, 2).map((topic, index) => (
                         <span
@@ -387,19 +493,12 @@ export default function ModuleLibrary({
                       )}
                     </div>
                     <div className="ml-auto flex flex-wrap items-center gap-2">
-                      {status === "PUBLISHED" && (
-                        <Link
-                          href={flashcardHref(
-                            material,
-                            category.code,
-                            subject?.subject_id,
-                          )}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[11px] font-semibold text-blue-600 transition hover:bg-blue-50"
-                        >
-                          <Layers3 size={13} />
-                          Flashcards
-                        </Link>
-                      )}
+                      <ModuleFlashcardAction
+                        material={material}
+                        program={category.code}
+                        subjectId={subject?.subject_id}
+                        onNotice={onNotice}
+                      />
                       <Link
                         href={href}
                         className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50/50 hover:text-blue-700"
@@ -483,6 +582,14 @@ export default function ModuleLibrary({
             This will permanently delete the module and its generated lesson
             content. This action cannot be undone.
           </p>
+          {hasPendingLessonGeneration(owner, deleting) &&
+            !isLessonGenerationActive(owner, deleting) && (
+              <p className="mt-2 text-xs leading-6 text-amber-700">
+                The earlier generation request has an unverified status.
+                Deletion will be sent to the server; any processing conflict
+                will be shown here.
+              </p>
+            )}
           {normalizeMaterialStatus(deleting.status) === "PUBLISHED" && (
             <p className="mt-2 text-xs leading-6 text-amber-700">
               This module is published. Learners will lose access to its lesson
@@ -495,7 +602,34 @@ export default function ModuleLibrary({
               className="mt-4 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50 p-3 text-xs leading-6 text-rose-700"
             >
               <AlertCircle size={15} className="mt-1 shrink-0" />
-              <span>{deleteError} The module is still in your library.</span>
+              <span>
+                {deleteError}{" "}
+                {deleteUncertain
+                  ? "The item stays visible until deletion is confirmed."
+                  : "The item has not been removed from this view."}
+              </span>
+            </div>
+          )}
+          {deleteUncertain && deleteStillExists && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-900">
+              If the document service has recovered and the earlier request has
+              stopped, you can prepare a new deletion.
+              <button
+                type="button"
+                disabled={pending}
+                className="mt-2 block font-semibold underline underline-offset-2 disabled:opacity-50"
+                onClick={() => {
+                  if (!deleting) return;
+                  rememberDeletion(deleting.id, false);
+                  setDeleteUncertain(false);
+                  setDeleteStillExists(false);
+                  setDeleteError(
+                    "A new deletion is ready. Confirm below after checking that processing has stopped.",
+                  );
+                }}
+              >
+                Retry after service recovery
+              </button>
             </div>
           )}
           <div className="mt-6 flex justify-end gap-2 border-t border-slate-100 pt-5">
@@ -520,15 +654,154 @@ export default function ModuleLibrary({
                 <Trash2 size={14} />
               )}
               {pending
-                ? "Deleting module…"
-                : deleteError
-                  ? "Try deleting again"
-                  : "Delete module"}
+                ? deleteUncertain
+                  ? "Checking deletion…"
+                  : "Deleting module…"
+                : deleteUncertain
+                  ? "Check deletion status"
+                  : deleteError
+                    ? "Try deleting again"
+                    : "Delete module"}
             </button>
           </div>
         </Modal>
       )}
     </div>
+  );
+}
+
+function ModuleGenerationStatus({
+  material,
+  onUpdated,
+}: {
+  material: MaterialItem;
+  onUpdated: (material: MaterialItem) => void;
+}) {
+  const { state } = useLessonGeneration(material, true);
+  useEffect(() => {
+    if (state?.phase !== "ready") return;
+    let active = true;
+    void getMaterialById(material.id)
+      .then((updated) => {
+        if (active) onUpdated(updated);
+      })
+      .catch(() => {
+        /* Keep the last verified module metadata. */
+      });
+    return () => {
+      active = false;
+    };
+  }, [state?.phase, material.id, onUpdated]);
+  if (
+    !state ||
+    (state.phase === "checking" && !state.pending) ||
+    state.phase === "idle"
+  )
+    return null;
+  const processing = state.phase === "processing";
+  const checking = state.phase === "checking";
+  return (
+    <span
+      role="status"
+      className={`inline-flex max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold ${state.phase === "ready" ? "bg-emerald-50 text-emerald-700" : state.phase === "failed" || state.phase === "unknown" ? "bg-amber-50 text-amber-800" : "bg-blue-50 text-blue-700"}`}
+      title={state.message}
+    >
+      {processing || checking ? (
+        <Loader2
+          size={12}
+          className="shrink-0 animate-spin motion-reduce:animate-none"
+        />
+      ) : state.phase === "ready" ? (
+        <CheckCircle2 size={12} />
+      ) : (
+        <AlertCircle size={12} />
+      )}
+      {processing
+        ? "Processing lesson content"
+        : checking
+          ? "Checking generation progress"
+          : state.phase === "ready"
+            ? "Content ready"
+            : state.phase === "partial"
+              ? "Partial content saved"
+              : state.phase === "failed"
+                ? "Generation failed"
+                : "Progress unavailable"}
+      {state.completed > 0 && (
+        <span className="tabular-nums">
+          · {state.completed}/{state.total} topics saved
+        </span>
+      )}
+    </span>
+  );
+}
+
+function ModuleFlashcardAction({
+  material,
+  program,
+  subjectId,
+  onNotice,
+}: {
+  material: MaterialItem;
+  program: string;
+  subjectId?: string;
+  onNotice: (notice: ModuleActionNotice) => void;
+}) {
+  const router = useRouter();
+  const [checking, setChecking] = useState(false);
+  const lock = useRef(false);
+  const published = normalizeMaterialStatus(material.status) === "PUBLISHED";
+  async function open() {
+    if (lock.current || !published) return;
+    lock.current = true;
+    setChecking(true);
+    try {
+      const [current, content] = await Promise.all([
+        getMaterialById(material.id),
+        getLessonsByMaterial(material.id),
+      ]);
+      if (normalizeMaterialStatus(current.status) !== "PUBLISHED")
+        throw new Error("Publish this module before creating flashcards.");
+      if (
+        !content.lessons?.some((lesson) => lesson.material_id === material.id)
+      )
+        throw new Error(
+          "Generate the lesson content for this module before creating flashcards.",
+        );
+      router.push(flashcardHref(material, program, subjectId));
+    } catch (err) {
+      onNotice({
+        kind: "info",
+        title: "Flashcards are not ready yet",
+        message:
+          err instanceof Error
+            ? err.message
+            : "The source content could not be checked. Please try again.",
+      });
+    } finally {
+      lock.current = false;
+      setChecking(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      disabled={!published || checking}
+      onClick={open}
+      title={
+        published
+          ? "Create flashcards from this module’s generated lessons"
+          : "Publish this module and generate its lesson content first"
+      }
+      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[11px] font-semibold text-blue-600 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
+    >
+      {checking ? (
+        <Loader2 size={13} className="animate-spin" />
+      ) : (
+        <Layers3 size={13} />
+      )}
+      {checking ? "Checking lessons…" : "Create flashcards"}
+    </button>
   );
 }
 

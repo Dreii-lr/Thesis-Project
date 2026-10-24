@@ -113,8 +113,6 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     let active = true;
-    setMaterialsLoading(true);
-    setMaterialsError(null);
     getMaterials({ pageSize: 100 })
       .then((items) => {
         if (active) setMaterials(items || []);

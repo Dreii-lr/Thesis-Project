@@ -1,186 +1,188 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from "react";
 import {
-  readCuratedFlashcards,
-  saveCuratedFlashcard,
-  deleteCuratedFlashcard,
+  getLearningProgramInfo,
+  validateCuratedDeckInput,
   CURATED_FLASHCARDS_STORAGE_KEY,
   type CuratedStudyDeck,
   type CuratedFlashcardInput,
   type AuthorInfo,
-} from '@/src/lib/curated-flashcards';
+} from "@/src/lib/curated-flashcards";
 import {
-  listFlashcardsApi,
+  listAllFlashcardsApi,
   createFlashcardDeckApi,
   updateFlashcardDeckApi,
   deleteFlashcardDeckApi,
-} from '@/src/lib/curated-flashcards-api';
+} from "@/src/lib/curated-flashcards-api";
+import {
+  FLASHCARD_DRAFTS_UPDATED,
+  flashcardDraftsKey,
+  readFlashcardDrafts,
+  type FlashcardDraft,
+} from "@/src/lib/flashcard-drafts";
 
-export function useCuratedFlashcards(programFilter?: string) {
-  const [allDecks, setAllDecks] = useState<CuratedStudyDeck[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+const UPDATED_EVENT = "als-flashcards-updated";
+
+function notifyPublishedSetsChanged() {
+  window.dispatchEvent(new Event(UPDATED_EVENT));
+  try {
+    // Notify other tabs without sharing one account's decks through browser storage.
+    window.localStorage.setItem(UPDATED_EVENT, String(Date.now()));
+  } catch {
+    // Storage is optional; the server has already confirmed the change.
+  }
+}
+
+export function useFlashcardDrafts(ownerId?: string) {
   const [version, setVersion] = useState(0);
-
-  const load = useCallback(async () => {
-    // 1. Immediately populate from local cache to avoid visual flash
-    try {
-      const localData = readCuratedFlashcards();
-      if (localData && localData.length > 0) {
-        setAllDecks(localData);
-      }
-    } catch {
-      // ignore
-    }
-
-    // 2. Fetch live decks from backend
-    try {
-      const result = await listFlashcardsApi({
-        program: programFilter || undefined,
-        program_code: programFilter || undefined,
+  const [result, setResult] = useState<{
+    ownerId: string;
+    decks: FlashcardDraft[];
+    error: string;
+  } | null>(null);
+  const reload = useCallback(() => setVersion((value) => value + 1), []);
+  useEffect(() => {
+    if (!ownerId) return;
+    let active = true;
+    Promise.resolve()
+      .then(() => readFlashcardDrafts(ownerId))
+      .then((decks) => {
+        if (active) setResult({ ownerId, decks, error: "" });
+      })
+      .catch((err: unknown) => {
+        if (active)
+          setResult({
+            ownerId,
+            decks: [],
+            error:
+              err instanceof Error
+                ? err.message
+                : "Drafts could not be loaded.",
+          });
       });
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === flashcardDraftsKey(ownerId) || event.key === null)
+        reload();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(FLASHCARD_DRAFTS_UPDATED, reload);
+    return () => {
+      active = false;
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(FLASHCARD_DRAFTS_UPDATED, reload);
+    };
+  }, [ownerId, version, reload]);
+  return {
+    drafts: result && result.ownerId === ownerId ? result.decks : [],
+    loading: Boolean(ownerId && result?.ownerId !== ownerId),
+    error: result && result.ownerId === ownerId ? result.error : "",
+    reload,
+  };
+}
 
-      if (result && Array.isArray(result.items)) {
-        setAllDecks(result.items);
-        // Persist silently into local cache without triggering recursive update events
-        try {
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem(
-              CURATED_FLASHCARDS_STORAGE_KEY,
-              JSON.stringify(result.items),
-            );
-          }
-        } catch {
-          // ignore cache write error
-        }
-      }
-      setError('');
-    } catch (err) {
-      // Gracefully fall back to local storage
-      try {
-        const local = readCuratedFlashcards();
-        setAllDecks(local);
-      } catch {
-        setError(err instanceof Error ? err.message : 'Could not load flashcard study sets.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [programFilter]);
+export function useCuratedFlashcards(
+  programFilter?: string,
+  {
+    enabled = true,
+    scopeKey = "",
+  }: { enabled?: boolean; scopeKey?: string } = {},
+) {
+  const programCode = programFilter
+    ? getLearningProgramInfo(programFilter).code
+    : undefined;
+  const scope = JSON.stringify([scopeKey, programCode]);
+  const [version, setVersion] = useState(0);
+  const [result, setResult] = useState<{
+    scope: string;
+    version: number;
+    decks: CuratedStudyDeck[];
+    error: string;
+  } | null>(null);
+
+  const reload = useCallback(() => setVersion((previous) => previous + 1), []);
 
   useEffect(() => {
-    load();
+    if (!enabled) return;
+    let active = true;
 
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === CURATED_FLASHCARDS_STORAGE_KEY || event.key === null) {
-        load();
-      }
-    };
-
-    const onCustomUpdate = () => {
-      load();
-    };
-
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('als-flashcards-updated', onCustomUpdate);
+    // Published sets always come from the shared API, never a browser-only fallback.
+    listAllFlashcardsApi(programCode)
+      .then((decks) => {
+        if (active) setResult({ scope, version, decks, error: "" });
+      })
+      .catch((err: unknown) => {
+        if (active)
+          setResult({
+            scope,
+            version,
+            decks: [],
+            error:
+              err instanceof Error
+                ? err.message
+                : "Could not load flashcard study sets.",
+          });
+      });
 
     return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('als-flashcards-updated', onCustomUpdate);
+      active = false;
     };
-  }, [load, version]);
+  }, [enabled, programCode, scope, version]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const onStorage = (event: StorageEvent) => {
+      if (
+        event.key === UPDATED_EVENT ||
+        event.key === CURATED_FLASHCARDS_STORAGE_KEY ||
+        event.key === null
+      )
+        reload();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(UPDATED_EVENT, reload);
+    window.addEventListener("focus", reload);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(UPDATED_EVENT, reload);
+      window.removeEventListener("focus", reload);
+    };
+  }, [enabled, reload]);
 
   const save = useCallback(
     async (input: CuratedFlashcardInput, author: AuthorInfo) => {
-      try {
-        let savedDeck: CuratedStudyDeck;
-        try {
-          if (input.id && !input.id.startsWith('curated-') && !input.id.startsWith('custom-')) {
-            savedDeck = await updateFlashcardDeckApi(input.id, input, author);
-          } else {
-            savedDeck = await createFlashcardDeckApi(input, author);
-          }
-          // Quietly sync successful backend deck to local storage
-          try {
-            saveCuratedFlashcard({ ...input, id: savedDeck.id }, author);
-          } catch {
-            // ignore
-          }
-        } catch {
-          // If backend call fails, save to local cache
-          const localUpdated = saveCuratedFlashcard(input, author);
-          savedDeck = localUpdated.find((d) => d.title === input.title) || localUpdated[0];
-        }
-
-        setAllDecks((prev) => {
-          const index = prev.findIndex((d) => d.id === savedDeck.id || d.title === savedDeck.title);
-          if (index >= 0) {
-            const next = [...prev];
-            next[index] = savedDeck;
-            return next;
-          }
-          return [savedDeck, ...prev];
-        });
-        setError('');
-        return savedDeck;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to save flashcard set.';
-        setError(msg);
-        throw err;
-      }
+      validateCuratedDeckInput(input);
+      const savedDeck = input.id
+        ? await updateFlashcardDeckApi(input.id, input, author)
+        : await createFlashcardDeckApi(input, author);
+      notifyPublishedSetsChanged();
+      return savedDeck;
     },
     [],
   );
 
   const remove = useCallback(async (id: string) => {
-    try {
-      try {
-        if (!id.startsWith('curated-') && !id.startsWith('custom-')) {
-          await deleteFlashcardDeckApi(id);
-        }
-      } catch {
-        // Backend delete failed or offline; continue to local delete
-      }
-
-      deleteCuratedFlashcard(id);
-      setAllDecks((prev) => prev.filter((d) => d.id !== id));
-      setError('');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete flashcard set.';
-      setError(msg);
-      throw err;
-    }
+    await deleteFlashcardDeckApi(id);
+    notifyPublishedSetsChanged();
   }, []);
 
-  const reload = useCallback(() => {
-    setLoading(true);
-    setError('');
-    setVersion((v) => v + 1);
-  }, []);
-
-  // Program filtered decks (matches categoryId or programCode case-insensitively)
-  const filteredDecks = programFilter
-    ? allDecks.filter((deck) => {
-        const filterUpper = (programFilter || '').toUpperCase();
-        const filterLower = (programFilter || '').toLowerCase();
-        const deckProgUpper = (deck.programCode || deck.programName || '').toUpperCase();
-        const deckProgLower = (deck.programCode || deck.programName || '').toLowerCase();
-        return (
+  const matchesScope = enabled && result?.scope === scope;
+  const allDecks = matchesScope ? result.decks : [];
+  const decks = programCode
+    ? allDecks.filter(
+        (deck) =>
           deck.categoryId === programFilter ||
-          deckProgUpper === filterUpper ||
-          (deckProgUpper && filterUpper && (deckProgUpper.includes(filterUpper) || filterUpper.includes(deckProgUpper))) ||
-          deckProgLower === filterLower ||
-          (deckProgLower && filterLower && (deckProgLower.includes(filterLower) || filterLower.includes(deckProgLower)))
-        );
-      })
+          getLearningProgramInfo(
+            deck.programCode || deck.programName,
+          ).code.toUpperCase() === programCode.toUpperCase(),
+      )
     : allDecks;
 
   return {
     allDecks,
-    decks: filteredDecks,
-    loading,
-    error,
+    decks,
+    loading: enabled && (!matchesScope || result.version !== version),
+    error: matchesScope && result.version === version ? result.error : "",
     save,
     remove,
     reload,

@@ -54,6 +54,7 @@ function ModuleDashboard() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [notice, setNotice] = useState<ModuleActionNotice | null>(null);
   const requestVersion = useRef(0);
+  const deletedIds = useRef(new Set<string>());
   const category = categories.find(
     (item) => item.category_id === requested || programMatches(requested, item),
   );
@@ -86,7 +87,9 @@ function ModuleDashboard() {
         "Subjects could not be loaded. Retry to restore subject filters.",
       );
     if (results[2].status === "fulfilled") {
-      setMaterials(results[2].value);
+      setMaterials(
+        results[2].value.filter((item) => !deletedIds.current.has(item.id)),
+      );
       setUnavailable(false);
     } else {
       setUnavailable(true);
@@ -123,9 +126,18 @@ function ModuleDashboard() {
     void reload();
   }
   function removeModule(id: string) {
-    requestVersion.current += 1;
+    deletedIds.current.add(id);
     setMaterials((previous) => previous.filter((item) => item.id !== id));
   }
+  const updateModule = useCallback(
+    (material: MaterialItem) => {
+      if (!deletedIds.current.has(material.id))
+        setMaterials((previous) =>
+          previous.map((item) => (item.id === material.id ? material : item)),
+        );
+    },
+    [setMaterials],
+  );
 
   function renderHeader(overview?: ReactNode) {
     return (
@@ -208,6 +220,7 @@ function ModuleDashboard() {
           unavailable={unavailable}
           onUpload={() => setUploadOpen(true)}
           onDeleted={removeModule}
+          onUpdated={updateModule}
           onNotice={setNotice}
         />
       ) : (

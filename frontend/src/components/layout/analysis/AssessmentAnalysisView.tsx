@@ -135,7 +135,7 @@ export default function AssessmentAnalysisView({ role }: AssessmentAnalysisViewP
   // ─── Filter States ──────────────────────────────────────────────────────────
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedType, setSelectedType] = useState<string>('ALL');
-  const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('');
+  const [requestedAssessmentId, setSelectedAssessmentId] = useState<string>('');
 
   // ─── Active Tab State ───────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'overview' | 'items' | 'learners'>('overview');
@@ -181,7 +181,9 @@ export default function AssessmentAnalysisView({ role }: AssessmentAnalysisViewP
   }, []);
 
   useEffect(() => {
-    fetchTasks();
+    let active = true;
+    void Promise.resolve().then(() => { if (active) return fetchTasks(); });
+    return () => { active = false; };
   }, [fetchTasks]);
 
   // ─── 2. Available Assessment Types (Dynamic Discovery from Backend) ─────────
@@ -227,17 +229,8 @@ export default function AssessmentAnalysisView({ role }: AssessmentAnalysisViewP
     });
   }, [allAnalyzableItems, selectedCategory, selectedType]);
 
-  // Sync selectedAssessmentId with filtered list
-  useEffect(() => {
-    if (filteredAssessments.length > 0) {
-      const exists = filteredAssessments.some((a) => a.id === selectedAssessmentId);
-      if (!exists) {
-        setSelectedAssessmentId(filteredAssessments[0].id);
-      }
-    } else if (selectedAssessmentId !== '') {
-      setSelectedAssessmentId('');
-    }
-  }, [filteredAssessments, selectedAssessmentId]);
+  const selectedAssessmentId = filteredAssessments.some((item) => item.id === requestedAssessmentId)
+    ? requestedAssessmentId : filteredAssessments[0]?.id || '';
 
   // Active selected assessment record
   const selectedTask = useMemo(() => {
@@ -250,15 +243,16 @@ export default function AssessmentAnalysisView({ role }: AssessmentAnalysisViewP
 
   // ─── 5. Fetch Live Assessment Details, Submissions & Saved Analysis ─────────
   useEffect(() => {
-    if (!selectedAssessmentId || !selectedTask) {
-      setCurrentAssessmentDetails(null);
-      setCurrentSubmissions([]);
-      setCurrentAnalysis(null);
-      return;
-    }
-
     let active = true;
     async function loadData() {
+      await Promise.resolve();
+      if (!active) return;
+      if (!selectedAssessmentId || !selectedTask) {
+        setCurrentAssessmentDetails(null);
+        setCurrentSubmissions([]);
+        setCurrentAnalysis(null);
+        return;
+      }
       setLoadingAssessmentData(true);
       setAnalysisLoadError(null);
       try {
@@ -399,7 +393,7 @@ export default function AssessmentAnalysisView({ role }: AssessmentAnalysisViewP
 
   // ─── 9. Button State & Submission Gate Logic ───────────────────────────────
   // Rule: Button is OPEN if no generated content and users have taken it; hidden if no user took it.
-  const hasGeneratedAnalysis = Boolean(currentAnalysis);
+  const hasGeneratedAnalysis = currentAnalysis !== null;
   const hasLearnerSubmissions = currentSubmissions.length > 0;
   const canGenerate = Boolean(
     selectedTask &&
@@ -828,18 +822,18 @@ export default function AssessmentAnalysisView({ role }: AssessmentAnalysisViewP
 
           {/* Diagnostic Tabs Navigation */}
           <div className="flex items-center gap-2 border-b border-slate-200">
-            {[
+            {([
               { id: 'overview', label: 'AI Struggle Overview', icon: Sparkles },
               { id: 'items', label: 'Item Breakdown & Distractors', icon: Target },
               { id: 'learners', label: 'Learner Insights & Diagnostics', icon: GraduationCap },
-            ].map((tab) => {
+            ] as const).map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs sm:text-sm font-bold transition-colors ${
                     isActive
                       ? 'border-blue-600 text-blue-700'
@@ -1089,7 +1083,7 @@ export default function AssessmentAnalysisView({ role }: AssessmentAnalysisViewP
                   <select
                     aria-label="Filter items"
                     value={questionFilter}
-                    onChange={(e) => setQuestionFilter(e.target.value as any)}
+                    onChange={(e) => setQuestionFilter(e.target.value === 'high_error' ? 'high_error' : 'all')}
                     className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                   >
                     <option value="all">All Items ({currentQuestions.length})</option>

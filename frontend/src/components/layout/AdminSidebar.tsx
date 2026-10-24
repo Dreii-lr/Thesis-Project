@@ -29,12 +29,11 @@ export default function AdminSidebar() {
 
   const [flashcardsOpen, setFlashcardsOpen] = useState(true);
   const [categories, setCategories] = useState<UserCategoryItem[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    setLoadingCategories(true);
     Promise.all([
       getUserCategories().catch(() => []),
       listSubjects().catch(() => []),

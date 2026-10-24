@@ -64,8 +64,8 @@ export function lessonText(node: unknown): string {
 }
 
 export function validateIlaFile(file: Pick<File, "name" | "size">) {
-  if (!/\.(pdf|docx|txt|png|jpe?g)$/i.test(file.name))
-    return "Choose a PDF, DOCX, TXT, PNG, or JPG document.";
+  if (!/\.(pdf|docx|png|jpe?g)$/i.test(file.name))
+    return "Choose a PDF, DOCX, PNG, or JPG document.";
   if (!file.size || file.size > 50 * 1024 * 1024)
     return "Choose a non-empty document up to 50 MB.";
   return null;

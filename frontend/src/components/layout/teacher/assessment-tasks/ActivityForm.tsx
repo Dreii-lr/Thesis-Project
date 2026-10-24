@@ -43,22 +43,20 @@ export default function ActivityForm({
 
   useEffect(() => {
     let isMounted = true;
-    setLoadingSubjects(true);
-    setSubjectsError(null);
-
-    listSubjects(targetCategory)
+    Promise.resolve().then(() => {
+      if (!isMounted) return [];
+      setLoadingSubjects(true);
+      setSubjectsError(null);
+      return listSubjects(targetCategory);
+    })
       .then((fetched) => {
         if (!isMounted) return;
         const activeSubjects = fetched.filter((s) => s.is_active);
         setSubjects(activeSubjects);
         if (activeSubjects.length > 0) {
-          const matchesExisting = activeSubjects.some(
-            (s) => s.code === subjectCode || s.name === subjectCode || s.subject_id === subjectCode
-          );
-          if (!matchesExisting) {
-            const firstCode = activeSubjects[0].code || activeSubjects[0].name;
-            setSubjectCode(firstCode);
-          }
+          setSubjectCode((current) => activeSubjects.some(
+            (subject) => subject.code === current || subject.name === current || subject.subject_id === current
+          ) ? current : activeSubjects[0].code || activeSubjects[0].name);
         }
       })
       .catch((err) => {

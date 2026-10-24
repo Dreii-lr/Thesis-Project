@@ -201,7 +201,7 @@ export default function ContentSidebar({
                       type="button"
                       onClick={(e) => startEditingLesson(e, lesson)}
                       className="ml-1 hidden shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 group-hover:inline-flex"
-                      title="Rename main topic"
+                      title="Rename lesson title"
                     >
                       <Edit2 size={12} />
                     </button>

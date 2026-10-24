@@ -16,6 +16,7 @@ import {
 import Modal from "@/src/components/ui/Modal";
 import {
   getMaterials,
+  DocumentServiceError,
   parseModuleDocument,
   type MaterialItem,
   type StructuresProcessedLessons,
@@ -42,6 +43,7 @@ export default function IlaUploadModal({
   const [materialId, setMaterialId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [uploadUncertain, setUploadUncertain] = useState(false);
   const [dragging, setDragging] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const reviewLock = useRef(false);
@@ -68,20 +70,23 @@ export default function IlaUploadModal({
     setMaterials([]);
     setMaterialId("");
     setPreview(false);
+    setUploadUncertain(false);
   }
 
   async function review() {
-    if (!file || busy || reviewLock.current) return;
+    if (!file || busy || uploadUncertain || reviewLock.current) return;
     reviewLock.current = true;
     setPreview(true);
     setBusy(true);
     setError("");
     const abort = new AbortController();
     controller.current = abort;
+    let uploadConfirmed = Boolean(parsed);
     try {
       const result =
         parsed || (await parseModuleDocument(file, { signal: abort.signal }));
       setParsed(result);
+      uploadConfirmed = true;
       if (!parsed)
         onUploaded({
           filename: result.filename || file.name,
@@ -105,10 +110,20 @@ export default function IlaUploadModal({
           "The document was uploaded, but no curriculum material was returned. Refresh the dashboard to review it.",
         );
     } catch (err) {
-      if (!abort.signal.aborted)
+      if (!abort.signal.aborted) {
+        const uncertain =
+          !uploadConfirmed &&
+          err instanceof DocumentServiceError &&
+          err.outcomeUnknown;
+        if (uncertain) setUploadUncertain(true);
         setError(
-          err instanceof Error ? err.message : "Could not review the document.",
+          uncertain
+            ? "The upload could not be confirmed. The document may already be saved. Close this window and refresh the module library before uploading it again."
+            : err instanceof Error
+              ? err.message
+              : "Could not review the document.",
         );
+      }
     } finally {
       reviewLock.current = false;
       if (!abort.signal.aborted) setBusy(false);
@@ -174,7 +189,7 @@ export default function IlaUploadModal({
             or click to browse files
           </span>
           <span className="mt-4 text-xs text-slate-400">
-            PDF, DOCX, TXT, PNG, JPG · Up to 50 MB
+            PDF, DOCX, PNG, JPG · Up to 50 MB
           </span>
         </button>
       ) : (
@@ -193,7 +208,7 @@ export default function IlaUploadModal({
           </div>
           <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
             <button
-              disabled={busy}
+              disabled={busy || uploadUncertain}
               onClick={review}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-2 text-blue-700 disabled:opacity-50"
             >
@@ -222,6 +237,7 @@ export default function IlaUploadModal({
                 setParsed(null);
                 setPreview(false);
                 setError("");
+                setUploadUncertain(false);
               }}
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-rose-600 disabled:opacity-50"
             >
@@ -240,7 +256,7 @@ export default function IlaUploadModal({
       <input
         ref={input}
         type="file"
-        accept=".pdf,.docx,.txt,.png,.jpg,.jpeg"
+        accept=".pdf,.docx,.png,.jpg,.jpeg"
         className="hidden"
         onChange={(event) => {
           choose(event.target.files?.[0]);
@@ -249,7 +265,7 @@ export default function IlaUploadModal({
       />
       {preview && file && (
         <div className="mt-5 space-y-4">
-          {/\.(pdf|txt|png|jpe?g)$/i.test(file.name) ? (
+          {/\.(pdf|png|jpe?g)$/i.test(file.name) ? (
             <iframe
               title={`Source document: ${file.name}`}
               src={fileUrl}
@@ -377,7 +393,7 @@ export default function IlaUploadModal({
         </button>
         {!parsed ? (
           <button
-            disabled={!file || busy}
+            disabled={!file || busy || uploadUncertain}
             onClick={review}
             className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
           >

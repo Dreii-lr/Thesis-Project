@@ -1,12 +1,12 @@
-import { authenticatedRequest } from '@/src/lib/auth-api';
-import type { StudyCard } from '@/src/data/mockStudentFlashcards';
-import { DEFAULT_USER_CATEGORIES } from '@/src/lib/user-categories-api';
+import { authenticatedRequest } from "@/src/lib/auth-api";
+import type { StudyCard } from "@/src/data/mockStudentFlashcards";
+import { DEFAULT_USER_CATEGORIES } from "@/src/lib/user-categories-api";
 import {
   type AuthorInfo,
   type CuratedFlashcardInput,
   type CuratedStudyDeck,
   getLearningProgramInfo,
-} from '@/src/lib/curated-flashcards';
+} from "@/src/lib/curated-flashcards";
 
 export interface BackendFlashcardCard {
   id: string;
@@ -27,7 +27,8 @@ export interface BackendFlashcardDeck {
   id: string;
   title: string;
   description?: string | null;
-  program_code: string;
+  program?: string;
+  program_code?: string;
   programCode?: string;
   program_name?: string | null;
   programName?: string | null;
@@ -45,7 +46,7 @@ export interface BackendFlashcardDeck {
   author_name?: string | null;
   author?: string;
   author_role?: string | null;
-  authorRole?: 'teacher' | 'admin' | 'system';
+  authorRole?: "teacher" | "admin" | "system";
   created_at?: string | null;
   createdAt?: string | null;
   updated_at?: string | null;
@@ -54,8 +55,8 @@ export interface BackendFlashcardDeck {
   materialId?: string | null;
   lesson_id?: string | null;
   lessonId?: string | null;
-  generation_scope?: string | null;
-  generationScope?: string | null;
+  generation_scope?: CuratedStudyDeck["generationScope"];
+  generationScope?: CuratedStudyDeck["generationScope"];
   cards: BackendFlashcardCard[];
 }
 
@@ -69,40 +70,49 @@ export interface BackendDeckListEnvelope {
 /**
  * Adapt backend deck payload (whether camelCase or snake_case) to CuratedStudyDeck.
  */
-export function adaptBackendDeckToCuratedDeck(deck: BackendFlashcardDeck | any): CuratedStudyDeck {
-  const program = deck.program || deck.program_name || deck.program_code || deck.programCode || 'Elementary';
+export function adaptBackendDeckToCuratedDeck(
+  deck: BackendFlashcardDeck,
+): CuratedStudyDeck {
+  const program =
+    deck.program ||
+    deck.program_code ||
+    deck.programCode ||
+    deck.program_name ||
+    deck.programName ||
+    "";
   const programMeta = getLearningProgramInfo(program);
-  const subjectName = deck.subject || deck.subject_name || deck.subjectName || 'General Study';
+  const subjectName =
+    deck.subject || deck.subject_name || deck.subjectName || "General Study";
 
   const matchedCategory = DEFAULT_USER_CATEGORIES.find(
     (c) =>
-      (c.code || '').toUpperCase() === program.toUpperCase() ||
-      (c.name || '').toLowerCase() === program.toLowerCase(),
+      (c.code || "").toUpperCase() === programMeta.code.toUpperCase() ||
+      (c.name || "").toLowerCase() === program.toLowerCase(),
   );
 
-  const adaptedCards: StudyCard[] = (deck.cards || []).map((c: any, idx: number) => ({
+  const adaptedCards: StudyCard[] = (deck.cards || []).map((c, idx) => ({
     id: c.id || `card-${deck.id}-${idx}`,
-    term: c.term || c.front || '',
-    definition: c.definition || c.back || '',
-    example: c.example || c.explanation || c.hint || '',
+    term: c.term || c.front || "",
+    definition: c.definition || c.back || "",
+    example: c.example || c.explanation || c.hint || "",
   }));
 
-  const role = (deck.authorRole || deck.author_role || 'teacher').toLowerCase();
-  const validRole: 'teacher' | 'admin' | 'system' =
-    role === 'admin' ? 'admin' : role === 'system' ? 'system' : 'teacher';
+  const role = (deck.authorRole || deck.author_role || "teacher").toLowerCase();
+  const validRole: "teacher" | "admin" | "system" =
+    role === "admin" ? "admin" : role === "system" ? "system" : "teacher";
 
   return {
     id: String(deck.id),
     title: deck.title,
-    description: deck.description || '',
+    description: deck.description || "",
     subject: subjectName,
     strand: subjectName,
-    author: deck.author || deck.author_name || 'ALS Teacher',
+    author: deck.author || deck.author_name || "ALS Teacher",
     authorId: deck.created_by_user_id || undefined,
     authorRole: validRole,
     categoryId: matchedCategory?.category_id,
-    subjectId: undefined,
-    programCode: program,
+    subjectId: deck.subjectId || deck.subject_id || undefined,
+    programCode: programMeta.code,
     programName: programMeta.label || program,
     createdAt: deck.createdAt || deck.created_at || new Date().toISOString(),
     updatedAt: deck.updatedAt || deck.updated_at || new Date().toISOString(),
@@ -116,26 +126,31 @@ export function adaptBackendDeckToCuratedDeck(deck: BackendFlashcardDeck | any):
 /**
  * Query decks from backend with optional filters.
  */
-export async function listFlashcardsApi(params: {
-  program?: string;
-  program_code?: string;
-  subject?: string;
-  search?: string;
-  is_curated?: boolean;
-  offset?: number;
-  limit?: number;
-} = {}): Promise<{ items: CuratedStudyDeck[]; total: number }> {
+export async function listFlashcardsApi(
+  params: {
+    program?: string;
+    program_code?: string;
+    subject?: string;
+    search?: string;
+    is_curated?: boolean;
+    offset?: number;
+    limit?: number;
+  } = {},
+): Promise<{ items: CuratedStudyDeck[]; total: number }> {
   const q = new URLSearchParams();
   const prog = params.program || params.program_code;
-  if (prog) q.set('program', prog);
-  if (params.subject) q.set('subject', params.subject);
-  if (params.search) q.set('search', params.search);
-  if (params.is_curated !== undefined) q.set('is_curated', String(params.is_curated));
-  if (params.offset !== undefined) q.set('offset', String(params.offset));
-  if (params.limit !== undefined) q.set('limit', String(params.limit));
+  if (prog) q.set("program", prog);
+  if (params.subject) q.set("subject", params.subject);
+  if (params.search) q.set("search", params.search);
+  if (params.is_curated !== undefined)
+    q.set("is_curated", String(params.is_curated));
+  if (params.offset !== undefined) q.set("offset", String(params.offset));
+  if (params.limit !== undefined) q.set("limit", String(params.limit));
 
-  const path = `/flashcards${q.toString() ? `?${q.toString()}` : ''}`;
-  const raw = await authenticatedRequest<BackendDeckListEnvelope | BackendFlashcardDeck[]>(path);
+  const path = `/flashcards${q.toString() ? `?${q.toString()}` : ""}`;
+  const raw = await authenticatedRequest<
+    BackendDeckListEnvelope | BackendFlashcardDeck[]
+  >(path);
 
   if (Array.isArray(raw)) {
     return {
@@ -144,16 +159,39 @@ export async function listFlashcardsApi(params: {
     };
   }
 
-  const items = Array.isArray(raw?.items) ? raw.items.map(adaptBackendDeckToCuratedDeck) : [];
-  const total = typeof raw?.total === 'number' ? raw.total : items.length;
+  if (!Array.isArray(raw?.items)) {
+    throw new Error("Unexpected flashcard response. Please try again.");
+  }
+  const items = raw.items.map(adaptBackendDeckToCuratedDeck);
+  const total = typeof raw?.total === "number" ? raw.total : items.length;
   return { items, total };
+}
+
+/** Load every page so older published sets remain available to students. */
+export async function listAllFlashcardsApi(
+  program?: string,
+): Promise<CuratedStudyDeck[]> {
+  const decks = new Map<string, CuratedStudyDeck>();
+  for (let offset = 0; ;) {
+    const page = await listFlashcardsApi({ program, offset, limit: 100 });
+    for (const deck of page.items) decks.set(deck.id, deck);
+    offset += page.items.length;
+    if (offset >= page.total) return [...decks.values()];
+    if (!page.items.length) {
+      throw new Error("Study sets changed while loading. Please refresh.");
+    }
+  }
 }
 
 /**
  * Fetch a single deck by ID.
  */
-export async function getFlashcardDeckApi(id: string): Promise<CuratedStudyDeck> {
-  const raw = await authenticatedRequest<BackendFlashcardDeck>(`/flashcards/${id}`);
+export async function getFlashcardDeckApi(
+  id: string,
+): Promise<CuratedStudyDeck> {
+  const raw = await authenticatedRequest<BackendFlashcardDeck>(
+    `/flashcards/${id}`,
+  );
   return adaptBackendDeckToCuratedDeck(raw);
 }
 
@@ -168,8 +206,9 @@ export async function createFlashcardDeckApi(
     ...(input.id ? { id: input.id } : {}),
     title: input.title,
     description: input.description,
-    program: input.programName || input.programCode || 'Elementary',
-    subject: input.subject || 'General Study',
+    program: getLearningProgramInfo(input.programCode || input.programName)
+      .code,
+    subject: input.subject || "General Study",
     author_name: author.authorName,
     author_role: author.authorRole,
     material_id: input.materialId ?? null,
@@ -183,9 +222,9 @@ export async function createFlashcardDeckApi(
     })),
   };
 
-  const raw = await authenticatedRequest<BackendFlashcardDeck>('/flashcards', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const raw = await authenticatedRequest<BackendFlashcardDeck>("/flashcards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
@@ -203,13 +242,15 @@ export async function updateFlashcardDeckApi(
   const payload = {
     title: input.title,
     description: input.description,
-    program: input.programName || input.programCode || 'Elementary',
-    subject: input.subject || 'General Study',
+    program: getLearningProgramInfo(input.programCode || input.programName)
+      .code,
+    subject: input.subject || "General Study",
     author_name: author.authorName,
     author_role: author.authorRole,
     material_id: input.materialId !== undefined ? input.materialId : undefined,
     lesson_id: input.lessonId !== undefined ? input.lessonId : undefined,
-    generation_scope: input.generationScope !== undefined ? input.generationScope : undefined,
+    generation_scope:
+      input.generationScope !== undefined ? input.generationScope : undefined,
     cards: input.cards.map((c, idx) => ({
       front: c.term,
       back: c.definition,
@@ -218,11 +259,14 @@ export async function updateFlashcardDeckApi(
     })),
   };
 
-  const raw = await authenticatedRequest<BackendFlashcardDeck>(`/flashcards/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const raw = await authenticatedRequest<BackendFlashcardDeck>(
+    `/flashcards/${id}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
 
   return adaptBackendDeckToCuratedDeck(raw);
 }
@@ -231,9 +275,13 @@ export async function updateFlashcardDeckApi(
  * Delete a deck on the backend.
  */
 export async function deleteFlashcardDeckApi(id: string): Promise<void> {
-  await authenticatedRequest<unknown>(`/flashcards/${id}`, {
-    method: 'DELETE',
-  }, false);
+  await authenticatedRequest<unknown>(
+    `/flashcards/${id}`,
+    {
+      method: "DELETE",
+    },
+    false,
+  );
 }
 
 /**
@@ -250,7 +298,7 @@ export async function generateFlashcardsAIApi(params: {
   subjectName?: string;
   subject?: string;
   numCards?: number;
-  generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC';
+  generationScope?: "FULL_MODULE" | "SINGLE_TOPIC";
   forceRegenerate?: boolean;
 }): Promise<{
   title: string;
@@ -264,8 +312,10 @@ export async function generateFlashcardsAIApi(params: {
     topic: params.topic || undefined,
     lesson_id: params.lessonId || undefined,
     material_id: params.materialId || undefined,
-    generation_scope: params.generationScope || (params.materialId && !params.lessonId ? 'FULL_MODULE' : 'SINGLE_TOPIC'),
-    program: params.program || params.programCode || 'Elementary',
+    generation_scope:
+      params.generationScope ||
+      (params.materialId && !params.lessonId ? "FULL_MODULE" : "SINGLE_TOPIC"),
+    program: params.program || params.programCode || "Elementary",
     subject: params.subject || params.subjectName || undefined,
     num_cards: params.numCards || 5,
     force_regenerate: params.forceRegenerate || false,
@@ -280,17 +330,17 @@ export async function generateFlashcardsAIApi(params: {
     isExisting?: boolean;
     existing_deck_id?: string | null;
     existingDeckId?: string | null;
-  }>('/flashcards/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  }>("/flashcards/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
   const cards: StudyCard[] = (raw.cards || []).map((c, idx) => ({
     id: c.id || `gen-${Date.now()}-${idx}`,
-    term: c.term || c.front || '',
-    definition: c.definition || c.back || '',
-    example: c.example || c.explanation || c.hint || '',
+    term: c.term || c.front || "",
+    definition: c.definition || c.back || "",
+    example: c.example || c.explanation || c.hint || "",
   }));
 
   return {

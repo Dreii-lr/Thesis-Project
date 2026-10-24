@@ -1,12 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { UploadCloud, CheckCircle2, Clock, AlertTriangle, Eye, Download, Trash2 } from 'lucide-react';
 import { Student, EnrollmentDocument } from '@/src/data/mockStudents';
 import DocPreviewModal from '@/src/components/ui/teacher/DocPreviewModal';
 import DocUploadModal from '@/src/components/ui/teacher/DocUploadModal';
 
 export default function DocumentsTab({ student }: { student: Student }) {
+  return <StudentDocuments key={JSON.stringify([student.id, student.documents])} student={student} />;
+}
+
+function StudentDocuments({ student }: { student: Student }) {
   const [docs, setDocs] = useState<EnrollmentDocument[]>(student.documents || []);
   const [filter, setFilter] = useState<'All' | 'Verified' | 'Pending' | 'Missing'>('All');
 
@@ -14,10 +18,6 @@ export default function DocumentsTab({ student }: { student: Student }) {
   const [uploadType, setUploadType] = useState<string>('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-
-  useEffect(() => {
-    setDocs(student.documents || []);
-  }, [student]);
 
   const completedCount = docs.filter(d => d.status === 'Verified').length;
   const totalCount = docs.length || 4;

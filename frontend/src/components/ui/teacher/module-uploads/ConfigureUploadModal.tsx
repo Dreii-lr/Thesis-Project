@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, FileText, Upload } from 'lucide-react';
 
 interface ConfigureUploadModalProps {
@@ -11,17 +11,12 @@ interface ConfigureUploadModalProps {
 }
 
 export default function ConfigureUploadModal({ isOpen, filename, onClose, onConfirm }: ConfigureUploadModalProps) {
+  return isOpen ? <UploadConfiguration key={filename} filename={filename} onClose={onClose} onConfirm={onConfirm} /> : null;
+}
+
+function UploadConfiguration({ filename, onClose, onConfirm }: Omit<ConfigureUploadModalProps, 'isOpen'>) {
   const [level, setLevel] = useState('Junior High School');
   const [subject, setSubject] = useState('LS1: Communication Skills');
-
-  useEffect(() => {
-    if (isOpen) {
-      setLevel('Junior High School');
-      setSubject('LS1: Communication Skills');
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[70] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-0 animate-in fade-in duration-200">

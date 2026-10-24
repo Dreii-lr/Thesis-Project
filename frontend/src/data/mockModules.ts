@@ -1,10 +1,10 @@
-// src/data/mockModules.ts
+import type { JSONContent } from '@tiptap/react';
 
 export type ContentFile = {
   id: string;
   title: string;
   paragraphs: string[];
-  contentJson?: any; // Holds the Tiptap JSONContent object from/for DB
+  contentJson?: JSONContent;
 };
 
 export type LessonFolder = {
