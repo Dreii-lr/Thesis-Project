@@ -4,7 +4,6 @@
 import { useEffect, useRef } from "react";
 import { useEditor, EditorContent, JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import { ResizableImage } from "@/src/components/ui/teacher/lesson-content/ResizableImageExtension";
 import {
@@ -42,7 +41,6 @@ export default function TiptapEditor({
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Underline,
       TextAlign.configure({
         types: ["heading", "paragraph"],
         alignments: ["left", "center", "right", "justify"],

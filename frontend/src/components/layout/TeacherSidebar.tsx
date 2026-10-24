@@ -7,7 +7,6 @@ import {
   GraduationCap,
   UserPlus,
   ClipboardCheck,
-  CloudUpload,
   SquareText,
   Library,
   FilePlus,
@@ -15,12 +14,14 @@ import {
   ChartNoAxesCombined,
   Layers3,
   ChevronDown,
-  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { getUserCategories, type UserCategoryItem } from "@/src/lib/user-categories-api";
+import {
+  getUserCategories,
+  type UserCategoryItem,
+} from "@/src/lib/user-categories-api";
 import { listSubjects } from "@/src/lib/subjects-api";
 
 export default function TeacherSidebar() {
@@ -28,13 +29,13 @@ export default function TeacherSidebar() {
   const pathname = usePathname();
 
   const [flashcardsOpen, setFlashcardsOpen] = useState(true);
+  const [modulesOpen, setModulesOpen] = useState(true);
   const [categories, setCategories] = useState<UserCategoryItem[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    setLoadingCategories(true);
     Promise.all([
       getUserCategories().catch(() => []),
       listSubjects().catch(() => []),
@@ -45,7 +46,9 @@ export default function TeacherSidebar() {
           const catSubs = (subs || []).filter(
             (s) =>
               (s.category_id && s.category_id === cat.category_id) ||
-              (s.category_code && (cat.code || '').toUpperCase() === s.category_code.toUpperCase()),
+              (s.category_code &&
+                (cat.code || "").toUpperCase() ===
+                  s.category_code.toUpperCase()),
           );
           return {
             ...cat,
@@ -95,12 +98,7 @@ export default function TeacherSidebar() {
       title: "CONTENT MANAGEMENT",
       items: [
         {
-          name: "Module Uploads",
-          icon: CloudUpload,
-          href: "/teacher/module-uploads",
-        },
-        {
-          name: "Lesson Content",
+          name: "Lesson Modules",
           icon: SquareText,
           href: "/teacher/lesson-content",
         },
@@ -121,7 +119,11 @@ export default function TeacherSidebar() {
           href: "/teacher/assessment-tasks",
         },
         { name: "Submissions", icon: FileText, href: "/teacher/submissions" },
-        { name: "Analysis", icon: ChartNoAxesCombined, href: "/teacher/analysis" },
+        {
+          name: "Analysis",
+          icon: ChartNoAxesCombined,
+          href: "/teacher/analysis",
+        },
       ],
     },
   ];
@@ -191,7 +193,16 @@ export default function TeacherSidebar() {
               {section.items.map((item) => {
                 const isActive = isItemActive(item.href);
 
-                if (item.name === "Flashcards") {
+                if (
+                  item.name === "Flashcards" ||
+                  item.name === "Lesson Modules"
+                ) {
+                  const dropdownOpen =
+                    item.name === "Flashcards" ? flashcardsOpen : modulesOpen;
+                  const toggleDropdown = () =>
+                    item.name === "Flashcards"
+                      ? setFlashcardsOpen((value) => !value)
+                      : setModulesOpen((value) => !value);
                   if (!isExpanded) {
                     return (
                       <Link
@@ -202,12 +213,14 @@ export default function TeacherSidebar() {
                             ? "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100"
                             : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
                         }`}
-                        title="Flashcards"
+                        title={item.name}
                       >
-                        <Layers3
+                        <item.icon
                           size={18}
                           className={`shrink-0 ${
-                            isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-700"
+                            isActive
+                              ? "text-blue-600"
+                              : "text-slate-400 group-hover:text-slate-700"
                           }`}
                           strokeWidth={isActive ? 2.25 : 1.9}
                         />
@@ -225,54 +238,68 @@ export default function TeacherSidebar() {
                         }`}
                       >
                         <Link
-                          href="/teacher/flashcards"
+                          href={item.href}
                           className="flex flex-1 items-center px-3 h-full min-w-0"
                         >
                           {isActive && (
                             <span className="absolute left-0 h-5 w-1 rounded-r-full bg-blue-600" />
                           )}
-                          <Layers3
+                          <item.icon
                             size={18}
                             className={`shrink-0 ${
-                              isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-700"
+                              isActive
+                                ? "text-blue-600"
+                                : "text-slate-400 group-hover:text-slate-700"
                             }`}
                             strokeWidth={isActive ? 2.25 : 1.9}
                           />
                           <span className="ml-3 truncate text-[13px] font-medium">
-                            Flashcards
+                            {item.name}
                           </span>
                         </Link>
                         <button
                           type="button"
-                          onClick={() => setFlashcardsOpen(!flashcardsOpen)}
+                          onClick={toggleDropdown}
+                          aria-label={`${dropdownOpen ? "Collapse" : "Expand"} ${item.name} programs`}
+                          aria-expanded={dropdownOpen}
                           className="mr-2 p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
-                          title={flashcardsOpen ? "Collapse programs" : "Expand programs"}
+                          title={
+                            dropdownOpen
+                              ? "Collapse programs"
+                              : "Expand programs"
+                          }
                         >
                           <ChevronDown
                             size={14}
                             className={`transition-transform duration-200 ${
-                              flashcardsOpen ? "rotate-180" : ""
+                              dropdownOpen ? "rotate-180" : ""
                             }`}
                           />
                         </button>
                       </div>
 
-                      {flashcardsOpen && (
+                      {dropdownOpen && (
                         <div className="ml-4 mt-1 space-y-1 border-l border-slate-100 pl-2.5">
                           {loadingCategories && (
-                            <p className="px-2 py-1 text-[11px] text-slate-400">Loading programs...</p>
+                            <p className="px-2 py-1 text-[11px] text-slate-400">
+                              Loading programs...
+                            </p>
                           )}
                           {!loadingCategories &&
                             categories.map((cat) => {
                               const isCatOpen =
-                                openCategory === cat.category_id || openCategory === cat.code;
+                                openCategory === cat.category_id ||
+                                openCategory === cat.code;
                               const catSubjects = cat.subjects || [];
 
                               return (
-                                <div key={cat.category_id || cat.code} className="space-y-0.5">
+                                <div
+                                  key={cat.category_id || cat.code}
+                                  className="space-y-0.5"
+                                >
                                   <div className="flex items-center justify-between group rounded-lg px-2 py-1.5 hover:bg-slate-50">
                                     <Link
-                                      href={`/teacher/flashcards?program=${(cat.code || '').toLowerCase()}`}
+                                      href={`${item.href}?program=${(cat.code || "").toLowerCase()}`}
                                       className="truncate text-[11px] font-semibold text-slate-700 hover:text-blue-600 flex-1"
                                     >
                                       {cat.name}
@@ -283,9 +310,13 @@ export default function TeacherSidebar() {
                                         onClick={(e) => {
                                           e.preventDefault();
                                           setOpenCategory(
-                                            isCatOpen ? null : cat.category_id || cat.code,
+                                            isCatOpen
+                                              ? null
+                                              : cat.category_id || cat.code,
                                           );
                                         }}
+                                        aria-label={`${isCatOpen ? "Collapse" : "Expand"} ${cat.name} subjects`}
+                                        aria-expanded={isCatOpen}
                                         className="p-0.5 text-slate-400 hover:text-slate-600"
                                       >
                                         <ChevronDown
@@ -303,7 +334,7 @@ export default function TeacherSidebar() {
                                       {catSubjects.map((sub) => (
                                         <Link
                                           key={sub.subject_id}
-                                          href={`/teacher/flashcards?program=${(cat.code || '').toLowerCase()}&subject=${sub.subject_id}`}
+                                          href={`${item.href}?program=${(cat.code || "").toLowerCase()}&subject=${sub.subject_id}`}
                                           className="block truncate rounded px-1.5 py-1 text-[10px] text-slate-500 hover:bg-blue-50 hover:text-blue-700"
                                           title={sub.name}
                                         >

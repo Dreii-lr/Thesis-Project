@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -12,43 +12,43 @@ import {
   Search,
   Sparkles,
   Trash2,
-  RefreshCw,
   AlertTriangle,
-} from 'lucide-react';
-import type { StudyCard } from '@/src/data/mockStudentFlashcards';
-import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
+} from "lucide-react";
+import type { StudyCard } from "@/src/data/mockStudentFlashcards";
+import { listSubjects, type SubjectRecord } from "@/src/lib/subjects-api";
 import {
   getUserCategories,
   type UserCategoryItem,
   DEFAULT_USER_CATEGORIES,
-} from '@/src/lib/user-categories-api';
+} from "@/src/lib/user-categories-api";
 import {
-  getMaterials,
+  getAllMaterials,
   getLessonsByMaterial,
-  matchMaterialToCategory,
+  normalizeMaterialStatus,
   matchMaterialToSubject,
-} from '@/src/lib/document-processor-api';
+} from "@/src/lib/document-processor-api";
 import {
   getProgramBadgeClass,
   type CuratedFlashcardInput,
   type CuratedStudyDeck,
-} from '@/src/lib/curated-flashcards';
+} from "@/src/lib/curated-flashcards";
 import {
   createFlashcardSession,
   flashcardStudyReducer,
   type FlashcardSession,
   type StudyAction,
-} from '@/src/lib/flashcard-study';
-import Modal from '@/src/components/ui/Modal';
-import FlashcardSetEditor from './FlashcardSetEditor';
-import FlashcardGeneratorModal from './FlashcardGeneratorModal';
-import FlashcardStudy from './FlashcardStudy';
-import { useCuratedFlashcards } from './useCuratedFlashcards';
+} from "@/src/lib/flashcard-study";
+import { materialInProgram, programMatches } from "@/src/lib/lesson-workflow";
+import Modal from "@/src/components/ui/Modal";
+import FlashcardSetEditor from "./FlashcardSetEditor";
+import FlashcardGeneratorModal from "./FlashcardGeneratorModal";
+import FlashcardStudy from "./FlashcardStudy";
+import { useCuratedFlashcards } from "./useCuratedFlashcards";
 
 interface DashboardProps {
   authorName: string;
   authorId?: string;
-  authorRole: 'teacher' | 'admin';
+  authorRole: "teacher" | "admin";
 }
 
 function FlashcardDashboardContent({
@@ -57,26 +57,35 @@ function FlashcardDashboardContent({
   authorRole,
 }: DashboardProps) {
   const searchParams = useSearchParams();
-  const requestedProgram = searchParams.get('program');
-  const requestedSubject = searchParams.get('subject');
-  const requestedLessonId = searchParams.get('lessonId');
-  const requestedTopic = searchParams.get('topic');
-  const requestedMaterialId = searchParams.get('materialId');
+  const requestedProgram = searchParams.get("program");
+  const requestedSubject = searchParams.get("subject");
+  const requestedLessonId = searchParams.get("lessonId");
+  const requestedTopic = searchParams.get("topic");
+  const requestedMaterialId = searchParams.get("materialId");
+  const requestedGeneration = searchParams.get("generate");
 
   // Backend categories (Learning Programs)
-  const [categories, setCategories] = useState<UserCategoryItem[]>(DEFAULT_USER_CATEGORIES);
+  const [categories, setCategories] = useState<UserCategoryItem[]>(
+    DEFAULT_USER_CATEGORIES,
+  );
   const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
+    requestedProgram || null,
+  );
 
   // Backend subjects
   const [subjects, setSubjects] = useState<SubjectRecord[]>([]);
   const [subjectsLoading, setSubjectsLoading] = useState(true);
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('ALL');
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>(
+    requestedSubject || "ALL",
+  );
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const [studyingId, setStudyingId] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
-  const [sessions, setSessions] = useState<Record<string, FlashcardSession>>({});
+  const [sessions, setSessions] = useState<Record<string, FlashcardSession>>(
+    {},
+  );
 
   // Modals
   const [editor, setEditor] = useState<{
@@ -94,29 +103,42 @@ function FlashcardDashboardContent({
           cards: StudyCard[];
           materialId?: string | null;
           lessonId?: string | null;
-          generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
+          generationScope?: "FULL_MODULE" | "SINGLE_TOPIC" | null;
         };
     initialCards?: StudyCard[];
     initialProgramCode?: string;
   } | null>(null);
-  const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<CuratedStudyDeck | null>(null);
-  const [deleteError, setDeleteError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [isGeneratorOpen, setIsGeneratorOpen] = useState(
+    Boolean(
+      requestedLessonId || (requestedGeneration === "1" && requestedMaterialId),
+    ),
+  );
+  const [pendingDelete, setPendingDelete] = useState<CuratedStudyDeck | null>(
+    null,
+  );
+  const [deleteError, setDeleteError] = useState("");
+  const [notice, setNotice] = useState("");
 
-  const { allDecks, save, remove, loading: decksLoading, error: decksError, reload: reloadDecks } =
-    useCuratedFlashcards();
+  const {
+    allDecks,
+    save,
+    remove,
+    loading: decksLoading,
+    error: decksError,
+    reload: reloadDecks,
+  } = useCuratedFlashcards();
 
   // Load categories and subjects from backend API
   const loadBackendData = useCallback(async () => {
-    setCategoriesLoading(true);
-    setSubjectsLoading(true);
     try {
-      const [cats, subs] = await Promise.all([getUserCategories(), listSubjects()]);
+      const [cats, subs] = await Promise.all([
+        getUserCategories(),
+        listSubjects(),
+      ]);
       if (cats && cats.length > 0) setCategories(cats);
       if (subs) setSubjects(subs);
     } catch (err) {
-      console.warn('Could not load backend categories or subjects:', err);
+      console.warn("Could not load backend categories or subjects:", err);
     } finally {
       setCategoriesLoading(false);
       setSubjectsLoading(false);
@@ -124,52 +146,29 @@ function FlashcardDashboardContent({
   }, []);
 
   useEffect(() => {
-    loadBackendData();
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) return loadBackendData();
+    });
+    return () => {
+      active = false;
+    };
   }, [loadBackendData]);
 
-  // Sync with URL query parameters (?program=...&subject=...)
-  useEffect(() => {
-    if (requestedProgram && categories.length > 0) {
-      const progLower = requestedProgram.toLowerCase();
-      const matched = categories.find(
-        (c) =>
-          (c.code || '').toLowerCase() === progLower ||
-          c.category_id === requestedProgram ||
-          (progLower === 'junior' && (c.code || '').toLowerCase() === 'secondary') ||
-          (progLower === 'basic_literacy' && (c.code || '').toLowerCase() === 'blp'),
-      );
-      if (matched) {
-        setSelectedCategoryId(matched.category_id);
-      }
-    } else if (!selectedCategoryId && categories.length > 0) {
-      // Default to first category (e.g. Elementary or Secondary)
-      const defaultCat =
-        categories.find((c) => (c.code || '').toUpperCase() === 'SECONDARY') || categories[0];
-      setSelectedCategoryId(defaultCat.category_id);
-    }
-  }, [requestedProgram, categories, selectedCategoryId]);
-
-  useEffect(() => {
-    if (requestedSubject) {
-      setSelectedSubjectId(requestedSubject);
-    }
-  }, [requestedSubject]);
-
-  useEffect(() => {
-    if (requestedLessonId) {
-      setIsGeneratorOpen(true);
-    }
-  }, [requestedLessonId]);
-
   const activeCategory =
-    categories.find((c) => c.category_id === selectedCategoryId) ||
-    categories.find((c) => (c.code || '').toUpperCase() === 'SECONDARY') ||
+    categories.find(
+      (c) =>
+        c.category_id === selectedCategoryId ||
+        programMatches(selectedCategoryId, c),
+    ) ||
+    categories.find((c) => (c.code || "").toUpperCase() === "SECONDARY") ||
     categories[0];
 
   // Subjects belonging to the active category
   const categorySubjects = subjects.filter((s) => {
     if (!activeCategory) return true;
-    if (s.category_id && s.category_id === activeCategory.category_id) return true;
+    if (s.category_id && s.category_id === activeCategory.category_id)
+      return true;
     if (
       s.category_code &&
       activeCategory.code &&
@@ -179,10 +178,14 @@ function FlashcardDashboardContent({
     return false;
   });
 
-  const selectedSubjectObj = categorySubjects.find((s) => s.subject_id === selectedSubjectId);
+  const selectedSubjectObj = categorySubjects.find(
+    (s) => s.subject_id === selectedSubjectId,
+  );
 
   // Check if generated lessons exist in document-processing for activeCategory and active subject
-  const [availableLessonsCount, setAvailableLessonsCount] = useState<number | null>(null);
+  const [availableLessonsCount, setAvailableLessonsCount] = useState<
+    number | null
+  >(null);
   const [isCheckingLessons, setIsCheckingLessons] = useState<boolean>(true);
 
   useEffect(() => {
@@ -191,9 +194,13 @@ function FlashcardDashboardContent({
       if (!activeCategory) return;
       setIsCheckingLessons(true);
       try {
-        const allMaterials = await getMaterials({ pageSize: 50 }).catch(() => []);
-        let matchedMaterials = (allMaterials || []).filter((m) =>
-          m && m.id && matchMaterialToCategory(m, activeCategory),
+        const allMaterials = await getAllMaterials({ status: "PUBLISHED" });
+        let matchedMaterials = (allMaterials || []).filter(
+          (m) =>
+            m &&
+            m.id &&
+            materialInProgram(m, activeCategory) &&
+            normalizeMaterialStatus(m.status) === "PUBLISHED",
         );
 
         if (selectedSubjectObj) {
@@ -206,8 +213,8 @@ function FlashcardDashboardContent({
             const sNameLow = selectedSubjectObj.name.toLowerCase();
             matchedMaterials = matchedMaterials.filter(
               (m) =>
-                (m.learning_strand || '').toLowerCase().includes(sNameLow) ||
-                (m.main_learning_goal || '').toLowerCase().includes(sNameLow),
+                (m.learning_strand || "").toLowerCase().includes(sNameLow) ||
+                (m.main_learning_goal || "").toLowerCase().includes(sNameLow),
             );
           }
         }
@@ -216,7 +223,7 @@ function FlashcardDashboardContent({
           if (!isCancelled) setAvailableLessonsCount(0);
           return;
         }
-        const lessonPromises = matchedMaterials.slice(0, 10).map((m) =>
+        const lessonPromises = matchedMaterials.map((m) =>
           getLessonsByMaterial(m.id).catch(() => null),
         );
         const results = await Promise.all(lessonPromises);
@@ -228,7 +235,7 @@ function FlashcardDashboardContent({
         }
         if (!isCancelled) setAvailableLessonsCount(count);
       } catch (err) {
-        console.warn('Could not check lessons from document-processor:', err);
+        console.warn("Could not check lessons from document-processor:", err);
         if (!isCancelled) setAvailableLessonsCount(null);
       } finally {
         if (!isCancelled) setIsCheckingLessons(false);
@@ -238,20 +245,35 @@ function FlashcardDashboardContent({
     return () => {
       isCancelled = true;
     };
-  }, [activeCategory, selectedSubjectId, subjects]);
+  }, [activeCategory, selectedSubjectObj]);
 
-  const hasLessons = (availableLessonsCount ?? 1) > 0;
+  const hasLessons = (availableLessonsCount ?? 0) > 0;
 
   // Filter decks by active program
   const programDecks = allDecks.filter((d) => {
     if (!activeCategory) return true;
-    if (d.categoryId && d.categoryId === activeCategory.category_id) return true;
-    const catCode = (activeCategory.code || '').toUpperCase();
-    const catName = (activeCategory.name || '').toLowerCase();
-    const deckProg = (d.programCode || d.programName || '').toUpperCase();
-    const deckProgLower = (d.programCode || d.programName || '').toLowerCase();
-    if (deckProg && catCode && (deckProg === catCode || deckProg.includes(catCode) || catCode.includes(deckProg))) return true;
-    if (deckProgLower && catName && (deckProgLower === catName || deckProgLower.includes(catName) || catName.includes(deckProgLower))) return true;
+    if (d.categoryId && d.categoryId === activeCategory.category_id)
+      return true;
+    const catCode = (activeCategory.code || "").toUpperCase();
+    const catName = (activeCategory.name || "").toLowerCase();
+    const deckProg = (d.programCode || d.programName || "").toUpperCase();
+    const deckProgLower = (d.programCode || d.programName || "").toLowerCase();
+    if (
+      deckProg &&
+      catCode &&
+      (deckProg === catCode ||
+        deckProg.includes(catCode) ||
+        catCode.includes(deckProg))
+    )
+      return true;
+    if (
+      deckProgLower &&
+      catName &&
+      (deckProgLower === catName ||
+        deckProgLower.includes(catName) ||
+        catName.includes(deckProgLower))
+    )
+      return true;
     return false;
   });
 
@@ -261,15 +283,17 @@ function FlashcardDashboardContent({
       .toLowerCase()
       .includes(search.toLowerCase().trim());
     const matchesSubject =
-      selectedSubjectId === 'ALL' ||
+      selectedSubjectId === "ALL" ||
       deck.subjectId === selectedSubjectId ||
       deck.subject.toLowerCase() ===
-        categorySubjects.find((s) => s.subject_id === selectedSubjectId)?.name?.toLowerCase();
+        categorySubjects
+          .find((s) => s.subject_id === selectedSubjectId)
+          ?.name?.toLowerCase();
     return matchesSearch && matchesSubject;
   });
 
   const active = allDecks.find((deck) => deck.id === studyingId);
-  const sessionKey = active ? `${active.id}:${active.updatedAt}` : '';
+  const sessionKey = active ? `${active.id}:${active.updatedAt}` : "";
 
   const onAction = useCallback(
     (action: StudyAction) => {
@@ -288,7 +312,7 @@ function FlashcardDashboardContent({
   const startStudy = (deck: CuratedStudyDeck) => {
     setStudyingId(deck.id);
     setFocused(false);
-    setNotice('');
+    setNotice("");
   };
 
   const handleSaveDeck = async (input: CuratedFlashcardInput) => {
@@ -301,14 +325,20 @@ function FlashcardDashboardContent({
       if (saved) {
         setSessions((previous) => ({
           ...previous,
-          [`${saved.id}:${saved.updatedAt}`]: createFlashcardSession(saved.cards),
+          [`${saved.id}:${saved.updatedAt}`]: createFlashcardSession(
+            saved.cards,
+          ),
         }));
       }
       setEditor(null);
       if (input.categoryId) setSelectedCategoryId(input.categoryId);
-      setNotice(input.id ? 'Your changes have been saved.' : 'Study set created and published for learners.');
+      setNotice(
+        input.id
+          ? "Your changes have been saved."
+          : "Study set created and published for learners.",
+      );
     } catch (err) {
-      console.error('Failed to save study set:', err);
+      console.error("Failed to save study set:", err);
     }
   };
 
@@ -318,9 +348,11 @@ function FlashcardDashboardContent({
       await remove(pendingDelete.id);
       if (studyingId === pendingDelete.id) setStudyingId(null);
       setPendingDelete(null);
-      setNotice('Study set deleted.');
+      setNotice("Study set deleted.");
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Could not delete study set.');
+      setDeleteError(
+        err instanceof Error ? err.message : "Could not delete study set.",
+      );
     }
   };
 
@@ -330,13 +362,19 @@ function FlashcardDashboardContent({
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="mb-2 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">
-            <Layers3 size={13} /> {authorRole === 'admin' ? 'Curriculum Management' : 'Content Management'}
+            <Layers3 size={13} />{" "}
+            {authorRole === "admin"
+              ? "Curriculum Management"
+              : "Content Management"}
           </p>
           <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
-            {authorRole === 'admin' ? 'Curriculum flashcards' : 'Flashcard study sets'}
+            {authorRole === "admin"
+              ? "Curriculum flashcards"
+              : "Flashcard study sets"}
           </h1>
           <p className="mt-1.5 text-xs leading-6 text-slate-500 sm:text-sm">
-            Create and generate flashcard sets. Learners will only see sets tailored to their enrolled Learning Program.
+            Create and generate flashcard sets. Learners will only see sets
+            tailored to their enrolled Learning Program.
           </p>
         </div>
 
@@ -348,15 +386,15 @@ function FlashcardDashboardContent({
             onClick={() => setIsGeneratorOpen(true)}
             title={
               isCheckingLessons
-                ? 'Checking available lesson modules in Document Processing…'
+                ? "Checking available lesson modules in Document Processing…"
                 : !hasLessons
-                ? `Flashcard generation is disabled: No generated lessons found for ${activeCategory?.name} in Document Processing.`
-                : 'Generate study set grounded in DepEd ALS module content'
+                  ? `Flashcard generation is disabled: No generated lessons found for ${activeCategory?.name} in Document Processing.`
+                  : "Generate study set grounded in DepEd ALS module content"
             }
             className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-xs font-semibold shadow-sm transition ${
               !hasLessons || isCheckingLessons
-                ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
-                : 'border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100'
+                ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                : "border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100"
             }`}
           >
             <Sparkles size={15} /> Generate study set
@@ -365,7 +403,9 @@ function FlashcardDashboardContent({
           {/* Create Study Set CTA */}
           <button
             type="button"
-            onClick={() => setEditor({ initialProgramCode: activeCategory?.code })}
+            onClick={() =>
+              setEditor({ initialProgramCode: activeCategory?.code })
+            }
             title="Create study set manually"
             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 hover:bg-blue-700 transition"
           >
@@ -375,16 +415,26 @@ function FlashcardDashboardContent({
       </div>
 
       {decksError && (
-        <div role="alert" className="mb-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm leading-6 text-red-700">
+        <div
+          role="alert"
+          className="mb-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm leading-6 text-red-700"
+        >
           <p>{decksError}</p>
-          <button type="button" onClick={reloadDecks} className="mt-1 font-semibold underline">
+          <button
+            type="button"
+            onClick={reloadDecks}
+            className="mt-1 font-semibold underline"
+          >
             Try again
           </button>
         </div>
       )}
 
       {notice && (
-        <p role="status" className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs leading-6 text-emerald-800">
+        <p
+          role="status"
+          className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs leading-6 text-emerald-800"
+        >
           <CheckCircle2 size={15} className="mt-1 shrink-0" />
           {notice}
         </p>
@@ -394,9 +444,19 @@ function FlashcardDashboardContent({
         <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 flex items-start gap-3">
           <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
           <div>
-            <p className="font-bold text-amber-950">Curriculum Grounding Notice</p>
+            <p className="font-bold text-amber-950">
+              Curriculum Grounding Notice
+            </p>
             <p className="mt-0.5 leading-relaxed text-amber-800">
-              No generated lessons were found in Document Processing for <strong>{activeCategory?.name}{selectedSubjectObj ? ` · ${selectedSubjectObj.name}` : ''}</strong>. AI flashcard generation is disabled until curriculum modules are uploaded and lesson contents are generated. You can still create flashcard study sets manually using <strong>Create study set</strong>.
+              No generated lessons were found in Document Processing for{" "}
+              <strong>
+                {activeCategory?.name}
+                {selectedSubjectObj ? ` · ${selectedSubjectObj.name}` : ""}
+              </strong>
+              . AI flashcard generation is disabled until curriculum modules are
+              uploaded and lesson contents are generated. You can still create
+              flashcard study sets manually using{" "}
+              <strong>Create study set</strong>.
             </p>
           </div>
         </div>
@@ -411,7 +471,7 @@ function FlashcardDashboardContent({
               onClick={() => {
                 setStudyingId(null);
                 setFocused(false);
-                setNotice('');
+                setNotice("");
               }}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-600"
             >
@@ -439,7 +499,9 @@ function FlashcardDashboardContent({
             <FlashcardStudy
               key={`${active.id}:${active.updatedAt}`}
               deck={active}
-              session={sessions[sessionKey] || createFlashcardSession(active.cards)}
+              session={
+                sessions[sessionKey] || createFlashcardSession(active.cards)
+              }
               onAction={onAction}
               focused={focused}
               onToggleFocus={() => setFocused((v) => !v)}
@@ -450,16 +512,24 @@ function FlashcardDashboardContent({
         <>
           {/* Dynamic Program Tabs from Backend */}
           <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
-            <div role="group" aria-label="Learning Program" className="inline-flex rounded-xl bg-slate-100 p-1 flex-wrap">
+            <div
+              role="group"
+              aria-label="Learning Program"
+              className="inline-flex rounded-xl bg-slate-100 p-1 flex-wrap"
+            >
               {categoriesLoading ? (
-                <span className="px-3 py-2 text-xs text-slate-400">Loading learning programs…</span>
+                <span className="px-3 py-2 text-xs text-slate-400">
+                  Loading learning programs…
+                </span>
               ) : (
                 categories.map((cat) => {
-                  const isSelected = activeCategory?.category_id === cat.category_id;
+                  const isSelected =
+                    activeCategory?.category_id === cat.category_id;
                   const count = allDecks.filter(
                     (d) =>
                       (cat.category_id && d.categoryId === cat.category_id) ||
-                      ((d.programCode || '').toUpperCase() === (cat.code || '').toUpperCase()),
+                      (d.programCode || "").toUpperCase() ===
+                        (cat.code || "").toUpperCase(),
                   ).length;
                   return (
                     <button
@@ -468,16 +538,19 @@ function FlashcardDashboardContent({
                       aria-pressed={isSelected}
                       onClick={() => {
                         setSelectedCategoryId(cat.category_id);
-                        setSelectedSubjectId('ALL');
-                        setSearch('');
+                        setSelectedSubjectId("ALL");
+                        setSearch("");
                       }}
                       className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
                         isSelected
-                          ? 'bg-white text-blue-700 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-800'
+                          ? "bg-white text-blue-700 shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
                       }`}
                     >
-                      {cat.name} <span className="ml-1 text-[10px] opacity-60">({count})</span>
+                      {cat.name}{" "}
+                      <span className="ml-1 text-[10px] opacity-60">
+                        ({count})
+                      </span>
                     </button>
                   );
                 })
@@ -487,13 +560,17 @@ function FlashcardDashboardContent({
             {/* Subject filter & search input */}
             <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-400">Subject:</span>
+                <span className="text-xs font-semibold text-slate-400">
+                  Subject:
+                </span>
                 <select
                   value={selectedSubjectId}
                   onChange={(e) => setSelectedSubjectId(e.target.value)}
                   className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:border-blue-500"
                 >
-                  <option value="ALL">All Subjects ({programDecks.length})</option>
+                  <option value="ALL">
+                    All Subjects ({programDecks.length})
+                  </option>
                   {categorySubjects.map((s) => (
                     <option key={s.subject_id} value={s.subject_id}>
                       {s.name}
@@ -504,7 +581,10 @@ function FlashcardDashboardContent({
 
               <label className="relative w-full sm:w-64">
                 <span className="sr-only">Search flashcards</span>
-                <Search size={14} className="absolute left-3 top-3 text-slate-400" />
+                <Search
+                  size={14}
+                  className="absolute left-3 top-3 text-slate-400"
+                />
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -521,28 +601,38 @@ function FlashcardDashboardContent({
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-blue-600"></span>
                 <span>
-                  Displaying sets for <strong>{activeCategory.name}</strong>. Only learners enrolled in {activeCategory.name} can view these flashcards.
+                  Displaying sets for <strong>{activeCategory.name}</strong>.
+                  Only learners enrolled in {activeCategory.name} can view these
+                  flashcards.
                 </span>
               </div>
-              <span className="text-[11px] font-semibold text-blue-700/70">Backend Synced</span>
+              <span className="text-[11px] font-semibold text-blue-700/70">
+                Backend Synced
+              </span>
             </div>
           )}
 
           {/* Decks Grid (1:1 with FlashcardLibrary.tsx lines 84-87) */}
           {decksLoading || categoriesLoading ? (
-            <p role="status" className="p-12 text-center text-sm text-slate-500">
+            <p
+              role="status"
+              className="p-12 text-center text-sm text-slate-500"
+            >
               Loading study sets…
             </p>
           ) : !visible.length ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
               <p className="text-sm font-semibold text-slate-800">
-                {authorRole === 'admin' ? 'No curriculum flashcards found' : 'No flashcard study sets found'} for {activeCategory?.name || 'this program'}
-                {search ? ' matching your search' : ''}.
+                {authorRole === "admin"
+                  ? "No curriculum flashcards found"
+                  : "No flashcard study sets found"}{" "}
+                for {activeCategory?.name || "this program"}
+                {search ? " matching your search" : ""}.
               </p>
               <p className="mt-1 text-xs text-slate-400">
-                {authorRole === 'admin'
-                  ? 'Generate official curriculum sets with AI or create a new set manually.'
-                  : 'Create your first study set or use the generator to build cards for this program.'}
+                {authorRole === "admin"
+                  ? "Generate official curriculum sets with AI or create a new set manually."
+                  : "Create your first study set or use the generator to build cards for this program."}
               </p>
               <div className="mt-5 flex justify-center gap-2">
                 <button
@@ -551,8 +641,8 @@ function FlashcardDashboardContent({
                   onClick={() => setIsGeneratorOpen(true)}
                   className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold ${
                     !hasLessons
-                      ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
-                      : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                      ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
                   }`}
                 >
                   <Sparkles size={14} /> Generate set
@@ -560,11 +650,13 @@ function FlashcardDashboardContent({
                 <button
                   type="button"
                   disabled={!hasLessons}
-                  onClick={() => setEditor({ initialProgramCode: activeCategory?.code })}
+                  onClick={() =>
+                    setEditor({ initialProgramCode: activeCategory?.code })
+                  }
                   className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold ${
                     !hasLessons
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                      ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
                   }`}
                 >
                   <Plus size={14} /> Create set
@@ -591,12 +683,14 @@ function FlashcardDashboardContent({
                     </span>
                   </div>
 
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{deck.subject}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {deck.subject}
+                  </p>
                   <h2 className="mt-2 break-words text-lg font-bold leading-6 tracking-tight text-slate-900">
                     {deck.title}
                   </h2>
                   <p className="mt-2 line-clamp-2 text-xs leading-6 text-slate-500">
-                    {deck.description || 'A collection of ideas to practise.'}
+                    {deck.description || "A collection of ideas to practise."}
                   </p>
                   <p className="mb-5 mt-3 text-[11px] text-slate-400">
                     {deck.cards.length} cards · By {deck.author}
@@ -624,7 +718,7 @@ function FlashcardDashboardContent({
                         aria-label={`Delete ${deck.title}`}
                         onClick={() => {
                           setPendingDelete(deck);
-                          setDeleteError('');
+                          setDeleteError("");
                         }}
                         className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
                       >
@@ -663,7 +757,9 @@ function FlashcardDashboardContent({
           activeCategory={activeCategory}
           initialProgramCode={activeCategory?.code}
           subjects={subjects}
-          initialSubjectId={selectedSubjectId !== 'ALL' ? selectedSubjectId : undefined}
+          initialSubjectId={
+            selectedSubjectId !== "ALL" ? selectedSubjectId : undefined
+          }
           initialLessonId={requestedLessonId || undefined}
           initialMaterialId={requestedMaterialId || undefined}
           initialTopic={requestedTopic || undefined}
@@ -691,11 +787,27 @@ function FlashcardDashboardContent({
 
       {/* Delete Confirmation Modal */}
       {pendingDelete && (
-        <Modal title="Delete this study set?" onClose={() => setPendingDelete(null)}>
+        <Modal
+          title="Delete this study set?"
+          onClose={() => setPendingDelete(null)}
+        >
           <p className="text-sm leading-7 text-slate-500">
-            This removes <strong className="font-semibold text-slate-800">{pendingDelete.title}</strong> ({pendingDelete.programName}) and its {pendingDelete.cards.length} cards. Students in this program will no longer be able to study this set.
+            This removes{" "}
+            <strong className="font-semibold text-slate-800">
+              {pendingDelete.title}
+            </strong>{" "}
+            ({pendingDelete.programName}) and its {pendingDelete.cards.length}{" "}
+            cards. Students in this program will no longer be able to study this
+            set.
           </p>
-          {deleteError && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{deleteError}</p>}
+          {deleteError && (
+            <p
+              role="alert"
+              className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"
+            >
+              {deleteError}
+            </p>
+          )}
           <div className="mt-6 flex justify-end gap-2">
             <button
               type="button"
@@ -718,10 +830,21 @@ function FlashcardDashboardContent({
   );
 }
 
+function FlashcardDashboardRoute(props: DashboardProps) {
+  const params = useSearchParams();
+  return <FlashcardDashboardContent key={params.toString()} {...props} />;
+}
+
 export default function TeacherFlashcardDashboard(props: DashboardProps) {
   return (
-    <Suspense fallback={<div className="p-12 text-center text-sm text-slate-500">Loading flashcards dashboard…</div>}>
-      <FlashcardDashboardContent {...props} />
+    <Suspense
+      fallback={
+        <div className="p-12 text-center text-sm text-slate-500">
+          Loading flashcards dashboard…
+        </div>
+      }
+    >
+      <FlashcardDashboardRoute {...props} />
     </Suspense>
   );
 }
