@@ -594,11 +594,12 @@ export async function updateMaterialStatus(
  */
 export function normalizeMaterialStatus(
   status?: string | null
-): 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' {
+): 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' | 'GENERATING' {
   if (!status || typeof status !== 'string') return 'DRAFT';
   const clean = status.trim().toUpperCase();
   if (clean === 'PUBLISHED') return 'PUBLISHED';
   if (clean === 'ARCHIVED') return 'ARCHIVED';
+  if (clean === 'GENERATING') return 'GENERATING';
   return 'DRAFT';
 }
 
