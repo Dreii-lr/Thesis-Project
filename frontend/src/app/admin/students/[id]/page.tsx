@@ -9,6 +9,7 @@ import { useApiData } from '@/src/lib/use-api-data';
 import ApiState from '@/src/components/ui/ApiState';
 import Modal from '@/src/components/ui/Modal';
 import LearnerAttendance from '@/src/components/learners/LearnerAttendance';
+import { LearnerRequirementsSummary } from '@/src/components/requirements/StaffRequirements';
 
 export default function StudentDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -83,6 +84,7 @@ function StudentDetails({ id }: { id: string }) {
             ...(student.family_details.siblings || []).map((sibling, index): [string, string] => [`Sibling ${index + 1}`, [sibling.name, sibling.last_grade_level_completed, sibling.occupation].filter(Boolean).join(' · ')]),
           ]} />
         </div>
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5"><LearnerRequirementsSummary email={student.email} role="admin" /></div>
         <h2 className="mb-4 mt-8 text-xl font-bold">Learner attendance history</h2>
         <LearnerAttendance key={id} id={id} />
       </>}

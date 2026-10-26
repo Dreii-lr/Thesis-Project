@@ -12,11 +12,11 @@ import {
   BookOpen,
   ChevronDown,
   RefreshCw,
-  BarChart3,
   CalendarCheck2,
   BadgeCheck,
   Layers3,
   CalendarDays,
+  FileCheck2,
 } from 'lucide-react';
 
 const navItems = [
@@ -27,6 +27,7 @@ const navItems = [
   { name: 'Calendar', icon: CalendarDays, href: '/student/calendar' },
   { name: 'Attendance', icon: CalendarCheck2, href: '/student/attendance' },
   { name: 'My Results', icon: BadgeCheck, href: '/student/results' },
+  { name: 'My Requirements', icon: FileCheck2, href: '/student/requirements' },
 ];
 
 export default function StudentSidebar() {

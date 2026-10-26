@@ -10,6 +10,7 @@ import OverviewTab from './OverviewTab';
 import QuizzesTab from './QuizzesTab';
 import WrittenActivitiesTab from './WrittenActivitiesTab';
 import AttendanceTab from './AttendanceTab';
+import { LearnerRequirementsSummary } from '@/src/components/requirements/StaffRequirements';
 
 type TabId = 'overview' | 'quizzes' | 'written' | 'modules' | 'attendance' | 'documents';
 const TABS: { id: TabId; label: string }[] = [
@@ -18,7 +19,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'written', label: 'Written Activities' },
   { id: 'modules', label: 'Modules Completed' },
   { id: 'attendance', label: 'Attendance' },
-  { id: 'documents', label: 'Documents' },
+  { id: 'documents', label: 'Requirements' },
 ];
 
 export default function RightContentArea({ student }: { student: Student }) {
@@ -77,7 +78,8 @@ export default function RightContentArea({ student }: { student: Student }) {
             {!attendanceLoading && !attendanceError && attendance && <AttendanceTab history={attendance} />}
           </>
         )}
-        {(activeTab === 'modules' || activeTab === 'documents') && (
+        {activeTab === 'documents' && <LearnerRequirementsSummary email={student.email} role="teacher" />}
+        {activeTab === 'modules' && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Layers size={24} className="mb-4 text-blue-500" />
             <h3 className="text-sm font-bold text-gray-900">{TABS.find(tab => tab.id === activeTab)?.label} unavailable</h3>

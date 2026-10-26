@@ -14,6 +14,7 @@ import {
   ChartNoAxesCombined,
   Layers3,
   ChevronDown,
+  FileCheck2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -82,6 +83,7 @@ export default function TeacherSidebar() {
           href: "/teacher/dashboard",
         },
         { name: "Students", icon: GraduationCap, href: "/teacher/students" },
+        { name: "Student Requirements", icon: FileCheck2, href: "/teacher/requirements" },
         {
           name: "Learner Accounts",
           icon: UserPlus,
