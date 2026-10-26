@@ -38,6 +38,7 @@ export default function Header() {
         ["Assessment Task", "/teacher/assessment-tasks"],
         ["Submissions", "/teacher/submissions"],
         ["Item Analysis", "/teacher/item-analysis"],
+        ["My Profile", "/teacher/profile"],
       ];
 
   const pathSegments = pathname?.split("/").filter(Boolean) || [];
