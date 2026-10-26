@@ -28,6 +28,7 @@ const navItems = [
   { name: 'Attendance', icon: CalendarCheck2, href: '/student/attendance' },
   { name: 'My Results', icon: BadgeCheck, href: '/student/results' },
   { name: 'My Requirements', icon: FileCheck2, href: '/student/requirements' },
+  { name: 'My Enrollment', icon: BadgeCheck, href: '/student/enrollment' },
 ];
 
 export default function StudentSidebar() {

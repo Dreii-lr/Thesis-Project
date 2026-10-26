@@ -10,6 +10,7 @@ import { REQUIREMENTS, formatRequirementDate, isSatisfied, type RequirementId } 
 import { DemoNotice, RequirementError, RequirementIcon, RequirementStats, StatusBadge, SubmissionDetails, buttonClass, primaryClass } from './RequirementShared';
 import RequirementUpload, { AssistanceRequest, type RequirementLearner } from './RequirementUpload';
 import { useRequirements } from './useRequirements';
+import EnrollmentRequirementFiles from '@/src/components/enrollment/EnrollmentRequirementFiles';
 
 export default function StudentRequirements() {
   const auth = useOptionalAuth();
@@ -41,6 +42,7 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
       <div className="flex flex-wrap items-center gap-5"><span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/20"><ShieldCheck size={26} strokeWidth={1.5} /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold">Your document checklist</span><span className="text-blue-100">{loading ? 'Loading…' : `${satisfied} of 3 satisfied`}</span></div><div role="progressbar" aria-label="Requirements satisfied" aria-valuenow={satisfied} aria-valuemin={0} aria-valuemax={3} className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full rounded-full bg-white transition-all" style={{ width: `${satisfied / 3 * 100}%` }} /></div><p className="mt-2 text-[11px] text-blue-100">Verified documents and approved exemptions count toward completion.</p></div></div>
     </StudentPageHeader>
     <DemoNotice />
+    <EnrollmentRequirementFiles />
     {notice && <p role="status" className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800"><Check size={16} />{notice}<button type="button" onClick={() => setNotice('')} className="ml-auto px-2 font-semibold">Dismiss</button></p>}
     {error && <div className="space-y-2"><RequirementError message={error} /><button type="button" className={buttonClass} onClick={reload}>Retry loading</button></div>}
     <RequirementStats items={[{ label: 'Requirements satisfied', value: loading || error ? '—' : `${satisfied} / 3`, detail: 'Verified documents or approved exemptions' }, { label: 'Awaiting a staff decision', value: loading || error ? '—' : waiting, detail: 'Your files and requests are retained' }, { label: 'Your next steps', value: loading || error ? '—' : action, detail: 'Missing documents or requested corrections' }]} />

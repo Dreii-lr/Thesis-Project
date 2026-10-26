@@ -11,6 +11,7 @@ import QuizzesTab from './QuizzesTab';
 import WrittenActivitiesTab from './WrittenActivitiesTab';
 import AttendanceTab from './AttendanceTab';
 import { LearnerRequirementsSummary } from '@/src/components/requirements/StaffRequirements';
+import EnrollmentRequirementFiles from '@/src/components/enrollment/EnrollmentRequirementFiles';
 
 type TabId = 'overview' | 'quizzes' | 'written' | 'modules' | 'attendance' | 'documents';
 const TABS: { id: TabId; label: string }[] = [
@@ -78,7 +79,7 @@ export default function RightContentArea({ student }: { student: Student }) {
             {!attendanceLoading && !attendanceError && attendance && <AttendanceTab history={attendance} />}
           </>
         )}
-        {activeTab === 'documents' && <LearnerRequirementsSummary email={student.email} role="teacher" />}
+        {activeTab === 'documents' && <div className="space-y-5"><EnrollmentRequirementFiles learnerId={student.id} /><LearnerRequirementsSummary email={student.email} role="teacher" /></div>}
         {activeTab === 'modules' && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Layers size={24} className="mb-4 text-blue-500" />

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   GraduationCap,
   Loader2,
+  ArrowRight,
   Phone,
   Plus,
   Trash2,
@@ -281,7 +282,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
             href={basePath}
             className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors mb-3"
           >
-            <ArrowLeft size={16} /> Back to {isAdmin ? "Learner Mapping" : "Learner Accounts"}
+            <ArrowLeft size={16} /> Back to {isAdmin ? "Learner Mapping" : "Enrollment tab"}
           </Link>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
@@ -918,7 +919,7 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                   }}
                   className="flex-1 py-2.5 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-medium transition-colors"
                 >
-                  {isAdmin ? "Back to Learner Mapping" : "Back to Accounts"}
+                  <span className="inline-flex items-center gap-2"><ArrowLeft size={14} />{isAdmin ? "Back to Learner Mapping" : "Back to Enrollment"}</span>
                 </button>
                 <button
                   type="button"
@@ -928,12 +929,12 @@ export default function MapStudentForm({ role, basePath }: MapStudentFormProps) 
                     router.push(
                       isAdmin
                         ? `/admin/mapping/${encodeURIComponent(modalData.recordId)}`
-                        : `/teacher/learner-accounts/${encodeURIComponent(modalData.recordId)}`,
+                        : `/teacher/learner-accounts/enrollment/${encodeURIComponent(modalData.recordId)}`,
                     );
                   }}
                   className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
                 >
-                  {isAdmin ? "Review & Create Learner Account" : "Review Learner Record"}
+                  <span className="inline-flex items-center gap-2">{isAdmin ? "Review & Create Learner Account" : "Review Learner Record"}<ArrowRight size={14} /></span>
                 </button>
               </div>
             </div>

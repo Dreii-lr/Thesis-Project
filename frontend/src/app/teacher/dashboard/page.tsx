@@ -229,7 +229,7 @@ export default function TeacherDashboard() {
                   href="/teacher/learner-accounts/mapping"
                   className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-bold text-blue-700"
                 >
-                  Create learner accounts <ArrowRight size={16} />
+                  Map learner manually <ArrowRight size={16} />
                 </Link>
               </div>
               <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/20">
@@ -257,7 +257,7 @@ export default function TeacherDashboard() {
                     ? "Unavailable"
                     : enrolled.length,
                 icon: Users,
-                href: "/teacher/students",
+                href: "/teacher/learner-accounts",
               },
               {
                 label: "Published materials",
@@ -273,7 +273,7 @@ export default function TeacherDashboard() {
                 label: "Awaiting review",
                 value: pending.length,
                 icon: ClipboardCheck,
-                href: "/teacher/students",
+                href: "/teacher/submissions",
               },
               {
                 label: "Recorded attendance",
@@ -309,7 +309,7 @@ export default function TeacherDashboard() {
                 <h2 className="text-xl font-bold">Your learning programs</h2>
                 <Link
                   className="text-sm font-semibold text-blue-600"
-                  href="/teacher/students"
+                  href="/teacher/learner-accounts"
                 >
                   View directory →
                 </Link>
@@ -317,7 +317,7 @@ export default function TeacherDashboard() {
               <div className="mt-5 grid gap-4 md:grid-cols-3">
                 {programs.map((p) => (
                   <Link
-                    href="/teacher/students"
+                    href="/teacher/learner-accounts"
                     key={p.category_id}
                     className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-blue-50"
                   >
@@ -372,7 +372,7 @@ export default function TeacherDashboard() {
                   .map((s) => {
                     const learner = students.find(student => student.account_id === s.account_id);
                     return <Link
-                      href={learner ? `/teacher/students/${encodeURIComponent(learner.id)}` : '/teacher/submissions'}
+                      href={learner ? `/teacher/learner-accounts/${encodeURIComponent(learner.id)}` : '/teacher/submissions'}
                       key={s.submission_id}
                       className="flex items-center justify-between gap-3 border-t border-slate-100 py-4"
                     >

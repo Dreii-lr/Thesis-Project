@@ -32,11 +32,11 @@ function TeacherLearnerStatusAction({ student }: StudentFormActionProps) {
   );
 }
 
-export default function CreateStudentAccountForm({ id }: { id: string }) {
+export default function CreateStudentAccountForm({ id, basePath = '/teacher/learner-accounts?tab=enrollment' }: { id: string; basePath?: string }) {
   return (
     <EditStudentForm
       id={id}
-      basePath="/teacher/learner-accounts"
+      basePath={basePath}
       heading="Learner Details Review"
       actions={TeacherLearnerStatusAction}
     />

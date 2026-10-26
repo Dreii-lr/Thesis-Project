@@ -19,6 +19,7 @@ export default function Header() {
     ? [
         ["Dashboard", "/admin/dashboard"],
         ["Students", "/admin/students"],
+        ["Enrollment", "/admin/enrollment"],
         ["Requirements", "/admin/requirements"],
         ["Learner Mapping", "/admin/mapping"],
         ["Attendance", "/admin/attendance"],
@@ -28,9 +29,8 @@ export default function Header() {
       ]
     : [
         ["Dashboard", "/teacher/dashboard"],
-        ["Students", "/teacher/students"],
         ["Student Requirements", "/teacher/requirements"],
-        ["Learner Accounts", "/teacher/learner-accounts/mapping"],
+        ["Learner Accounts", "/teacher/learner-accounts"],
         ["Attendance", "/teacher/attendance"],
         ["Lesson Modules", "/teacher/lesson-content"],
         ["Flashcards", "/teacher/flashcards"],

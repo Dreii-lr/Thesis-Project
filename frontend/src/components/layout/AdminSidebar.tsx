@@ -74,6 +74,7 @@ export default function AdminSidebar() {
       items: [
         { name: "Dashboard", icon: LayoutDashboard, href: "/admin/dashboard" },
         { name: "Students", icon: GraduationCap, href: "/admin/students" },
+        { name: "Enrollment", icon: ClipboardCheck, href: "/admin/enrollment" },
         { name: "Requirements", icon: FileCheck2, href: "/admin/requirements" },
         { name: "Learner Mapping", icon: UserPlus, href: "/admin/mapping" },
         { name: "Learner Accounts", icon: UserCheck, href: "/admin/create-account" },
