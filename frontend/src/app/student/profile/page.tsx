@@ -30,12 +30,13 @@ export default function StudentProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // If user has a cloud photo, prefer it; otherwise check localStorage
-    if (user?.profile_url?.public_url) {
-      setProfilePhoto(user.profile_url.public_url);
-    } else {
-      setProfilePhoto(localStorage.getItem(PROFILE_PHOTO_KEY));
-    }
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      try { setProfilePhoto(user?.profile_url?.public_url || localStorage.getItem(PROFILE_PHOTO_KEY)); }
+      catch { setProfilePhoto(user?.profile_url?.public_url || null); }
+    });
+    return () => { active = false; };
   }, [user?.profile_url?.public_url]);
 
   const initials = identity

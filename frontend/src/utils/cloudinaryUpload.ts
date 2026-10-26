@@ -1,13 +1,13 @@
 // src/utils/cloudinaryUpload.ts
-import { JSONContent } from '@tiptap/react';
+import { JSONContent } from "@tiptap/react";
 
 /**
  * 1. Extracts raw bytes (Uint8Array), Blob, and File from a Tiptap Base64 Data URL
  */
-export function dataUrlToBytes(dataUrl: string, filename = 'lesson-image.png') {
-  const [header, base64Data] = dataUrl.split(',');
+export function dataUrlToBytes(dataUrl: string, filename = "lesson-image.png") {
+  const [header, base64Data] = dataUrl.split(",");
   const mimeMatch = header.match(/:(.*?);/);
-  const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+  const mimeType = mimeMatch ? mimeMatch[1] : "image/png";
 
   // Decode Base64 string into binary string
   const binaryString = window.atob(base64Data);
@@ -25,8 +25,8 @@ export function dataUrlToBytes(dataUrl: string, filename = 'lesson-image.png') {
 
   return {
     bytes, // Raw Uint8Array bytes (if your backend needs raw byte array)
-    blob,  // Binary Blob
-    file,  // File object ready for FormData
+    blob, // Binary Blob
+    file, // File object ready for FormData
     mimeType,
   };
 }
@@ -34,32 +34,52 @@ export function dataUrlToBytes(dataUrl: string, filename = 'lesson-image.png') {
 /**
  * 2. Uploads the extracted image bytes (Blob/File) to Cloudinary
  */
-export async function uploadBytesToCloudinary(fileOrBlob: Blob | File): Promise<string> {
+export async function uploadBytesToCloudinary(
+  fileOrBlob: Blob | File,
+): Promise<string> {
   const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
   const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
 
   if (!cloudName || !uploadPreset) {
-    throw new Error('Missing Cloudinary environment variables');
+    throw new Error("Missing Cloudinary environment variables");
   }
 
   const formData = new FormData();
-  formData.append('file', fileOrBlob);
-  formData.append('upload_preset', uploadPreset);
+  formData.append("file", fileOrBlob);
+  formData.append("upload_preset", uploadPreset);
 
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-    {
-      method: 'POST',
-      body: formData,
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error('Failed to upload image bytes to Cloudinary');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+      { method: "POST", body: formData, signal: controller.signal },
+    );
+    if (!response.ok)
+      throw new Error(
+        "The lesson image could not be uploaded. Your edits are still open.",
+      );
+    const data: unknown = await response.json();
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !("secure_url" in data) ||
+      typeof data.secure_url !== "string" ||
+      !data.secure_url.startsWith("https://")
+    )
+      throw new Error(
+        "The image upload response could not be verified. Your edits are still open.",
+      );
+    return data.secure_url;
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new Error(
+        "The lesson image upload took too long. Your edits are still open; check your connection and try again.",
+      );
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await response.json();
-  return data.secure_url; // Permanent https://res.cloudinary.com/... URL
 }
 
 /**
@@ -67,22 +87,21 @@ export async function uploadBytesToCloudinary(fileOrBlob: Blob | File): Promise<
  * and replaces `attrs.src` with the permanent Cloudinary URL.
  */
 export async function processTiptapImagesForCloudinary(
-  node: JSONContent
+  node: JSONContent,
 ): Promise<JSONContent> {
   // Clone node so we don't mutate React state directly
   const updatedNode: JSONContent = { ...node };
 
   // Check if this node is a Tiptap image containing local Base64 data
   if (
-    updatedNode.type === 'image' &&
-    typeof updatedNode.attrs?.src === 'string' &&
-    updatedNode.attrs.src.startsWith('data:image/')
+    updatedNode.type === "image" &&
+    typeof updatedNode.attrs?.src === "string" &&
+    updatedNode.attrs.src.startsWith("data:image/")
   ) {
     const altName = updatedNode.attrs.alt || `image-${Date.now()}.png`;
 
     // Extract the bytes/File from Tiptap's image node
-    const { bytes, file } = dataUrlToBytes(updatedNode.attrs.src, altName);
-    console.log(`Extracted ${bytes.byteLength} bytes for ${altName}`, bytes);
+    const { file } = dataUrlToBytes(updatedNode.attrs.src, altName);
 
     // Upload bytes to Cloudinary and replace `src` with the Cloudinary URL
     const cloudinaryUrl = await uploadBytesToCloudinary(file);
@@ -95,7 +114,9 @@ export async function processTiptapImagesForCloudinary(
   // Recursively process child nodes if present
   if (updatedNode.content && Array.isArray(updatedNode.content)) {
     updatedNode.content = await Promise.all(
-      updatedNode.content.map((child) => processTiptapImagesForCloudinary(child))
+      updatedNode.content.map((child) =>
+        processTiptapImagesForCloudinary(child),
+      ),
     );
   }
 

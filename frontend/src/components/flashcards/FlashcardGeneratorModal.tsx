@@ -1,25 +1,38 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { Sparkles, X, Check, BookOpen, Layers, Loader2, AlertTriangle, FileText } from 'lucide-react';
-import type { StudyCard } from '@/src/data/mockStudentFlashcards';
-import type { SubjectRecord } from '@/src/lib/subjects-api';
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  FileText,
+  Layers3,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  X,
+} from "lucide-react";
+import {
+  getAllMaterials,
+  getMaterialById,
+  getLessonsByMaterial,
+  matchMaterialToSubject,
+  normalizeMaterialStatus,
+  type GeneratedLessonItem,
+  type MaterialItem,
+} from "@/src/lib/document-processor-api";
+import {
+  materialInProgram,
+  subjectsForProgram,
+} from "@/src/lib/lesson-workflow";
+import { moduleTitle } from "@/src/lib/module-library";
+import { generateFlashcardsAIApi } from "@/src/lib/curated-flashcards-api";
+import { type FlashcardDraftInput } from "@/src/lib/flashcard-drafts";
 import {
   DEFAULT_USER_CATEGORIES,
   type UserCategoryItem,
-} from '@/src/lib/user-categories-api';
-import {
-  getMaterials,
-  getLessonsByMaterial,
-  matchMaterialToCategory,
-  matchMaterialToSubject,
-  type GeneratedLessonItem,
-  type MaterialItem,
-} from '@/src/lib/document-processor-api';
-import {
-  generateCuratedFlashcardsFromTopic,
-} from '@/src/lib/curated-flashcards';
-import { generateFlashcardsAIApi } from '@/src/lib/curated-flashcards-api';
+} from "@/src/lib/user-categories-api";
+import type { SubjectRecord } from "@/src/lib/subjects-api";
 
 interface GeneratorProps {
   categories?: UserCategoryItem[];
@@ -30,663 +43,689 @@ interface GeneratorProps {
   initialLessonId?: string;
   initialMaterialId?: string;
   initialTopic?: string;
-  onGenerated: (data: {
-    id?: string;
-    title: string;
-    description: string;
-    categoryId?: string;
-    programCode: string;
-    programName: string;
-    subjectId: string;
-    subject: string;
-    cards: StudyCard[];
-    materialId?: string | null;
-    lessonId?: string | null;
-    generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
-  }) => void;
+  onGenerated: (draft: FlashcardDraftInput) => void | Promise<void>;
   onClose: () => void;
 }
+type GenerationResult = Awaited<ReturnType<typeof generateFlashcardsAIApi>>;
+const inputClass =
+  "mt-2 block min-h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400";
 
 export default function FlashcardGeneratorModal({
   categories,
-  activeCategory: passedActiveCategory,
-  initialProgramCode = 'SECONDARY',
+  activeCategory: passedCategory,
+  initialProgramCode = "SECONDARY",
   subjects,
   initialSubjectId,
   initialLessonId,
   initialMaterialId,
-  initialTopic,
   onGenerated,
   onClose,
 }: GeneratorProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  const availableCategories =
-    categories && categories.length > 0 ? categories : DEFAULT_USER_CATEGORIES;
-
-  const defaultCat =
-    availableCategories.find(
-      (c) => (c.code || '').toUpperCase() === (initialProgramCode || 'SECONDARY').toUpperCase(),
-    ) || availableCategories[0];
-
-  const activeCategory =
-    passedActiveCategory ||
-    defaultCat ||
+  const availableCategories = categories?.length
+    ? categories
+    : DEFAULT_USER_CATEGORIES;
+  const category =
+    passedCategory ||
+    availableCategories.find((item) => item.code === initialProgramCode) ||
     availableCategories[0];
-
-  const [subjectId, setSubjectId] = useState<string>(initialSubjectId || '');
-  const [topic, setTopic] = useState(initialTopic || '');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedCards, setGeneratedCards] = useState<StudyCard[]>([]);
-  const [generatedTitle, setGeneratedTitle] = useState('');
-  const [generatedDescription, setGeneratedDescription] = useState('');
-  const [isExistingDeck, setIsExistingDeck] = useState(false);
-  const [existingDeckId, setExistingDeckId] = useState<string | null>(null);
-  const [error, setError] = useState('');
-
-  // Grounded Lesson and Module selection states
-  const [materials, setMaterials] = useState<MaterialItem[]>([]);
-  const [materialLessonsMap, setMaterialLessonsMap] = useState<Record<string, GeneratedLessonItem[]>>({});
-  const [lessons, setLessons] = useState<GeneratedLessonItem[]>([]);
-  const [loadingLessons, setLoadingLessons] = useState(false);
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>(initialMaterialId || '');
-  const [generationScope, setGenerationScope] = useState<'FULL_MODULE' | 'SINGLE_TOPIC'>('FULL_MODULE');
-  const [selectedLessonId, setSelectedLessonId] = useState<string>(initialLessonId || '');
+  const categorySubjects = useMemo(
+    () =>
+      subjectsForProgram(
+        subjects.length ? subjects : category.subjects || [],
+        category,
+      ),
+    [subjects, category],
+  );
+  const [subjectId, setSubjectId] = useState(initialSubjectId || "");
+  const [materialId, setMaterialId] = useState(initialMaterialId || "");
+  const [lessonId, setLessonId] = useState(initialLessonId || "");
+  const [scope, setScope] = useState<"FULL_MODULE" | "SINGLE_TOPIC">(
+    initialLessonId ? "SINGLE_TOPIC" : "FULL_MODULE",
+  );
+  const [count, setCount] = useState("5");
+  const [forceFresh, setForceFresh] = useState(false);
+  const [version, setVersion] = useState(0);
+  const [materials, setMaterials] = useState<{
+    items: MaterialItem[];
+    loading: boolean;
+    error: string;
+  }>({ items: [], loading: true, error: "" });
+  const [lessons, setLessons] = useState<{
+    materialId: string;
+    items: GeneratedLessonItem[];
+    error: string;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [cached, setCached] = useState<GenerationResult | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<FlashcardDraftInput | null>(
+    null,
+  );
+  const lock = useRef(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const subject = categorySubjects.find(
+    (item) => item.subject_id === subjectId,
+  );
+  const selectedMaterial = materials.items.find(
+    (item) => item.id === materialId,
+  );
+  const visibleMaterials = initialMaterialId
+    ? materials.items
+    : materials.items.filter(
+        (item) => !subject || matchMaterialToSubject(item, subject),
+      );
+  const currentLessons =
+    lessons?.materialId === materialId ? lessons.items : [];
+  const lessonsLoading = Boolean(
+    materialId && lessons?.materialId !== materialId,
+  );
+  const selectedLesson = currentLessons.find((item) => item.id === lessonId);
+  const cardCount = Number(count);
 
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (dialog && !dialog.open) {
-      try {
-        dialog.showModal();
-      } catch {
-        // ignore if already opened
-      }
-    }
-    return () => {
-      try {
-        if (dialog?.open) dialog.close();
-      } catch {
-        // ignore
-      }
-    };
+    dialog?.showModal();
+    return () => dialog?.close();
   }, []);
-
-  const visibleSubjects = subjects.filter((s) => {
-    if (!activeCategory) return true;
-    if (s.category_id && s.category_id === activeCategory.category_id) return true;
-    const code = (s.category_code || '').toUpperCase();
-    if (code && activeCategory?.code && code === activeCategory.code.toUpperCase()) return true;
-    return false;
-  });
-
-  const availableCategorySubjects =
-    visibleSubjects.length > 0
-      ? visibleSubjects
-      : (activeCategory?.subjects || []).map((s) => ({
-          subject_id: s.subject_id,
-          name: s.name,
-          category_id: s.category_id,
-          category_code: activeCategory?.code || '',
-          description: s.description || null,
-          is_active: s.is_active,
-          created_at: s.created_at,
-          updated_at: s.updated_at || null,
-        }));
-
-  const selectedSubject =
-    availableCategorySubjects.find((s) => s.subject_id === subjectId) ||
-    subjects.find((s) => s.subject_id === subjectId);
-  const subjectName = selectedSubject?.name || 'General Study';
-
-  // Load generated lessons from document-processing-ms for active category & selected subject
-  const loadLessonsForSubject = useCallback(async () => {
-    if (!activeCategory || !subjectId || !selectedSubject) {
-      setMaterials([]);
-      setMaterialLessonsMap({});
-      setLessons([]);
-      setSelectedMaterialId('');
-      setSelectedLessonId('');
-      setLoadingLessons(false);
-      return;
-    }
-
-    setLoadingLessons(true);
-    setError('');
-    try {
-      const allMaterials = await getMaterials({ pageSize: 50 }).catch(() => []);
-      const categoryMaterials = (allMaterials || []).filter(
-        (m) => m && m.id && matchMaterialToCategory(m, activeCategory),
-      );
-
-      // Filter specifically by the chosen subject
-      let matchedMaterials = categoryMaterials.filter((m) =>
-        matchMaterialToSubject(m, selectedSubject),
-      );
-
-      // Fallback: if no explicit strand match, check if any material's strand or goal directly mentions subject name
-      if (matchedMaterials.length === 0 && selectedSubject.name) {
-        const sNameLow = selectedSubject.name.toLowerCase();
-        matchedMaterials = categoryMaterials.filter(
-          (m) =>
-            (m.learning_strand || '').toLowerCase().includes(sNameLow) ||
-            (m.main_learning_goal || '').toLowerCase().includes(sNameLow),
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.resolve()
+      .then(async () => {
+        if (controller.signal.aborted) return;
+        setMaterials((previous) => ({ ...previous, loading: true, error: "" }));
+        const records = initialMaterialId
+          ? [
+              await getMaterialById(initialMaterialId, {
+                signal: controller.signal,
+              }),
+            ]
+          : await getAllMaterials({
+              status: "PUBLISHED",
+              signal: controller.signal,
+            });
+        const available = records.filter(
+          (item) =>
+            normalizeMaterialStatus(item.status) === "PUBLISHED" &&
+            materialInProgram(item, category),
         );
-      }
-
-      setMaterials(matchedMaterials);
-
-      if (matchedMaterials.length === 0) {
-        setMaterialLessonsMap({});
-        setLessons([]);
-        setSelectedMaterialId('');
-        setSelectedLessonId('');
-        setLoadingLessons(false);
-        return;
-      }
-
-      const lessonPromises = matchedMaterials.slice(0, 15).map(async (m) => {
-        try {
-          const res = await getLessonsByMaterial(m.id);
-          return { materialId: m.id, lessons: res?.lessons || [] };
-        } catch {
-          return { materialId: m.id, lessons: [] };
+        if (initialMaterialId && !available.length)
+          throw new Error(
+            "This module must be published in the selected learning program before flashcards can be generated.",
+          );
+        if (controller.signal.aborted) return;
+        setMaterials({ items: available, loading: false, error: "" });
+        const source = available.find((item) => item.id === initialMaterialId);
+        if (source) {
+          const matched = categorySubjects.find((item) =>
+            matchMaterialToSubject(source, item),
+          );
+          setSubjectId((previous) => previous || matched?.subject_id || "");
         }
+      })
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted)
+          setMaterials({
+            items: [],
+            loading: false,
+            error:
+              err instanceof Error
+                ? err.message
+                : "Modules could not be loaded.",
+          });
       });
-      const results = await Promise.all(lessonPromises);
-
-      const lMap: Record<string, GeneratedLessonItem[]> = {};
-      const collectedLessons: GeneratedLessonItem[] = [];
-      for (const res of results) {
-        if (res.materialId && Array.isArray(res.lessons)) {
-          lMap[res.materialId] = res.lessons;
-          collectedLessons.push(...res.lessons);
-        }
-      }
-
-      setMaterialLessonsMap(lMap);
-      setLessons(collectedLessons);
-
-      // Resolve active material
-      const targetMatId =
-        (initialMaterialId && matchedMaterials.find((m) => m.id === initialMaterialId)?.id) ||
-        (initialLessonId && collectedLessons.find((l) => l.id === initialLessonId)?.material_id) ||
-        matchedMaterials[0]?.id ||
-        '';
-
-      setSelectedMaterialId(targetMatId);
-
-      // Resolve active lesson
-      const matLessons = targetMatId ? (lMap[targetMatId] || []) : collectedLessons;
-      const targetLesson =
-        (initialLessonId && matLessons.find((l) => l.id === initialLessonId)) ||
-        matLessons[0];
-
-      if (targetLesson) {
-        setSelectedLessonId(targetLesson.id);
-        setTopic(targetLesson.lesson_title || targetLesson.main_topic || '');
-      } else {
-        setSelectedLessonId('');
-      }
-    } catch (err) {
-      console.warn('Could not load lessons from document-processor:', err);
-    } finally {
-      setLoadingLessons(false);
-    }
-  }, [activeCategory, subjectId, selectedSubject, initialLessonId, initialMaterialId]);
+    return () => controller.abort();
+  }, [initialMaterialId, category, categorySubjects, version]);
 
   useEffect(() => {
-    loadLessonsForSubject();
-  }, [loadLessonsForSubject]);
-
-  const activeMaterialObj = materials.find((m) => m.id === selectedMaterialId) || materials[0];
-  const currentMaterialLessons = selectedMaterialId ? (materialLessonsMap[selectedMaterialId] || []) : lessons;
-  const activeLessonObj = currentMaterialLessons.find((l) => l.id === selectedLessonId) || currentMaterialLessons[0];
-
-  const handleGenerate = async () => {
-    if (!subjectId) {
-      setError('Please select a subject before generating flashcards.');
-      return;
-    }
-
-    if (lessons.length === 0) {
-      setError(`Generation is disabled: No generated lessons exist for "${subjectName}" in Document Processing.`);
-      return;
-    }
-
-    if (generationScope === 'SINGLE_TOPIC' && !selectedLessonId) {
-      setError('Please select a specific topic from the module.');
-      return;
-    }
-
-    setError('');
-    setIsGenerating(true);
-    setIsExistingDeck(false);
-    setExistingDeckId(null);
-
-    try {
-      const targetTopic =
-        generationScope === 'SINGLE_TOPIC'
-          ? (activeLessonObj?.lesson_title || activeLessonObj?.main_topic)
-          : (activeMaterialObj?.main_learning_goal || activeMaterialObj?.learning_strand || topic);
-
-      const aiResult = await generateFlashcardsAIApi({
-        topic: targetTopic || undefined,
-        materialId: selectedMaterialId || activeMaterialObj?.id || undefined,
-        lessonId: generationScope === 'SINGLE_TOPIC' ? selectedLessonId : undefined,
-        generationScope,
-        programCode: activeCategory?.code || 'SECONDARY',
-        program: activeCategory?.name || 'Secondary',
-        subjectId: subjectId || undefined,
-        subjectName,
-        subject: subjectName,
-        numCards: 5,
-      });
-
-      if (aiResult?.cards && aiResult.cards.length > 0) {
-        setGeneratedCards(aiResult.cards);
-        if (aiResult.title) setGeneratedTitle(aiResult.title);
-        if (aiResult.description) setGeneratedDescription(aiResult.description);
-        if (aiResult.isExisting) {
-          setIsExistingDeck(true);
-          setExistingDeckId(aiResult.existingDeckId || null);
-        }
-      } else {
-        throw new Error('No cards were returned by the generator.');
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'AI flashcard generation failed.';
-      console.warn(
-        '[FlashcardGenerator] Live AI microservice call failed, falling back to local curriculum generation:',
-        err,
-      );
-      setError(`${errorMsg} (Displaying curriculum topic preview)`);
-      try {
-        const fallbackTopic =
-          generationScope === 'FULL_MODULE'
-            ? `${activeMaterialObj?.main_learning_goal || subjectName} (Full Module)`
-            : (activeLessonObj?.lesson_title || activeLessonObj?.main_topic || 'ALS Study');
-        const fallbackCards = generateCuratedFlashcardsFromTopic(
-          fallbackTopic,
-          subjectName,
-          activeCategory?.code || 'SECONDARY',
-          5,
+    if (!materialId) return;
+    const controller = new AbortController();
+    getLessonsByMaterial(materialId, { signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        const items = (result.lessons || []).filter(
+          (item) => item.material_id === materialId,
         );
-        setGeneratedCards(fallbackCards);
-        const isFil = (subjectName || '').toLowerCase().includes('filipino') || (subjectName || '').toLowerCase().includes('tagalog');
-        if (isFil) {
-          setGeneratedTitle(fallbackTopic);
-          setGeneratedDescription(`Aralin at mga pagsasanay para sa ${fallbackTopic}`);
-        }
-      } catch (fallbackErr) {
-        setError(errorMsg);
-      }
+        setLessons({ materialId, items, error: "" });
+        if (
+          initialLessonId &&
+          items.some((item) => item.id === initialLessonId)
+        )
+          setLessonId(initialLessonId);
+      })
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted)
+          setLessons({
+            materialId,
+            items: [],
+            error:
+              err instanceof Error
+                ? err.message
+                : "Lesson content could not be loaded.",
+          });
+      });
+    return () => controller.abort();
+  }, [materialId, initialLessonId, version]);
+
+  const close = () => {
+    if (!lock.current) onClose();
+  };
+  const resetResult = () => {
+    setCached(null);
+    setPendingDraft(null);
+    setError("");
+  };
+  const toDraft = (result: GenerationResult): FlashcardDraftInput => ({
+    title:
+      result.title ||
+      `${selectedMaterial ? moduleTitle(selectedMaterial) : "Module"} flashcards`,
+    description: result.description || "",
+    categoryId: category.category_id,
+    programCode: category.code,
+    programName: category.name,
+    subjectId,
+    subject: subject?.name || "",
+    cards: result.cards,
+    materialId,
+    lessonId: scope === "SINGLE_TOPIC" ? lessonId : null,
+    generationScope: scope,
+    sourceDeckId: result.existingDeckId,
+    moduleTitle: selectedMaterial ? moduleTitle(selectedMaterial) : undefined,
+    topicTitle:
+      scope === "SINGLE_TOPIC"
+        ? selectedLesson?.lesson_title || selectedLesson?.main_topic
+        : undefined,
+    requestedCardCount: cardCount,
+    generationNote:
+      result.cards.length !== cardCount
+        ? `You requested ${cardCount} cards. The ${result.isExisting ? "existing set contains" : "generator returned"} ${result.cards.length}; review the draft before publishing.`
+        : undefined,
+  });
+  const openEditor = async (draft: FlashcardDraftInput) => {
+    setPendingDraft(draft);
+    await onGenerated(draft);
+  };
+  const generate = async (fresh = forceFresh) => {
+    if (lock.current) return;
+    setError("");
+    if (!subject) {
+      setError("Choose a subject for this learning program.");
+      return;
+    }
+    if (
+      !selectedMaterial ||
+      !visibleMaterials.some((item) => item.id === materialId) ||
+      !matchMaterialToSubject(selectedMaterial, subject)
+    ) {
+      setError("Choose a published module that belongs to this subject.");
+      return;
+    }
+    if (!Number.isInteger(cardCount) || cardCount < 2 || cardCount > 20) {
+      setError("Choose a whole number from 2 to 20 cards.");
+      return;
+    }
+    if (
+      !currentLessons.length ||
+      (scope === "SINGLE_TOPIC" && !selectedLesson)
+    ) {
+      setError(
+        scope === "SINGLE_TOPIC"
+          ? "Choose one topic from this module."
+          : "This module needs generated lesson content first.",
+      );
+      return;
+    }
+    lock.current = true;
+    setBusy(true);
+    setCached(null);
+    setPendingDraft(null);
+    try {
+      const [material, content] = await Promise.all([
+        getMaterialById(materialId),
+        getLessonsByMaterial(materialId),
+      ]);
+      if (
+        normalizeMaterialStatus(material.status) !== "PUBLISHED" ||
+        !materialInProgram(material, category) ||
+        !matchMaterialToSubject(material, subject)
+      )
+        throw new Error(
+          "The module is no longer published for this program and subject.",
+        );
+      const sourceLessons = (content.lessons || []).filter(
+        (item) => item.material_id === materialId,
+      );
+      if (
+        !sourceLessons.length ||
+        (scope === "SINGLE_TOPIC" &&
+          !sourceLessons.some((item) => item.id === lessonId))
+      )
+        throw new Error(
+          "The selected lesson content is no longer available. Refresh the source and try again.",
+        );
+      const result = await generateFlashcardsAIApi({
+        topic:
+          scope === "SINGLE_TOPIC"
+            ? selectedLesson?.lesson_title || selectedLesson?.main_topic
+            : moduleTitle(material),
+        materialId,
+        lessonId: scope === "SINGLE_TOPIC" ? lessonId : undefined,
+        generationScope: scope,
+        programCode: category.code,
+        program: category.code,
+        subjectId,
+        subject: subject.name,
+        numCards: cardCount,
+        forceRegenerate: fresh,
+      });
+      if (
+        result.cards.length < 2 ||
+        result.cards.some(
+          (card) => !card.term.trim() || !card.definition.trim(),
+        )
+      )
+        throw new Error(
+          "The generator did not return at least two complete cards. Try again or choose another topic.",
+        );
+      if (result.isExisting && !fresh) setCached(result);
+      else await openEditor(toDraft(result));
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Flashcards could not be generated. Please try again.",
+      );
     } finally {
-      setIsGenerating(false);
+      lock.current = false;
+      setBusy(false);
     }
   };
-
-  const handleAccept = () => {
-    if (!generatedCards.length) return;
-    const cleanTopic =
-      generationScope === 'FULL_MODULE'
-        ? (activeMaterialObj?.main_learning_goal || `${subjectName} Module Study Set`)
-        : (activeLessonObj?.lesson_title || activeLessonObj?.main_topic || 'ALS Study Set');
-    const fallbackTitle = cleanTopic.length > 50 ? `${cleanTopic.slice(0, 47)}…` : cleanTopic;
-    const finalTitle = generatedTitle.trim() || fallbackTitle;
-    const fallbackDesc =
-      generationScope === 'FULL_MODULE'
-        ? `Study set covering all lessons in module "${cleanTopic}" for ${activeCategory?.name || 'ALS'}.`
-        : `Study set covering "${cleanTopic}" for ${activeCategory?.name || 'Learning Program'}.`;
-    const finalDesc = generatedDescription.trim() || fallbackDesc;
-
-    onGenerated({
-      id: existingDeckId || undefined,
-      title: finalTitle,
-      description: finalDesc,
-      categoryId: activeCategory?.category_id,
-      programCode: activeCategory?.code || 'SECONDARY',
-      programName: activeCategory?.name || 'Secondary',
-      subjectId,
-      subject: subjectName,
-      cards: generatedCards,
-      materialId: selectedMaterialId || activeMaterialObj?.id || null,
-      lessonId: generationScope === 'SINGLE_TOPIC' ? (selectedLessonId || null) : null,
-      generationScope: generationScope || null,
-    });
-    onClose();
+  const accept = async (draft: FlashcardDraftInput) => {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await openEditor(draft);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "The draft could not be opened. Your generated content is still here.",
+      );
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   };
 
   return (
     <dialog
       ref={dialogRef}
-      onCancel={(e) => {
-        e.preventDefault();
-        onClose();
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
       }}
-      className="fixed inset-0 m-auto max-h-[92dvh] w-[calc(100%_-_1.5rem)] max-w-2xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/40 backdrop:backdrop-blur-sm"
+      className="fixed inset-0 m-auto max-h-[92dvh] w-[calc(100%_-_1.5rem)] max-w-2xl overflow-hidden rounded-3xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl open:grid open:grid-rows-[auto_minmax(0,1fr)_auto] backdrop:bg-slate-950/45 backdrop:backdrop-blur-sm"
     >
-      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-            <Sparkles size={20} />
+      <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-blue-100 bg-white/95 px-5 py-5 backdrop-blur sm:px-7">
+        <div className="flex gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+            <Sparkles size={22} />
           </span>
           <div>
-            <h2 className="text-base font-bold text-slate-900">Generate study set</h2>
-            <p className="text-[11px] text-slate-500">Auto-create cards strictly grounded in DepEd ALS lesson modules.</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">
+              Flashcard studio
+            </p>
+            <h2
+              id={titleId}
+              className="mt-1 text-xl font-semibold tracking-tight"
+            >
+              Generate a study set
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Choose your source. We’ll open the results in a private draft.
+            </p>
           </div>
         </div>
         <button
           type="button"
-          onClick={onClose}
-          className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"
-          aria-label="Close generator"
+          disabled={busy}
+          onClick={close}
+          aria-label="Close generation settings"
+          className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
         >
           <X size={19} />
         </button>
       </div>
-
-      <div className="p-6 space-y-5">
-        {/* Active Learning Program Context (Read-Only) */}
-        <div className="flex items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700 font-bold">
-              <Layers size={16} />
-            </span>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Target Learning Program</p>
-              <p className="text-xs font-bold text-slate-900">{activeCategory.name}</p>
+      <div className="min-h-0 space-y-6 overflow-y-auto p-5 sm:p-7">
+        <ol
+          aria-label="Flashcard creation steps"
+          className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-slate-400"
+        >
+          <li className="flex items-center gap-2 text-blue-700">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold">
+              1
+            </span>{" "}
+            Generation settings
+          </li>
+          <ChevronRight size={13} aria-hidden />
+          <li>2. Review draft</li>
+          <ChevronRight size={13} aria-hidden />
+          <li>3. Publish</li>
+        </ol>
+        <fieldset disabled={busy} className="min-w-0 space-y-5">
+          <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 to-white p-4">
+            <p className="flex items-center gap-2 text-xs font-semibold text-blue-700">
+              <BookOpen size={15} /> {category.name}
+            </p>
+            <h3 className="mt-2 break-words text-base font-semibold leading-6 text-slate-900">
+              {selectedMaterial
+                ? moduleTitle(selectedMaterial)
+                : initialMaterialId && materials.loading
+                  ? "Loading source module…"
+                  : "Build from your lesson content"}
+            </h3>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              {subject?.name || "Choose a subject below"}
+              {selectedMaterial &&
+                ` · ${currentLessons.length} generated topics`}
+            </p>
+          </section>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-slate-600">
+              Subject
+              <select
+                aria-label="Flashcard subject"
+                value={subjectId}
+                onChange={(event) => {
+                  setSubjectId(event.target.value);
+                  if (!initialMaterialId) {
+                    setMaterialId("");
+                    setLessonId("");
+                  }
+                  resetResult();
+                }}
+                className={inputClass}
+              >
+                <option value="">Choose subject</option>
+                {categorySubjects.map((item) => (
+                  <option key={item.subject_id} value={item.subject_id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              Number of cards
+              <input
+                aria-label="Number of cards"
+                type="number"
+                min={2}
+                max={20}
+                step={1}
+                value={count}
+                onChange={(event) => {
+                  setCount(event.target.value);
+                  resetResult();
+                }}
+                className={inputClass}
+              />
+              <span className="mt-2 block text-[11px] font-normal text-slate-400">
+                Generate 2–20 cards at a time.
+              </span>
+            </label>
+          </div>
+          <label className="block text-xs font-semibold text-slate-600">
+            Source module
+            <select
+              aria-label="Source module"
+              value={materialId}
+              disabled={
+                Boolean(initialMaterialId) || materials.loading || !subjectId
+              }
+              onChange={(event) => {
+                setMaterialId(event.target.value);
+                setLessonId("");
+                resetResult();
+              }}
+              className={inputClass}
+            >
+              <option value="">Choose a published module</option>
+              {visibleMaterials.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {moduleTitle(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {materials.loading || lessonsLoading ? (
+            <p
+              role="status"
+              className="flex items-center gap-2 text-xs text-slate-500"
+            >
+              <Loader2 size={14} className="animate-spin" /> Loading published
+              lesson content…
+            </p>
+          ) : materials.error ||
+            (lessons?.materialId === materialId && lessons.error) ? (
+            <div
+              role="alert"
+              className="rounded-xl bg-red-50 p-3 text-xs leading-6 text-red-700"
+            >
+              {materials.error || lessons?.error}{" "}
+              <button
+                type="button"
+                onClick={() => setVersion((value) => value + 1)}
+                className="font-semibold underline"
+              >
+                Retry source
+              </button>
+            </div>
+          ) : materialId && !currentLessons.length ? (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-800">
+              Generate the lesson content for this module before creating
+              flashcards.
+            </p>
+          ) : (
+            !materials.items.length && (
+              <p className="text-xs text-slate-500">
+                No published modules are available for this program yet.
+              </p>
+            )
+          )}
+          <div>
+            <p className="text-xs font-semibold text-slate-600">
+              What should this set cover?
+            </p>
+            <div
+              role="group"
+              aria-label="Generation scope"
+              className="mt-3 grid gap-3 sm:grid-cols-2"
+            >
+              {(
+                [
+                  {
+                    value: "FULL_MODULE",
+                    title: "Entire module",
+                    description: "Key ideas across all generated lessons.",
+                    icon: Layers3,
+                  },
+                  {
+                    value: "SINGLE_TOPIC",
+                    title: "One topic",
+                    description: "Focus on one lesson in this module.",
+                    icon: FileText,
+                  },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={scope === option.value}
+                  onClick={() => {
+                    setScope(option.value);
+                    resetResult();
+                  }}
+                  className={`rounded-2xl border p-4 text-left transition ${scope === option.value ? "border-blue-300 bg-blue-50 ring-1 ring-blue-200" : "border-slate-200 bg-white hover:border-blue-200"}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <option.icon
+                      size={19}
+                      className={
+                        scope === option.value
+                          ? "text-blue-600"
+                          : "text-slate-400"
+                      }
+                    />
+                    {scope === option.value && (
+                      <CheckCircle2 size={16} className="text-blue-600" />
+                    )}
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-slate-800">
+                    {option.title}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    {option.description}
+                  </p>
+                </button>
+              ))}
             </div>
           </div>
-          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-indigo-700 shadow-xs border border-indigo-100">
-            Active Program
-          </span>
-        </div>
-
-        {/* STEP 1: SUBJECT SELECTION (MANDATORY) */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-700">
-            1. Subject <span className="text-red-500">*</span>
-          </label>
-          <select
-            value={subjectId}
-            onChange={(e) => {
-              const newSubId = e.target.value;
-              setSubjectId(newSubId);
-              setSelectedMaterialId('');
-              setSelectedLessonId('');
-              setGeneratedCards([]);
-              setGeneratedTitle('');
-              setGeneratedDescription('');
-              setError('');
-            }}
-            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-          >
-            <option value="">-- Choose a subject first --</option>
-            {availableCategorySubjects.map((s) => (
-              <option key={s.subject_id} value={s.subject_id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* STEP 2: GROUNDED MODULE & LESSON CONTENTS SCOPE */}
-        <div className="space-y-3 pt-1">
-          <label className="block text-xs font-semibold text-slate-700">
-            2. Grounded Lesson Contents & Scope <span className="text-red-500">*</span>
-          </label>
-
-          {!subjectId ? (
-            /* SUBJECT NOT SELECTED YET: PROMPT USER */
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-center text-xs text-slate-500">
-              <BookOpen size={20} className="mx-auto mb-2 text-slate-400" />
-              <p className="font-semibold text-slate-700">Please select a subject above</p>
-              <p className="mt-1 text-[11px] text-slate-400">
-                Generated lesson contents and scope options will appear here once a subject is chosen.
-              </p>
-            </div>
-          ) : loadingLessons ? (
-            <div className="flex items-center justify-center py-6 text-xs text-indigo-600 gap-2 border border-slate-200 rounded-2xl bg-slate-50/50">
-              <Loader2 size={16} className="animate-spin" />
-              Checking generated lessons for {subjectName} in Document Processing...
-            </div>
-          ) : lessons.length === 0 ? (
-            /* NO LESSONS FOUND FOR THIS SUBJECT */
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 space-y-2.5">
-              <div className="flex items-center gap-2 font-bold text-amber-950 text-xs">
-                <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-                No Generated Lessons Found for {subjectName}
-              </div>
-              <p className="text-[11px] leading-relaxed text-amber-800">
-                Flashcard generation is strictly grounded in DepEd ALS module content. There are currently no generated lesson contents for <strong>{activeCategory?.name} · {subjectName}</strong> in Document Processing.
-              </p>
-              <p className="text-[11px] text-amber-700">
-                AI Flashcard generation is <strong>disabled</strong> for this subject until modules are uploaded and lesson contents are generated in the Document Processing workspace.
-              </p>
-            </div>
-          ) : (
-            /* LESSONS AVAILABLE: RENDER MODULE PICKER & SCOPE SELECTION */
-            <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4 space-y-4">
-              {/* Module Picker */}
-              <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1.5 flex items-center gap-1.5">
-                  <FileText size={13} className="text-indigo-600" />
-                  Select Ingested Module
-                </label>
-                <select
-                  value={selectedMaterialId}
-                  onChange={(e) => {
-                    const newMatId = e.target.value;
-                    setSelectedMaterialId(newMatId);
-                    const mLessons = materialLessonsMap[newMatId] || [];
-                    if (mLessons.length > 0) {
-                      setSelectedLessonId(mLessons[0].id);
-                      setTopic(mLessons[0].lesson_title || mLessons[0].main_topic || '');
-                    } else {
-                      setSelectedLessonId('');
-                    }
-                  }}
-                  className="w-full rounded-xl border border-indigo-200 bg-white px-3.5 py-2.5 text-xs font-medium text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                >
-                  {materials.map((m) => {
-                    const count = (materialLessonsMap[m.id] || []).length;
-                    return (
-                      <option key={m.id} value={m.id}>
-                        {m.main_learning_goal || m.learning_strand || `Module ${m.id.slice(0, 8)}`} ({count} {count === 1 ? 'lesson' : 'lessons'})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              {/* Scope Selector: Full Module vs 1 Topic */}
-              <div>
-                <label className="block text-xs font-bold text-slate-900 mb-1.5">
-                  Generation Scope
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setGenerationScope('FULL_MODULE')}
-                    className={`flex flex-col items-start p-3 rounded-xl border text-left transition ${
-                      generationScope === 'FULL_MODULE'
-                        ? 'border-indigo-500 bg-white ring-1 ring-indigo-500 shadow-xs'
-                        : 'border-slate-200 bg-white/70 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                      <Layers size={13} className="text-indigo-600" />
-                      Full lesson contents
-                    </div>
-                    <span className="text-[10px] text-slate-500 mt-1">
-                      Synthesize cards covering all {currentMaterialLessons.length} topics in this whole module.
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setGenerationScope('SINGLE_TOPIC')}
-                    className={`flex flex-col items-start p-3 rounded-xl border text-left transition ${
-                      generationScope === 'SINGLE_TOPIC'
-                        ? 'border-indigo-500 bg-white ring-1 ring-indigo-500 shadow-xs'
-                        : 'border-slate-200 bg-white/70 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                      <BookOpen size={13} className="text-indigo-600" />
-                      Select 1 topic for module
-                    </div>
-                    <span className="text-[10px] text-slate-500 mt-1">
-                      Extract cards specifically from one selected lesson/topic within the module.
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Sub-selection if SINGLE_TOPIC is chosen */}
-              {generationScope === 'SINGLE_TOPIC' && (
-                <div className="pt-2 border-t border-indigo-100/60 space-y-2">
-                  <label className="block text-xs font-semibold text-slate-800">
-                    Choose Specific Topic
-                  </label>
-                  <select
-                    value={selectedLessonId}
-                    onChange={(e) => {
-                      const chosenId = e.target.value;
-                      setSelectedLessonId(chosenId);
-                      const l = currentMaterialLessons.find((item) => item.id === chosenId);
-                      if (l) {
-                        setTopic(l.lesson_title || l.main_topic || '');
-                      }
-                    }}
-                    className="w-full rounded-xl border border-indigo-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                  >
-                    {currentMaterialLessons.map((l, idx) => (
-                      <option key={l.id} value={l.id}>
-                        Topic {idx + 1}: {l.lesson_title || l.main_topic}
-                      </option>
-                    ))}
-                  </select>
-
-                  {activeLessonObj && (
-                    <div className="rounded-xl bg-white p-3 border border-indigo-100 text-xs text-slate-600 space-y-1">
-                      <p className="font-semibold text-slate-900">{activeLessonObj.lesson_title || activeLessonObj.main_topic}</p>
-                      {activeLessonObj.keywords && activeLessonObj.keywords.length > 0 && (
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          {activeLessonObj.keywords.slice(0, 5).map((kw) => (
-                            <span key={kw} className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
-                              #{kw}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+          {scope === "SINGLE_TOPIC" && (
+            <label className="block text-xs font-semibold text-slate-600">
+              Lesson topic
+              <select
+                aria-label="Lesson topic"
+                value={lessonId}
+                disabled={!currentLessons.length}
+                onChange={(event) => {
+                  setLessonId(event.target.value);
+                  resetResult();
+                }}
+                className={inputClass}
+              >
+                <option value="">Choose one topic</option>
+                {currentLessons.map((lesson, index) => (
+                  <option key={lesson.id} value={lesson.id}>
+                    {index + 1}. {lesson.lesson_title || lesson.main_topic}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
-        </div>
-
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs leading-5 text-slate-500">
+            <input
+              type="checkbox"
+              checked={forceFresh}
+              onChange={(event) => {
+                setForceFresh(event.target.checked);
+                resetResult();
+              }}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+            />
+            <span>
+              <strong className="block font-semibold text-slate-700">
+                Generate fresh cards
+              </strong>
+              Request new cards even if this source already has a published set.
+              Changes stay private until you publish.
+            </span>
+          </label>
+        </fieldset>
+        {selectedMaterial && subject && (
+          <p className="rounded-xl bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500">
+            Generate{" "}
+            <strong className="text-slate-800">{count || "—"} cards</strong> for{" "}
+            <strong className="text-slate-800">{subject.name}</strong>, covering{" "}
+            {scope === "FULL_MODULE"
+              ? "the entire module"
+              : selectedLesson
+                ? `“${selectedLesson.lesson_title || selectedLesson.main_topic}”`
+                : "one selected topic"}
+            .
+          </p>
+        )}
+        {cached && (
+          <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
+            <div>
+              <p className="text-sm font-semibold text-blue-900">
+                A published set already exists
+              </p>
+              <p className="mt-2 text-xs leading-6 text-blue-800">
+                “{cached.title}” contains {cached.cards.length} cards. You
+                requested {cardCount}. Open a private copy to edit, or generate
+                fresh cards for this request.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => accept(toDraft(cached))}
+                className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                Open as draft
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => generate(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-xs font-semibold text-blue-700 disabled:opacity-50"
+              >
+                <RefreshCw size={14} /> Generate fresh cards
+              </button>
+            </div>
+          </section>
+        )}
+        {pendingDraft && error && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => accept(pendingDraft)}
+            className="w-full rounded-xl border border-blue-200 px-4 py-3 text-sm font-semibold text-blue-700"
+          >
+            Try opening the generated draft again
+          </button>
+        )}
+      </div>
+      <div className="space-y-3 border-t border-slate-100 bg-white px-5 py-4 sm:px-7">
         {error && (
-          <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+          <p
+            role="alert"
+            className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm leading-6 text-red-700"
+          >
             {error}
           </p>
         )}
-
-        {/* GENERATE BUTTON */}
-        <div>
-          {!subjectId ? (
-            <button
-              type="button"
-              disabled={true}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-200 py-3 text-xs font-semibold text-slate-400 cursor-not-allowed"
-            >
-              <BookOpen size={15} /> Select a Subject to Enable Generation
-            </button>
-          ) : lessons.length === 0 && !loadingLessons ? (
-            <button
-              type="button"
-              disabled={true}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-200 py-3 text-xs font-semibold text-slate-400 cursor-not-allowed"
-            >
-              <AlertTriangle size={15} /> Generation Disabled (No Lessons Found for {subjectName})
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={isGenerating || loadingLessons || lessons.length === 0}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-xs font-semibold text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 size={15} className="animate-spin" />
-                  Generating flashcards with AI...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={15} />
-                  {generationScope === 'FULL_MODULE'
-                    ? 'Generate from Full Module'
-                    : 'Generate from Selected Topic'}
-                </>
-              )}
-            </button>
-          )}
-        </div>
-
-        {/* PREVIEW OF GENERATED CARDS */}
-        {generatedCards.length > 0 && (
-          <div className="space-y-3 pt-2 border-t border-slate-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-slate-900">
-                  {generatedTitle || 'Generated Cards Preview'} ({generatedCards.length})
-                </span>
-                {generatedDescription && (
-                  <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{generatedDescription}</p>
-                )}
-              </div>
-              <span className="text-[11px] text-emerald-600 font-semibold shrink-0">Ready to review</span>
-            </div>
-
-            {isExistingDeck && (
-              <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800">
-                <Sparkles size={15} className="text-emerald-600 shrink-0" />
-                <span>⚡ Existing study set found in database (0 AI tokens used). Saving will update this set.</span>
-              </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-xs text-[11px] leading-5 text-slate-400">
+            Generating does not publish. Review and save your draft before
+            sharing it with learners.
+          </p>
+          <button
+            type="button"
+            disabled={
+              busy ||
+              materials.loading ||
+              lessonsLoading ||
+              !selectedMaterial ||
+              !subject ||
+              !currentLessons.length ||
+              (scope === "SINGLE_TOPIC" && !selectedLesson)
+            }
+            onClick={() => generate()}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-40"
+          >
+            {busy ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Sparkles size={16} />
             )}
-
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {generatedCards.map((c, i) => (
-                <div key={c.id || i} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="font-bold text-slate-900">
-                      <span className="mr-1.5 inline-block text-indigo-600 font-mono">#{i + 1}</span>
-                      {c.term}
-                    </p>
-                  </div>
-                  <p className="mt-1 text-slate-600 leading-relaxed">{c.definition}</p>
-                  {c.example && (
-                    <p className="mt-1.5 text-[11px] text-slate-500 italic">
-                      <span className="font-semibold not-italic text-slate-600">Example: </span>
-                      {c.example}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={handleAccept}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-xs font-semibold text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700"
-            >
-              <Check size={16} /> Open in editor to save & publish
-            </button>
-          </div>
-        )}
+            {busy ? "Preparing your draft…" : "Generate draft"}
+          </button>
+        </div>
       </div>
     </dialog>
   );

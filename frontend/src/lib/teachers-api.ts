@@ -38,7 +38,7 @@ export interface ListTeachersResponse {
 export async function createTeacherAccount(
   payload: TeacherCreatePayload,
 ): Promise<UserRecord> {
-  return await authenticatedRequest<UserRecord>("/users/teacher", {
+  return await authenticatedRequest<UserRecord>("/users/create-teacher-account", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

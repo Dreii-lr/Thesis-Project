@@ -1,715 +1,822 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  ArrowUpRight,
+  BookOpen,
+  CalendarDays,
   CheckCircle2,
   ChevronRight,
+  FileEdit,
+  Globe2,
   Layers3,
+  Loader2,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Sparkles,
   Trash2,
-  RefreshCw,
-  AlertTriangle,
-} from 'lucide-react';
-import type { StudyCard } from '@/src/data/mockStudentFlashcards';
-import { listSubjects, type SubjectRecord } from '@/src/lib/subjects-api';
+} from "lucide-react";
 import {
   getUserCategories,
-  type UserCategoryItem,
   DEFAULT_USER_CATEGORIES,
-} from '@/src/lib/user-categories-api';
+} from "@/src/lib/user-categories-api";
+import { listSubjects } from "@/src/lib/subjects-api";
+import { getAllMaterials } from "@/src/lib/document-processor-api";
+import { useApiData } from "@/src/lib/use-api-data";
+import { programMatches, subjectsForProgram } from "@/src/lib/lesson-workflow";
+import { moduleDateLabel, moduleTitle } from "@/src/lib/module-library";
 import {
-  getMaterials,
-  getLessonsByMaterial,
-  matchMaterialToCategory,
-  matchMaterialToSubject,
-} from '@/src/lib/document-processor-api';
-import {
-  getProgramBadgeClass,
-  type CuratedFlashcardInput,
+  createCuratedCardId,
   type CuratedStudyDeck,
-} from '@/src/lib/curated-flashcards';
+} from "@/src/lib/curated-flashcards";
+import {
+  createFlashcardDraft,
+  deleteFlashcardDraft,
+  draftFromPublishedDeck,
+  type FlashcardDraftInput,
+} from "@/src/lib/flashcard-drafts";
 import {
   createFlashcardSession,
   flashcardStudyReducer,
   type FlashcardSession,
   type StudyAction,
-} from '@/src/lib/flashcard-study';
-import Modal from '@/src/components/ui/Modal';
-import FlashcardSetEditor from './FlashcardSetEditor';
-import FlashcardGeneratorModal from './FlashcardGeneratorModal';
-import FlashcardStudy from './FlashcardStudy';
-import { useCuratedFlashcards } from './useCuratedFlashcards';
+} from "@/src/lib/flashcard-study";
+import StudentPageHeader from "@/src/components/layout/student/StudentPageHeader";
+import Modal from "@/src/components/ui/Modal";
+import FlashcardGeneratorModal from "./FlashcardGeneratorModal";
+import FlashcardStudy from "./FlashcardStudy";
+import {
+  useCuratedFlashcards,
+  useFlashcardDrafts,
+} from "./useCuratedFlashcards";
 
 interface DashboardProps {
   authorName: string;
   authorId?: string;
-  authorRole: 'teacher' | 'admin';
+  authorRole: "teacher" | "admin";
 }
+const actionClass =
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 disabled:opacity-40";
 
-function FlashcardDashboardContent({
-  authorName,
-  authorId,
-  authorRole,
-}: DashboardProps) {
-  const searchParams = useSearchParams();
-  const requestedProgram = searchParams.get('program');
-  const requestedSubject = searchParams.get('subject');
-  const requestedLessonId = searchParams.get('lessonId');
-  const requestedTopic = searchParams.get('topic');
-  const requestedMaterialId = searchParams.get('materialId');
-
-  // Backend categories (Learning Programs)
-  const [categories, setCategories] = useState<UserCategoryItem[]>(DEFAULT_USER_CATEGORIES);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-
-  // Backend subjects
-  const [subjects, setSubjects] = useState<SubjectRecord[]>([]);
-  const [subjectsLoading, setSubjectsLoading] = useState(true);
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('ALL');
-
-  const [search, setSearch] = useState('');
+function FlashcardDashboardContent({ authorId, authorRole }: DashboardProps) {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [selectedProgram, setSelectedProgram] = useState(
+    params.get("program") || "SECONDARY",
+  );
+  const [selectedSubject, setSelectedSubject] = useState(
+    params.get("subject") || "ALL",
+  );
+  const [view, setView] = useState<"published" | "drafts">(
+    params.get("view") === "drafts" ? "drafts" : "published",
+  );
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [isGeneratorOpen, setIsGeneratorOpen] = useState(
+    Boolean(
+      params.get("lessonId") ||
+      (params.get("generate") === "1" && params.get("materialId")),
+    ),
+  );
+  const [notice, setNotice] = useState(
+    params.get("published") === "1"
+      ? "Flashcards published. Learners in this program can now study the set."
+      : "",
+  );
+  const [actionError, setActionError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<{
+    kind: "draft" | "published";
+    id: string;
+    title: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const deleteLock = useRef(false);
   const [studyingId, setStudyingId] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
-  const [sessions, setSessions] = useState<Record<string, FlashcardSession>>({});
-
-  // Modals
-  const [editor, setEditor] = useState<{
-    existing?:
-      | CuratedStudyDeck
-      | {
-          id?: string;
-          title: string;
-          description: string;
-          categoryId?: string;
-          programCode?: string;
-          programName?: string;
-          subjectId?: string;
-          subject: string;
-          cards: StudyCard[];
-          materialId?: string | null;
-          lessonId?: string | null;
-          generationScope?: 'FULL_MODULE' | 'SINGLE_TOPIC' | null;
-        };
-    initialCards?: StudyCard[];
-    initialProgramCode?: string;
-  } | null>(null);
-  const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<CuratedStudyDeck | null>(null);
-  const [deleteError, setDeleteError] = useState('');
-  const [notice, setNotice] = useState('');
-
-  const { allDecks, save, remove, loading: decksLoading, error: decksError, reload: reloadDecks } =
-    useCuratedFlashcards();
-
-  // Load categories and subjects from backend API
-  const loadBackendData = useCallback(async () => {
-    setCategoriesLoading(true);
-    setSubjectsLoading(true);
-    try {
-      const [cats, subs] = await Promise.all([getUserCategories(), listSubjects()]);
-      if (cats && cats.length > 0) setCategories(cats);
-      if (subs) setSubjects(subs);
-    } catch (err) {
-      console.warn('Could not load backend categories or subjects:', err);
-    } finally {
-      setCategoriesLoading(false);
-      setSubjectsLoading(false);
-    }
+  const [sessions, setSessions] = useState<Record<string, FlashcardSession>>(
+    {},
+  );
+  const { allDecks, loading, error, reload, remove } = useCuratedFlashcards(
+    undefined,
+    { scopeKey: authorId, enabled: Boolean(authorId) },
+  );
+  const local = useFlashcardDrafts(authorId);
+  const loadOptions = useCallback(async () => {
+    const [categories, subjects] = await Promise.all([
+      getUserCategories(),
+      listSubjects(),
+    ]);
+    return { categories, subjects };
   }, []);
-
-  useEffect(() => {
-    loadBackendData();
-  }, [loadBackendData]);
-
-  // Sync with URL query parameters (?program=...&subject=...)
-  useEffect(() => {
-    if (requestedProgram && categories.length > 0) {
-      const progLower = requestedProgram.toLowerCase();
-      const matched = categories.find(
-        (c) =>
-          (c.code || '').toLowerCase() === progLower ||
-          c.category_id === requestedProgram ||
-          (progLower === 'junior' && (c.code || '').toLowerCase() === 'secondary') ||
-          (progLower === 'basic_literacy' && (c.code || '').toLowerCase() === 'blp'),
-      );
-      if (matched) {
-        setSelectedCategoryId(matched.category_id);
-      }
-    } else if (!selectedCategoryId && categories.length > 0) {
-      // Default to first category (e.g. Elementary or Secondary)
-      const defaultCat =
-        categories.find((c) => (c.code || '').toUpperCase() === 'SECONDARY') || categories[0];
-      setSelectedCategoryId(defaultCat.category_id);
-    }
-  }, [requestedProgram, categories, selectedCategoryId]);
-
-  useEffect(() => {
-    if (requestedSubject) {
-      setSelectedSubjectId(requestedSubject);
-    }
-  }, [requestedSubject]);
-
-  useEffect(() => {
-    if (requestedLessonId) {
-      setIsGeneratorOpen(true);
-    }
-  }, [requestedLessonId]);
-
-  const activeCategory =
-    categories.find((c) => c.category_id === selectedCategoryId) ||
-    categories.find((c) => (c.code || '').toUpperCase() === 'SECONDARY') ||
+  const options = useApiData(loadOptions);
+  const loadModules = useCallback(() => getAllMaterials(), []);
+  const modules = useApiData(loadModules);
+  const categories = options.data?.categories || DEFAULT_USER_CATEGORIES;
+  const category =
+    categories.find(
+      (item) =>
+        item.category_id === selectedProgram ||
+        programMatches(selectedProgram, item),
+    ) ||
+    categories.find((item) => item.code === "SECONDARY") ||
     categories[0];
-
-  // Subjects belonging to the active category
-  const categorySubjects = subjects.filter((s) => {
-    if (!activeCategory) return true;
-    if (s.category_id && s.category_id === activeCategory.category_id) return true;
-    if (
-      s.category_code &&
-      activeCategory.code &&
-      s.category_code.toUpperCase() === activeCategory.code.toUpperCase()
+  const subjects = subjectsForProgram(options.data?.subjects || [], category);
+  const subject = subjects.find((item) => item.subject_id === selectedSubject);
+  const programPublished = allDecks.filter(
+    (item) =>
+      item.categoryId === category.category_id ||
+      programMatches(item.programCode, category),
+  );
+  const programDrafts = local.drafts.filter(
+    (item) =>
+      item.categoryId === category.category_id ||
+      programMatches(item.programCode, category),
+  );
+  const sourceName = (id?: string | null) => {
+    const material = modules.data?.find((item) => item.id === id);
+    return material ? moduleTitle(material) : "";
+  };
+  const entries =
+    view === "drafts"
+      ? programDrafts.map((item) => ({
+          ...item,
+          kind: "draft" as const,
+          sourceTitle: item.moduleTitle || sourceName(item.materialId),
+        }))
+      : programPublished.map((item) => ({
+          ...item,
+          kind: "published" as const,
+          sourceTitle: sourceName(item.materialId),
+        }));
+  const visible = entries
+    .filter(
+      (item) =>
+        `${item.title} ${item.description} ${item.subject} ${item.sourceTitle}`
+          .toLowerCase()
+          .includes(search.toLowerCase().trim()) &&
+        (selectedSubject === "ALL" ||
+          item.subjectId === selectedSubject ||
+          item.subject.trim().toLowerCase() ===
+            subject?.name.trim().toLowerCase()),
     )
-      return true;
-    return false;
-  });
-
-  const selectedSubjectObj = categorySubjects.find((s) => s.subject_id === selectedSubjectId);
-
-  // Check if generated lessons exist in document-processing for activeCategory and active subject
-  const [availableLessonsCount, setAvailableLessonsCount] = useState<number | null>(null);
-  const [isCheckingLessons, setIsCheckingLessons] = useState<boolean>(true);
-
-  useEffect(() => {
-    let isCancelled = false;
-    async function checkLessons() {
-      if (!activeCategory) return;
-      setIsCheckingLessons(true);
-      try {
-        const allMaterials = await getMaterials({ pageSize: 50 }).catch(() => []);
-        let matchedMaterials = (allMaterials || []).filter((m) =>
-          m && m.id && matchMaterialToCategory(m, activeCategory),
-        );
-
-        if (selectedSubjectObj) {
-          const subjectSpecific = matchedMaterials.filter((m) =>
-            matchMaterialToSubject(m, selectedSubjectObj),
-          );
-          if (subjectSpecific.length > 0) {
-            matchedMaterials = subjectSpecific;
-          } else {
-            const sNameLow = selectedSubjectObj.name.toLowerCase();
-            matchedMaterials = matchedMaterials.filter(
-              (m) =>
-                (m.learning_strand || '').toLowerCase().includes(sNameLow) ||
-                (m.main_learning_goal || '').toLowerCase().includes(sNameLow),
-            );
-          }
-        }
-
-        if (matchedMaterials.length === 0) {
-          if (!isCancelled) setAvailableLessonsCount(0);
-          return;
-        }
-        const lessonPromises = matchedMaterials.slice(0, 10).map((m) =>
-          getLessonsByMaterial(m.id).catch(() => null),
-        );
-        const results = await Promise.all(lessonPromises);
-        let count = 0;
-        for (const res of results) {
-          if (res && Array.isArray(res.lessons)) {
-            count += res.lessons.length;
-          }
-        }
-        if (!isCancelled) setAvailableLessonsCount(count);
-      } catch (err) {
-        console.warn('Could not check lessons from document-processor:', err);
-        if (!isCancelled) setAvailableLessonsCount(null);
-      } finally {
-        if (!isCancelled) setIsCheckingLessons(false);
-      }
-    }
-    checkLessons();
-    return () => {
-      isCancelled = true;
-    };
-  }, [activeCategory, selectedSubjectId, subjects]);
-
-  const hasLessons = (availableLessonsCount ?? 1) > 0;
-
-  // Filter decks by active program
-  const programDecks = allDecks.filter((d) => {
-    if (!activeCategory) return true;
-    if (d.categoryId && d.categoryId === activeCategory.category_id) return true;
-    const catCode = (activeCategory.code || '').toUpperCase();
-    const catName = (activeCategory.name || '').toLowerCase();
-    const deckProg = (d.programCode || d.programName || '').toUpperCase();
-    const deckProgLower = (d.programCode || d.programName || '').toLowerCase();
-    if (deckProg && catCode && (deckProg === catCode || deckProg.includes(catCode) || catCode.includes(deckProg))) return true;
-    if (deckProgLower && catName && (deckProgLower === catName || deckProgLower.includes(catName) || catName.includes(deckProgLower))) return true;
-    return false;
-  });
-
-  // Filter visible decks by search and subject
-  const visible = programDecks.filter((deck) => {
-    const matchesSearch = `${deck.title} ${deck.subject} ${deck.description}`
-      .toLowerCase()
-      .includes(search.toLowerCase().trim());
-    const matchesSubject =
-      selectedSubjectId === 'ALL' ||
-      deck.subjectId === selectedSubjectId ||
-      deck.subject.toLowerCase() ===
-        categorySubjects.find((s) => s.subject_id === selectedSubjectId)?.name?.toLowerCase();
-    return matchesSearch && matchesSubject;
-  });
-
-  const active = allDecks.find((deck) => deck.id === studyingId);
-  const sessionKey = active ? `${active.id}:${active.updatedAt}` : '';
-
+    .sort((a, b) =>
+      sort === "title"
+        ? a.title.localeCompare(b.title)
+        : sort === "oldest"
+          ? a.updatedAt.localeCompare(b.updatedAt)
+          : b.updatedAt.localeCompare(a.updatedAt),
+    );
+  const active = allDecks.find((item) => item.id === studyingId);
+  const sessionKey = active ? `${active.id}:${active.updatedAt}` : "";
   const onAction = useCallback(
     (action: StudyAction) => {
-      if (!active) return;
-      setSessions((previous) => ({
-        ...previous,
-        [sessionKey]: flashcardStudyReducer(
-          previous[sessionKey] || createFlashcardSession(active.cards),
-          action,
-        ),
-      }));
+      if (active)
+        setSessions((previous) => ({
+          ...previous,
+          [sessionKey]: flashcardStudyReducer(
+            previous[sessionKey] || createFlashcardSession(active.cards),
+            action,
+          ),
+        }));
     },
     [active, sessionKey],
   );
+  const libraryHref = `/${authorRole}/flashcards?program=${encodeURIComponent(category.code)}&view=${view}`;
 
-  const startStudy = (deck: CuratedStudyDeck) => {
-    setStudyingId(deck.id);
-    setFocused(false);
-    setNotice('');
+  const openDraft = (input: FlashcardDraftInput) => {
+    if (!authorId)
+      throw new Error("Sign in again before creating a private draft.");
+    const draft = createFlashcardDraft(authorId, input);
+    router.push(
+      `/${authorRole}/flashcards/drafts/${encodeURIComponent(draft.id)}`,
+    );
   };
-
-  const handleSaveDeck = async (input: CuratedFlashcardInput) => {
+  const createManual = () => {
+    setActionError("");
     try {
-      const saved = await save(input, {
-        authorName,
-        authorId,
-        authorRole,
+      openDraft({
+        title: "",
+        description: "",
+        categoryId: category.category_id,
+        programCode: category.code,
+        programName: category.name,
+        subjectId: subject?.subject_id || "",
+        subject: subject?.name || "",
+        cards: [0, 1].map(() => ({
+          id: createCuratedCardId(),
+          term: "",
+          definition: "",
+          example: "",
+        })),
       });
-      if (saved) {
-        setSessions((previous) => ({
-          ...previous,
-          [`${saved.id}:${saved.updatedAt}`]: createFlashcardSession(saved.cards),
-        }));
-      }
-      setEditor(null);
-      if (input.categoryId) setSelectedCategoryId(input.categoryId);
-      setNotice(input.id ? 'Your changes have been saved.' : 'Study set created and published for learners.');
     } catch (err) {
-      console.error('Failed to save study set:', err);
+      setActionError(
+        err instanceof Error ? err.message : "A draft could not be created.",
+      );
     }
   };
-
-  const handleDeleteDeck = async () => {
-    if (!pendingDelete) return;
+  const editPublished = (deck: CuratedStudyDeck) => {
+    setActionError("");
     try {
-      await remove(pendingDelete.id);
-      if (studyingId === pendingDelete.id) setStudyingId(null);
-      setPendingDelete(null);
-      setNotice('Study set deleted.');
+      const existing = local.drafts.find(
+        (item) => item.sourceDeckId === deck.id,
+      );
+      if (existing) {
+        router.push(
+          `/${authorRole}/flashcards/drafts/${encodeURIComponent(existing.id)}`,
+        );
+        return;
+      }
+      const matched = options.data?.subjects.find(
+        (item) =>
+          (item.category_id === category.category_id ||
+            item.category_code === category.code) &&
+          item.name.trim().toLowerCase() === deck.subject.trim().toLowerCase(),
+      );
+      openDraft({
+        ...draftFromPublishedDeck(deck, matched?.subject_id),
+        moduleTitle: sourceName(deck.materialId) || undefined,
+      });
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Could not delete study set.');
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "This set could not be opened for editing.",
+      );
     }
+  };
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleteLock.current || !authorId) return;
+    deleteLock.current = true;
+    setDeleting(true);
+    setActionError("");
+    try {
+      if (pendingDelete.kind === "draft")
+        deleteFlashcardDraft(authorId, pendingDelete.id);
+      else await remove(pendingDelete.id);
+      if (studyingId === pendingDelete.id) setStudyingId(null);
+      setNotice(
+        pendingDelete.kind === "draft"
+          ? "Private draft deleted from this browser."
+          : "Published flashcards deleted. The set is no longer available to learners.",
+      );
+      setPendingDelete(null);
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "The set could not be deleted. Please try again.",
+      );
+    } finally {
+      deleteLock.current = false;
+      setDeleting(false);
+    }
+  };
+  const closeGenerator = () => {
+    setIsGeneratorOpen(false);
+    router.replace(libraryHref, { scroll: false });
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8 font-sans">
-      {/* Header section (1:1 with FlashcardLibrary.tsx) */}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="mb-2 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">
-            <Layers3 size={13} /> {authorRole === 'admin' ? 'Curriculum Management' : 'Content Management'}
-          </p>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
-            {authorRole === 'admin' ? 'Curriculum flashcards' : 'Flashcard study sets'}
-          </h1>
-          <p className="mt-1.5 text-xs leading-6 text-slate-500 sm:text-sm">
-            Create and generate flashcard sets. Learners will only see sets tailored to their enrolled Learning Program.
-          </p>
+    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <StudentPageHeader
+        eyebrow={`${category.name} / Flashcard studio`}
+        title="Small cards. Lasting learning."
+        description="Turn your lesson modules into thoughtful study sets. Shape your ideas in a private draft, then share them when they are ready."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!authorId || options.loading}
+              onClick={() => setIsGeneratorOpen(true)}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-3 text-xs font-semibold text-white transition hover:bg-white/20 disabled:opacity-40"
+            >
+              <Sparkles size={15} /> Generate flashcards
+            </button>
+            <button
+              type="button"
+              disabled={!authorId || options.loading}
+              onClick={createManual}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 py-3 text-xs font-semibold text-blue-900 shadow-sm transition hover:bg-blue-50 disabled:opacity-40"
+            >
+              <Plus size={15} /> Create manually
+            </button>
+          </div>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-3">
+          {[
+            {
+              label: "Published sets",
+              value: programPublished.length,
+              icon: Globe2,
+            },
+            {
+              label: "Private drafts",
+              value: programDrafts.length,
+              icon: FileEdit,
+            },
+            {
+              label: "Cards for learners",
+              value: programPublished.reduce(
+                (sum, deck) => sum + deck.cards.length,
+                0,
+              ),
+              icon: Layers3,
+            },
+          ].map((stat) => (
+            <div key={stat.label} className="flex items-center gap-3">
+              <span className="rounded-xl bg-white/10 p-2.5">
+                <stat.icon size={17} />
+              </span>
+              <div>
+                <p className="text-xl font-semibold">{stat.value}</p>
+                <p className="mt-1 text-xs text-blue-100">{stat.label}</p>
+              </div>
+            </div>
+          ))}
         </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Quick / AI Generator CTA */}
-          <button
-            type="button"
-            disabled={!hasLessons || isCheckingLessons}
-            onClick={() => setIsGeneratorOpen(true)}
-            title={
-              isCheckingLessons
-                ? 'Checking available lesson modules in Document Processing…'
-                : !hasLessons
-                ? `Flashcard generation is disabled: No generated lessons found for ${activeCategory?.name} in Document Processing.`
-                : 'Generate study set grounded in DepEd ALS module content'
-            }
-            className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-xs font-semibold shadow-sm transition ${
-              !hasLessons || isCheckingLessons
-                ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
-                : 'border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100'
-            }`}
-          >
-            <Sparkles size={15} /> Generate study set
-          </button>
-
-          {/* Create Study Set CTA */}
-          <button
-            type="button"
-            onClick={() => setEditor({ initialProgramCode: activeCategory?.code })}
-            title="Create study set manually"
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-xs font-semibold text-white shadow-sm shadow-blue-600/15 hover:bg-blue-700 transition"
-          >
-            <Plus size={16} /> Create study set
-          </button>
-        </div>
-      </div>
-
-      {decksError && (
-        <div role="alert" className="mb-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm leading-6 text-red-700">
-          <p>{decksError}</p>
-          <button type="button" onClick={reloadDecks} className="mt-1 font-semibold underline">
-            Try again
-          </button>
-        </div>
-      )}
-
+      </StudentPageHeader>
       {notice && (
-        <p role="status" className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs leading-6 text-emerald-800">
-          <CheckCircle2 size={15} className="mt-1 shrink-0" />
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-800"
+        >
+          <CheckCircle2 size={17} className="mt-1 shrink-0" />
           {notice}
         </p>
       )}
-
-      {!hasLessons && !isCheckingLessons && (
-        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-xs text-amber-900 flex items-start gap-3">
-          <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <p className="font-bold text-amber-950">Curriculum Grounding Notice</p>
-            <p className="mt-0.5 leading-relaxed text-amber-800">
-              No generated lessons were found in Document Processing for <strong>{activeCategory?.name}{selectedSubjectObj ? ` · ${selectedSubjectObj.name}` : ''}</strong>. AI flashcard generation is disabled until curriculum modules are uploaded and lesson contents are generated. You can still create flashcard study sets manually using <strong>Create study set</strong>.
-            </p>
-          </div>
+      {actionError && !pendingDelete && (
+        <p
+          role="alert"
+          className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700"
+        >
+          {actionError}
+        </p>
+      )}
+      {options.error && (
+        <div
+          role="alert"
+          className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+        >
+          {options.error}{" "}
+          <button
+            type="button"
+            onClick={options.reload}
+            className="font-semibold underline"
+          >
+            Retry subjects
+          </button>
         </div>
       )}
-
-      {/* Active Study Mode (Testing the deck from student view) */}
+      {!authorId && (
+        <p
+          role="alert"
+          className="rounded-2xl bg-red-50 p-4 text-sm text-red-700"
+        >
+          Your teaching profile could not be loaded. Sign in again to manage
+          flashcards.
+        </p>
+      )}
       {active ? (
         <>
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => {
-                setStudyingId(null);
-                setFocused(false);
-                setNotice('');
-              }}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-600"
+              onClick={() => setStudyingId(null)}
+              className={actionClass}
             >
-              <ArrowLeft size={15} /> Back to flashcards dashboard
+              <ArrowLeft size={15} /> Back to flashcards
             </button>
-            <div className="flex items-center gap-2">
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${getProgramBadgeClass(
-                  active.programCode,
-                )}`}
-              >
-                {active.programName}
-              </span>
-              <button
-                type="button"
-                onClick={() => setEditor({ existing: active })}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600"
-              >
-                <Pencil size={13} /> Edit set
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => editPublished(active)}
+              className={actionClass}
+            >
+              <Pencil size={15} /> Edit a private draft
+            </button>
           </div>
-
           <div className="mx-auto max-w-4xl">
             <FlashcardStudy
-              key={`${active.id}:${active.updatedAt}`}
+              key={sessionKey}
               deck={active}
-              session={sessions[sessionKey] || createFlashcardSession(active.cards)}
+              session={
+                sessions[sessionKey] || createFlashcardSession(active.cards)
+              }
               onAction={onAction}
               focused={focused}
-              onToggleFocus={() => setFocused((v) => !v)}
+              onToggleFocus={() => setFocused((value) => !value)}
             />
           </div>
         </>
       ) : (
         <>
-          {/* Dynamic Program Tabs from Backend */}
-          <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
-            <div role="group" aria-label="Learning Program" className="inline-flex rounded-xl bg-slate-100 p-1 flex-wrap">
-              {categoriesLoading ? (
-                <span className="px-3 py-2 text-xs text-slate-400">Loading learning programs…</span>
-              ) : (
-                categories.map((cat) => {
-                  const isSelected = activeCategory?.category_id === cat.category_id;
-                  const count = allDecks.filter(
-                    (d) =>
-                      (cat.category_id && d.categoryId === cat.category_id) ||
-                      ((d.programCode || '').toUpperCase() === (cat.code || '').toUpperCase()),
-                  ).length;
-                  return (
-                    <button
-                      key={cat.category_id || cat.code}
-                      type="button"
-                      aria-pressed={isSelected}
-                      onClick={() => {
-                        setSelectedCategoryId(cat.category_id);
-                        setSelectedSubjectId('ALL');
-                        setSearch('');
-                      }}
-                      className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
-                        isSelected
-                          ? 'bg-white text-blue-700 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      {cat.name} <span className="ml-1 text-[10px] opacity-60">({count})</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Subject filter & search input */}
-            <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-400">Subject:</span>
-                <select
-                  value={selectedSubjectId}
-                  onChange={(e) => setSelectedSubjectId(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-xs font-medium text-slate-700 outline-none focus:border-blue-500"
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+            <div
+              role="group"
+              aria-label="Learning program"
+              className="flex flex-wrap gap-2"
+            >
+              {categories.map((item) => (
+                <button
+                  type="button"
+                  key={item.category_id}
+                  aria-pressed={item.category_id === category.category_id}
+                  onClick={() => {
+                    setSelectedProgram(item.code);
+                    setSelectedSubject("ALL");
+                    setSearch("");
+                  }}
+                  className={`min-h-10 rounded-xl px-4 py-2 text-xs font-semibold transition ${item.category_id === category.category_id ? "bg-blue-600 text-white shadow-sm" : "bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-700"}`}
                 >
-                  <option value="ALL">All Subjects ({programDecks.length})</option>
-                  {categorySubjects.map((s) => (
-                    <option key={s.subject_id} value={s.subject_id}>
-                      {s.name}
+                  {item.name}
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 pt-2 sm:px-5">
+              <div
+                role="tablist"
+                aria-label="Flashcard library status"
+                className="flex gap-5"
+              >
+                {(
+                  [
+                    {
+                      id: "published",
+                      label: "Published",
+                      count: programPublished.length,
+                      icon: Globe2,
+                    },
+                    {
+                      id: "drafts",
+                      label: "Drafts",
+                      count: programDrafts.length,
+                      icon: FileEdit,
+                    },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    role="tab"
+                    aria-selected={view === tab.id}
+                    aria-controls="flashcard-library-panel"
+                    id={`flashcard-tab-${tab.id}`}
+                    type="button"
+                    key={tab.id}
+                    onClick={() => {
+                      setView(tab.id);
+                      setSearch("");
+                      setNotice("");
+                    }}
+                    className={`inline-flex min-h-12 items-center gap-2 border-b-2 py-3 text-sm font-semibold transition ${view === tab.id ? "border-blue-600 text-blue-700" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                  >
+                    <tab.icon size={15} />
+                    {tab.label}
+                    <span
+                      className={`rounded-md px-1.5 py-0.5 text-[10px] ${view === tab.id ? "bg-blue-50 text-blue-700" : "bg-slate-100"}`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  reload();
+                  local.reload();
+                }}
+                className="inline-flex items-center gap-1.5 py-3 text-xs font-semibold text-slate-500 hover:text-blue-600"
+              >
+                <RefreshCw size={13} /> Refresh library
+              </button>
+            </div>
+            <div className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_180px_155px] sm:p-5">
+              <label className="relative">
+                <span className="mb-2 block text-xs font-medium text-slate-500">
+                  Search study sets
+                </span>
+                <Search
+                  size={15}
+                  className="pointer-events-none absolute bottom-3.5 left-3 text-slate-400"
+                />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search title, module, or subject…"
+                  className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50/60 py-3 pl-9 pr-3 text-xs outline-none focus:border-blue-400"
+                />
+              </label>
+              <label>
+                <span className="mb-2 block text-xs font-medium text-slate-500">
+                  Subject
+                </span>
+                <select
+                  value={selectedSubject}
+                  onChange={(event) => setSelectedSubject(event.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-600 outline-none focus:border-blue-400"
+                >
+                  <option value="ALL">All subjects</option>
+                  {subjects.map((item) => (
+                    <option key={item.subject_id} value={item.subject_id}>
+                      {item.name}
                     </option>
                   ))}
                 </select>
-              </div>
-
-              <label className="relative w-full sm:w-64">
-                <span className="sr-only">Search flashcards</span>
-                <Search size={14} className="absolute left-3 top-3 text-slate-400" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search title or term…"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50/60 py-2 pl-9 pr-3 text-xs outline-none focus:ring-2 focus:ring-blue-100"
-                />
+              </label>
+              <label>
+                <span className="mb-2 block text-xs font-medium text-slate-500">
+                  Sort by
+                </span>
+                <select
+                  value={sort}
+                  onChange={(event) => setSort(event.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-600 outline-none focus:border-blue-400"
+                >
+                  <option value="newest">Recently updated</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="title">Title A–Z</option>
+                </select>
               </label>
             </div>
           </section>
-
-          {/* Program Scoping Banner */}
-          {activeCategory && (
-            <div className="mb-5 flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-2.5 text-xs text-blue-900">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-                <span>
-                  Displaying sets for <strong>{activeCategory.name}</strong>. Only learners enrolled in {activeCategory.name} can view these flashcards.
+          <section
+            id="flashcard-library-panel"
+            role="tabpanel"
+            aria-labelledby={`flashcard-tab-${view}`}
+            className="space-y-5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <p className="text-xs leading-6 text-slate-500">
+                {view === "drafts"
+                  ? "Private drafts are saved in this browser. Only your account can open them here."
+                  : `Published sets are available to learners enrolled in ${category.name}.`}
+              </p>
+              <span className="text-xs text-slate-400">
+                {visible.length} {visible.length === 1 ? "set" : "sets"}
+              </span>
+            </div>
+            {(view === "published" ? error : local.error) ? (
+              <div
+                role="alert"
+                className="rounded-2xl border border-red-100 bg-red-50 p-5 text-sm text-red-700"
+              >
+                {view === "published" ? error : local.error}
+                <button
+                  type="button"
+                  onClick={view === "published" ? reload : local.reload}
+                  className="ml-2 font-semibold underline"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : (view === "published" ? loading : local.loading) ||
+              options.loading ? (
+              <p
+                role="status"
+                className="flex items-center justify-center gap-2 p-12 text-sm text-slate-500"
+              >
+                <Loader2 size={17} className="animate-spin" /> Opening your
+                study sets…
+              </p>
+            ) : !visible.length ? (
+              <div className="rounded-3xl border border-dashed border-blue-200 bg-white p-8 text-center sm:p-14">
+                <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                  {view === "drafts" ? (
+                    <FileEdit size={25} />
+                  ) : (
+                    <Layers3 size={25} />
+                  )}
                 </span>
+                <h2 className="mt-5 text-lg font-semibold text-slate-900">
+                  {search || selectedSubject !== "ALL"
+                    ? "No matching study sets"
+                    : view === "drafts"
+                      ? "Your next study set starts here"
+                      : "Ready when you are"}
+                </h2>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+                  {search || selectedSubject !== "ALL"
+                    ? "Try another subject or search to find a set."
+                    : view === "drafts"
+                      ? "Generate cards from a lesson module or start a draft of your own. Learners will see it only after you publish."
+                      : "Your published flashcards will appear here. Start with a draft and make it your own."}
+                </p>
+                {search || selectedSubject !== "ALL" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setSelectedSubject("ALL");
+                    }}
+                    className={`${actionClass} mt-6`}
+                  >
+                    Clear filters
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsGeneratorOpen(true)}
+                    className={`${actionClass} mt-6`}
+                  >
+                    <Sparkles size={15} /> Generate a draft
+                  </button>
+                )}
               </div>
-              <span className="text-[11px] font-semibold text-blue-700/70">Backend Synced</span>
-            </div>
-          )}
-
-          {/* Decks Grid (1:1 with FlashcardLibrary.tsx lines 84-87) */}
-          {decksLoading || categoriesLoading ? (
-            <p role="status" className="p-12 text-center text-sm text-slate-500">
-              Loading study sets…
-            </p>
-          ) : !visible.length ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-12 text-center">
-              <p className="text-sm font-semibold text-slate-800">
-                {authorRole === 'admin' ? 'No curriculum flashcards found' : 'No flashcard study sets found'} for {activeCategory?.name || 'this program'}
-                {search ? ' matching your search' : ''}.
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                {authorRole === 'admin'
-                  ? 'Generate official curriculum sets with AI or create a new set manually.'
-                  : 'Create your first study set or use the generator to build cards for this program.'}
-              </p>
-              <div className="mt-5 flex justify-center gap-2">
-                <button
-                  type="button"
-                  disabled={!hasLessons}
-                  onClick={() => setIsGeneratorOpen(true)}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold ${
-                    !hasLessons
-                      ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
-                      : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                  }`}
-                >
-                  <Sparkles size={14} /> Generate set
-                </button>
-                <button
-                  type="button"
-                  disabled={!hasLessons}
-                  onClick={() => setEditor({ initialProgramCode: activeCategory?.code })}
-                  className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold ${
-                    !hasLessons
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                  }`}
-                >
-                  <Plus size={14} /> Create set
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {visible.map((deck) => (
-                <article
-                  key={deck.id}
-                  className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
-                >
-                  <div className="mb-5 flex items-center justify-between gap-2">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                      <Layers3 size={20} />
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold border ${getProgramBadgeClass(
-                        deck.programCode,
-                      )}`}
-                    >
-                      {deck.programName}
-                    </span>
-                  </div>
-
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{deck.subject}</p>
-                  <h2 className="mt-2 break-words text-lg font-bold leading-6 tracking-tight text-slate-900">
-                    {deck.title}
-                  </h2>
-                  <p className="mt-2 line-clamp-2 text-xs leading-6 text-slate-500">
-                    {deck.description || 'A collection of ideas to practise.'}
-                  </p>
-                  <p className="mb-5 mt-3 text-[11px] text-slate-400">
-                    {deck.cards.length} cards · By {deck.author}
-                  </p>
-
-                  <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => startStudy(deck)}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-800"
-                    >
-                      Study set <ChevronRight size={14} />
-                    </button>
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        aria-label={`Edit ${deck.title}`}
-                        onClick={() => setEditor({ existing: deck })}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+            ) : (
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {visible.map((item) => (
+                  <article
+                    key={`${item.kind}:${item.id}`}
+                    className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+                  >
+                    <div className="mb-5 flex items-center justify-between gap-3">
+                      <span
+                        className={`flex h-11 w-11 items-center justify-center rounded-2xl ${item.kind === "draft" ? "bg-amber-50 text-amber-600" : "bg-blue-50 text-blue-600"}`}
                       >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete ${deck.title}`}
-                        onClick={() => {
-                          setPendingDelete(deck);
-                          setDeleteError('');
-                        }}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        {item.kind === "draft" ? (
+                          <FileEdit size={21} />
+                        ) : (
+                          <Layers3 size={21} />
+                        )}
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${item.kind === "draft" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-100 bg-blue-50 text-blue-700"}`}
                       >
-                        <Trash2 size={14} />
-                      </button>
+                        {item.kind === "draft"
+                          ? "Draft · Private"
+                          : "Published"}
+                      </span>
                     </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      {item.subject || "Subject not selected"}
+                    </p>
+                    <h2 className="mt-2 break-words text-lg font-semibold leading-7 text-slate-900">
+                      {item.title || "Untitled study set"}
+                    </h2>
+                    <p className="mt-2 line-clamp-2 text-xs leading-6 text-slate-500">
+                      {item.description ||
+                        "A few thoughtful cards can make a big difference."}
+                    </p>
+                    <div className="my-4 space-y-2 text-[11px] leading-5 text-slate-400">
+                      <p className="flex items-start gap-2">
+                        <BookOpen size={13} className="mt-0.5 shrink-0" />
+                        <span className="line-clamp-1">
+                          {item.sourceTitle ||
+                            (item.materialId
+                              ? "Linked lesson module"
+                              : "Manually created")}
+                        </span>
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <CalendarDays size={13} /> Updated{" "}
+                        {moduleDateLabel(item.updatedAt)}
+                      </p>
+                      <p>
+                        {item.cards.length} cards ·{" "}
+                        {item.generationScope === "FULL_MODULE"
+                          ? "Entire module"
+                          : item.generationScope === "SINGLE_TOPIC"
+                            ? "One topic"
+                            : category.name}
+                      </p>
+                    </div>
+                    <div className="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+                      {item.kind === "draft" ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              `/${authorRole}/flashcards/drafts/${encodeURIComponent(item.id)}`,
+                            )
+                          }
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700"
+                        >
+                          Continue draft <ArrowUpRight size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStudyingId(item.id);
+                            setFocused(false);
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700"
+                        >
+                          Study set <ChevronRight size={14} />
+                        </button>
+                      )}
+                      <div className="flex gap-1">
+                        {item.kind === "published" && (
+                          <button
+                            type="button"
+                            aria-label={`Edit ${item.title}`}
+                            onClick={() => {
+                              const deck = allDecks.find(
+                                (deck) => deck.id === item.id,
+                              );
+                              if (deck) editPublished(deck);
+                            }}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`Delete ${item.title || "untitled draft"}`}
+                          onClick={() => {
+                            setPendingDelete({
+                              id: item.id,
+                              kind: item.kind,
+                              title: item.title || "Untitled study set",
+                            });
+                            setActionError("");
+                          }}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         </>
       )}
-
-      {/* Create / Edit Modal with dynamic backend categories & subjects */}
-      {editor && (
-        <FlashcardSetEditor
-          existing={editor.existing}
-          categories={categories}
-          activeCategory={activeCategory}
-          initialProgramCode={editor.initialProgramCode || activeCategory?.code}
-          initialCards={editor.initialCards}
-          subjects={subjects}
-          subjectsLoading={subjectsLoading}
-          subjectsError={null}
-          onRetrySubjects={loadBackendData}
-          onSave={handleSaveDeck}
-          onClose={() => setEditor(null)}
-        />
-      )}
-
-      {/* Generator Modal with dynamic backend categories & subjects */}
-      {isGeneratorOpen && (
+      {isGeneratorOpen && !options.loading && (
         <FlashcardGeneratorModal
+          key={category.category_id}
           categories={categories}
-          activeCategory={activeCategory}
-          initialProgramCode={activeCategory?.code}
-          subjects={subjects}
-          initialSubjectId={selectedSubjectId !== 'ALL' ? selectedSubjectId : undefined}
-          initialLessonId={requestedLessonId || undefined}
-          initialMaterialId={requestedMaterialId || undefined}
-          initialTopic={requestedTopic || undefined}
-          onGenerated={(data) => {
-            setEditor({
-              existing: {
-                id: data.id,
-                title: data.title,
-                description: data.description,
-                categoryId: data.categoryId,
-                programCode: data.programCode,
-                programName: data.programName,
-                subjectId: data.subjectId,
-                subject: data.subject,
-                cards: data.cards,
-                materialId: data.materialId,
-                lessonId: data.lessonId,
-                generationScope: data.generationScope,
-              },
-            });
-          }}
-          onClose={() => setIsGeneratorOpen(false)}
+          activeCategory={category}
+          initialProgramCode={category.code}
+          subjects={options.data?.subjects || []}
+          initialSubjectId={
+            selectedSubject !== "ALL" ? selectedSubject : undefined
+          }
+          initialMaterialId={params.get("materialId") || undefined}
+          initialLessonId={params.get("lessonId") || undefined}
+          initialTopic={params.get("topic") || undefined}
+          onGenerated={openDraft}
+          onClose={closeGenerator}
         />
       )}
-
-      {/* Delete Confirmation Modal */}
       {pendingDelete && (
-        <Modal title="Delete this study set?" onClose={() => setPendingDelete(null)}>
-          <p className="text-sm leading-7 text-slate-500">
-            This removes <strong className="font-semibold text-slate-800">{pendingDelete.title}</strong> ({pendingDelete.programName}) and its {pendingDelete.cards.length} cards. Students in this program will no longer be able to study this set.
+        <Modal
+          title={
+            pendingDelete.kind === "draft"
+              ? "Delete this private draft?"
+              : "Delete these published flashcards?"
+          }
+          pending={deleting}
+          onClose={() => {
+            if (!deleting) setPendingDelete(null);
+          }}
+        >
+          <p className="text-sm leading-6 text-slate-500">
+            {pendingDelete.kind === "draft"
+              ? "This removes the draft from this browser. Your published flashcards are unaffected."
+              : "This removes the set from the shared library. Learners will no longer be able to open it."}
           </p>
-          {deleteError && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{deleteError}</p>}
-          <div className="mt-6 flex justify-end gap-2">
+          <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-800">
+            {pendingDelete.title}
+          </p>
+          {actionError && (
+            <p
+              role="alert"
+              className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"
+            >
+              {actionError}
+            </p>
+          )}
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
             <button
               type="button"
+              disabled={deleting}
               onClick={() => setPendingDelete(null)}
-              className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600"
+              className={actionClass}
             >
-              Keep set
+              Keep {pendingDelete.kind === "draft" ? "draft" : "set"}
             </button>
             <button
               type="button"
-              onClick={handleDeleteDeck}
-              className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-red-700"
+              disabled={deleting}
+              onClick={confirmDelete}
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
             >
-              <Trash2 size={14} /> Delete set
+              {deleting && <Loader2 size={14} className="animate-spin" />}
+              {deleting
+                ? "Deleting…"
+                : pendingDelete.kind === "draft"
+                  ? "Delete draft"
+                  : "Delete published set"}
             </button>
           </div>
         </Modal>
@@ -718,10 +825,20 @@ function FlashcardDashboardContent({
   );
 }
 
+function FlashcardDashboardRoute(props: DashboardProps) {
+  const params = useSearchParams();
+  return <FlashcardDashboardContent key={params.toString()} {...props} />;
+}
 export default function TeacherFlashcardDashboard(props: DashboardProps) {
   return (
-    <Suspense fallback={<div className="p-12 text-center text-sm text-slate-500">Loading flashcards dashboard…</div>}>
-      <FlashcardDashboardContent {...props} />
+    <Suspense
+      fallback={
+        <p role="status" className="p-12 text-center text-sm text-slate-500">
+          Opening flashcard studio…
+        </p>
+      }
+    >
+      <FlashcardDashboardRoute {...props} />
     </Suspense>
   );
 }

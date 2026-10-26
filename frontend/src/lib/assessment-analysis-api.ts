@@ -12,7 +12,7 @@ export interface CohortAnalysis {
   message?: string | null;
   cohort_overview?: { total_students: number; class_average: number; passing_rate: number; performance_summary: string };
   struggling_topics: { topic_name: string; severity: string; error_rate_percent: number; description: string; misconception: string; affected_question_ids: string[]; struggling_students: string[] }[];
-  recommended_lessons: { lesson_id: string; material_id?: string | null; module_title: string; lesson_title: string; main_topic: string; relevance_reason: string }[];
+  recommended_lessons: { lesson_id: string; material_id?: string | null; module_title: string; lesson_title: string; main_topic: string; relevance_reason: string; similarity_score?: number | null }[];
   student_breakdowns: { account_id: string; student_name: string; score: number; max_score: number; percentage: number; passed: boolean; personal_struggling_topics: string[] }[];
   updated_at?: string | null;
   created_at?: string | null;

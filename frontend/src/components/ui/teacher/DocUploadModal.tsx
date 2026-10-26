@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 interface DocUploadModalProps {
   isOpen: boolean;
@@ -10,15 +10,12 @@ interface DocUploadModalProps {
 }
 
 export default function DocUploadModal({ isOpen, onClose, presetType, onUploadSuccess }: DocUploadModalProps) {
+  return isOpen ? <UploadDialog key={presetType} onClose={onClose} presetType={presetType} onUploadSuccess={onUploadSuccess} /> : null;
+}
+
+function UploadDialog({ onClose, presetType, onUploadSuccess }: Omit<DocUploadModalProps, 'isOpen'>) {
   const [docType, setDocType] = useState(presetType || '');
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success'>('idle');
-
-  useEffect(() => {
-    if (isOpen) {
-      setDocType(presetType || '');
-      setStatus('idle');
-    }
-  }, [isOpen, presetType]);
 
   const handleUpload = () => {
     if (!docType) return; 
@@ -35,8 +32,6 @@ export default function DocUploadModal({ isOpen, onClose, presetType, onUploadSu
       }, 700);
     }, 1200);
   };
-
-  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[60] bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">

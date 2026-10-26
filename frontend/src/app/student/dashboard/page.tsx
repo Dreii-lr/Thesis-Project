@@ -99,6 +99,11 @@ export default function StudentDashboardPage() {
   const [attendanceHistory, setAttendanceHistory] = useState<StudentAttendanceHistory | null>(null);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
   const [attendanceError, setAttendanceError] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const targetId = user?.account_id || user?.user_id;
 
@@ -131,8 +136,6 @@ export default function StudentDashboardPage() {
         .finally(() => {
           if (active) setAttendanceLoading(false);
         });
-    } else {
-      setAttendanceLoading(false);
     }
 
     return () => {
@@ -162,7 +165,7 @@ export default function StudentDashboardPage() {
       label: 'Attendance',
       icon: CalendarCheck,
       value: `${Math.round(Math.min(100, Math.max(0, attendanceHistory?.attendance_rate ?? 0)))}%`,
-      href: '/student/attendance', loading: attendanceLoading,
+      href: '/student/attendance', loading: Boolean(targetId) && attendanceLoading,
       unavailable: attendanceError || !attendanceHistory?.total_days,
     },
   ];
@@ -174,7 +177,7 @@ export default function StudentDashboardPage() {
           t.status !== 'COMPLETED' &&
           t.submission_status !== 'SUBMITTED' &&
           t.submission_status !== 'GRADED' &&
-          (!t.end_date || new Date(t.end_date).getTime() > Date.now())
+          (!t.end_date || new Date(t.end_date).getTime() > now)
       )
       .sort((a, b) => {
         if (!a.end_date) return 1;
@@ -182,7 +185,7 @@ export default function StudentDashboardPage() {
         return new Date(a.end_date).getTime() - new Date(b.end_date).getTime();
       })
       .slice(0, 3);
-  }, [tasks]);
+  }, [tasks, now]);
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

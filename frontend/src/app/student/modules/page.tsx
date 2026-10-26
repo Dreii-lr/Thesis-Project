@@ -8,7 +8,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 
 import ModuleCard from "@/src/components/ui/ModuleCard";
 import {
-  getMaterials,
+  getAllMaterials,
   normalizeMaterialStatus,
   type MaterialItem,
 } from "@/src/lib/document-processor-api";
@@ -23,7 +23,7 @@ export default function StudentModulesPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getMaterials({ pageSize: 100, status: "PUBLISHED" });
+      const data = await getAllMaterials({ pageSize: 100, status: "PUBLISHED" });
       const published = (data || []).filter(
         (m) => normalizeMaterialStatus(m.status) === "PUBLISHED"
       );
@@ -40,7 +40,11 @@ export default function StudentModulesPage() {
   }, []);
 
   useEffect(() => {
-    fetchMaterials();
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) return fetchMaterials();
+    });
+    return () => { active = false; };
   }, [fetchMaterials]);
 
   // Filter materials based on search query
