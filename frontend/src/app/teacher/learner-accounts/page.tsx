@@ -1,5 +1,6 @@
-import LearnerDirectory from '@/src/components/learners/LearnerDirectory';
+import LearnerAccountsWorkspace from '@/src/components/learners/LearnerAccountsWorkspace';
 
-export default function CreateAccountPage() {
-  return <LearnerDirectory mode="accounts" />;
+export default async function LearnerAccountsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams;
+  return <LearnerAccountsWorkspace tab={tab === 'enrollment' ? 'enrollment' : 'students'} />;
 }

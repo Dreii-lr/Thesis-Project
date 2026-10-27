@@ -19,6 +19,8 @@ export default function Header() {
     ? [
         ["Dashboard", "/admin/dashboard"],
         ["Students", "/admin/students"],
+        ["Enrollment", "/admin/enrollment"],
+        ["Requirements", "/admin/requirements"],
         ["Learner Mapping", "/admin/mapping"],
         ["Attendance", "/admin/attendance"],
         ["Subjects", "/admin/subjects"],
@@ -27,8 +29,8 @@ export default function Header() {
       ]
     : [
         ["Dashboard", "/teacher/dashboard"],
-        ["Students", "/teacher/students"],
-        ["Learner Accounts", "/teacher/learner-accounts/mapping"],
+        ["Student Requirements", "/teacher/requirements"],
+        ["Learner Accounts", "/teacher/learner-accounts"],
         ["Attendance", "/teacher/attendance"],
         ["Lesson Modules", "/teacher/lesson-content"],
         ["Flashcards", "/teacher/flashcards"],
@@ -36,6 +38,7 @@ export default function Header() {
         ["Assessment Task", "/teacher/assessment-tasks"],
         ["Submissions", "/teacher/submissions"],
         ["Item Analysis", "/teacher/item-analysis"],
+        ["My Profile", "/teacher/profile"],
       ];
 
   const pathSegments = pathname?.split("/").filter(Boolean) || [];

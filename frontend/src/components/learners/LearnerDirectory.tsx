@@ -206,7 +206,7 @@ export default function LearnerDirectory({
                           }
                         } else {
                           if (mode === "admin") {
-                            targetPath = `/teacher/students/${encodeURIComponent(student.id)}`;
+                            targetPath = `/teacher/learner-accounts/${encodeURIComponent(student.id)}`;
                             actionLabel = "View profile";
                           } else {
                             targetPath = `/teacher/learner-accounts/${encodeURIComponent(student.id)}`;

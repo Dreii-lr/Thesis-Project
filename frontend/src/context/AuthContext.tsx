@@ -18,6 +18,7 @@ export interface AuthContextType {
   isLoading: boolean;
   error: string | null;
   refreshUser: () => Promise<UserRead | null>;
+  updateUser: (user: UserRead) => void;
   logout: () => Promise<void>;
 }
 
@@ -65,17 +66,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadUser]);
 
+  const updateUser = useCallback((updated: UserRead) => {
+    setUser(current => current?.user_id && current.user_id === updated.user_id ? { ...current, ...updated } : current);
+  }, []);
+
   const logout = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await clearDemoSession();
-    } finally {
-      setUser(null);
-      setRole(null);
-      setIsLoading(false);
-      router.replace('/login');
-      router.refresh();
-    }
+    await clearDemoSession();
+    setUser(null);
+    setRole(null);
+    router.replace('/login');
+    router.refresh();
   }, [router]);
 
   const value = useMemo<AuthContextType>(
@@ -85,9 +85,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       error,
       refreshUser: () => loadUser(true),
+      updateUser,
       logout,
     }),
-    [user, role, isLoading, error, loadUser, logout]
+    [user, role, isLoading, error, loadUser, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

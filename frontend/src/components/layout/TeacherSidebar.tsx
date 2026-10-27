@@ -5,7 +5,6 @@ import { useSidebar } from "@/src/context/SidebarContext";
 import {
   LayoutDashboard,
   GraduationCap,
-  UserPlus,
   ClipboardCheck,
   SquareText,
   Library,
@@ -14,6 +13,7 @@ import {
   ChartNoAxesCombined,
   Layers3,
   ChevronDown,
+  FileCheck2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -81,12 +81,12 @@ export default function TeacherSidebar() {
           icon: LayoutDashboard,
           href: "/teacher/dashboard",
         },
-        { name: "Students", icon: GraduationCap, href: "/teacher/students" },
         {
           name: "Learner Accounts",
-          icon: UserPlus,
+          icon: GraduationCap,
           href: "/teacher/learner-accounts",
         },
+        { name: "Student Requirements", icon: FileCheck2, href: "/teacher/requirements" },
         {
           name: "Attendance",
           icon: ClipboardCheck,

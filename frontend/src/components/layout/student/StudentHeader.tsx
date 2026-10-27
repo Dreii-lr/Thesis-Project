@@ -1,7 +1,7 @@
 'use client';
 
 import { useSidebar } from '@/src/context/SidebarContext';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { ChevronRight, Home, PanelLeft } from 'lucide-react';
 import Link from 'next/link';
 import StudentProfileDropdown from './StudentProfileDropdown';
@@ -11,11 +11,12 @@ import NotificationBell from '@/src/components/notifications/NotificationBell';
 export default function StudentHeader() {
   const { toggleSidebar } = useSidebar();
   const pathname = usePathname();
+  const router = useRouter();
   const { subjects } = useStudentSubjects();
 
   const pathSegments = pathname?.split('/').filter(Boolean) || [];
   const formatSegment = (segment: string) =>
-    segment === 'results' ? 'My Results' : segment === 'subjects' || segment === 'activities' ? 'My Subjects' : subjects.find(subject => subject.subject_id === segment)?.name || segment
+    segment === 'enrollment' ? 'My Enrollment' : segment === 'requirements' ? 'My Requirements' : segment === 'results' ? 'My Results' : segment === 'subjects' || segment === 'activities' ? 'My Subjects' : subjects.find(subject => subject.subject_id === segment)?.name || segment
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
@@ -42,6 +43,11 @@ export default function StudentHeader() {
         </button>
 
         <div className="hidden h-5 w-px bg-slate-200 sm:block" />
+
+        <select aria-label="Navigate student workspace" value={/^\/student\/(dashboard|modules|subjects|flashcards|calendar|attendance|results|requirements|enrollment|profile)/.exec(pathname)?.[0] || ''} onChange={event => router.push(event.target.value)} className="min-w-0 max-w-40 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 md:hidden">
+          <option value="" disabled>Navigation</option>
+          {[['Dashboard', 'dashboard'], ['My Learning', 'modules'], ['My Subjects', 'subjects'], ['Flashcards', 'flashcards'], ['Calendar', 'calendar'], ['Attendance', 'attendance'], ['My Results', 'results'], ['My Requirements', 'requirements'], ['My Enrollment', 'enrollment'], ['My Profile', 'profile']].map(([label, path]) => <option key={path} value={`/student/${path}`}>{label}</option>)}
+        </select>
 
         <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center gap-1.5 text-[13px] text-slate-400 sm:flex">
           <Link

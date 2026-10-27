@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
 export default function MappingPage() {
-  redirect('/teacher/learner-accounts');
+  redirect('/teacher/learner-accounts?tab=enrollment');
 }

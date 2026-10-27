@@ -1,6 +1,6 @@
-import CreateStudentAccountForm from '@/src/components/layout/teacher/create-account/CreateStudentAccountForm';
+import { redirect } from 'next/navigation';
 
-export default async function CreateStudentAccountPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LearnerReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <CreateStudentAccountForm key={id} id={id} />;
+  redirect(`/teacher/learner-accounts/enrollment/${encodeURIComponent(id)}`);
 }
