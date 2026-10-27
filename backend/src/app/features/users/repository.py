@@ -44,7 +44,9 @@ class UserRepository:
         Get or select user including its other info (personal_details, contact_details, family_details)
         that matches the UserRead response schema.
         """
-        statement = _user_query().where(User.user_id == user_id)
+        # Services may have edited tracked entities with autoflush disabled.
+        await self._session.flush()
+        statement = _user_query().where(User.user_id == user_id).execution_options(populate_existing=True)
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
         if data is not None:
@@ -78,17 +80,9 @@ class UserRepository:
         """Select user including its other info matching UserRead response schema."""
         return await self.get_by_id_with_details(user_id)
 
-    async def get_entity_with_details(self, user_id: str) -> UserRead | None:
-        """
-        Select raw User ORM entity including its other info (personal_details, contact_details, family_details).
-        """
-        statement = _user_query().where(User.user_id == user_id)
-        result = await self._session.execute(statement)
-        data = result.scalar_one_or_none()
-        if data:
-            data.password = None
-
-        return UserRead.model_validate(data) if data is not None else None
+    async def get_entity_with_details(self, user_id: str) -> User | None:
+        """Return the tracked entity; redact credentials only in response DTOs."""
+        return await self.get_entity_by_id(user_id)
 
     async def get_by_account_id(self, account_id: str) -> UserRead | None:
         stmt = _user_query().where(User.account_id == account_id)
@@ -170,6 +164,7 @@ class UserRepository:
 
     async def create(self, user: User) -> User:
         self._session.add(user)
+        await self._session.flush()
         return user
 
     async def update(self, user_id, data: dict):

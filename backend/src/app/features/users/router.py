@@ -40,7 +40,7 @@ def _validate_image_file(file: UploadFile) -> None:
 async def create_teacher_account(
         data: TeacherCreate,
         current_user: UserRead = Depends(require_admin),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Create a new teacher user account.
@@ -56,7 +56,7 @@ async def create_teacher_account(
 async def mapping_student(
         data: MapStudent,
         current_user: UserRead = Depends(require_admin_teacher),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Map a new student with normalized personal, contact, and family details.
@@ -72,7 +72,7 @@ async def list_users(
         offset: int = Query(0, ge=0),
         limit: int = Query(100, ge=1, le=500),
         current_user: UserRead = Depends(require_admin_teacher),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     List user accounts with pagination.
@@ -87,7 +87,7 @@ async def list_teachers(
         offset: int = Query(0, ge=0),
         limit: int = Query(100, ge=1, le=500),
         current_user: UserRead = Depends(require_admin_teacher),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     List teacher accounts with pagination.
@@ -101,7 +101,7 @@ async def list_teachers(
 async def change_password(
         data: ChangePasswordRequest,
         current_user: UserRead = Depends(get_current_active_user),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Change password for the authenticated user.
@@ -119,7 +119,7 @@ async def change_password(
 async def update_current_user_profile_picture(
     file: UploadFile = File(...),
     current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Update profile picture for currently authenticated user (Student, Teacher, Admin).
@@ -144,7 +144,7 @@ async def update_current_user_profile_picture(
 @router.delete("/profile-picture", status_code=status.HTTP_200_OK)
 async def delete_current_user_profile_picture(
     current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Remove profile picture for currently authenticated user (Student, Teacher, Admin).
@@ -162,7 +162,7 @@ async def change_password_by_id(
         user_id: str,
         data: ChangePasswordRequest,
         current_user: UserRead = Depends(get_current_active_user),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Change password by user ID.
@@ -182,7 +182,7 @@ async def update_user_profile_picture_by_id(
     user_id: str,
     file: UploadFile = File(...),
     current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Update profile picture by user ID.
@@ -210,7 +210,7 @@ async def update_user_profile_picture_by_id(
 async def delete_user_profile_picture(
     user_id: str,
     current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Remove profile picture by user ID.
@@ -227,7 +227,7 @@ async def delete_user_profile_picture(
 async def unenroll_student(
         user_id: str,
         current_user: UserRead = Depends(require_admin_teacher),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Dedicated endpoint to unenroll a student (soft delete).
@@ -245,7 +245,7 @@ async def unenroll_student(
 async def get_user(
         user_id: str,
         current_user: UserRead = Depends(get_current_active_user),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Retrieve full user details, including personal_details, contact_details, and family_details.
@@ -262,7 +262,7 @@ async def update_user(
         user_id: str,
         data: UserUpdate = Depends(UserUpdate.depends),
         current_user: UserRead = Depends(get_current_active_user),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Update user information and related profile details.
@@ -285,7 +285,7 @@ async def update_user(
 async def create_user(
         user_id: str,
         current_user: UserRead = Depends(require_admin),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Create a new user account / enroll mapped student with Firebase credentials.
@@ -300,7 +300,7 @@ async def create_user(
 async def delete_user(
         user_id: str,
         current_user: UserRead = Depends(require_admin),
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Soft delete user: sets user status to 'unenroll' (preserving historical records and profile details).

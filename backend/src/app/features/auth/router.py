@@ -31,7 +31,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/recover", response_model=SuccessfulResponseSchema)
 async def recover_account(
     data: AccountRecoveryRequest,
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> SuccessfulResponseSchema:
     response  = await AuthService.recover_account(uow, data)
     response = SharedUtils.SuccessfulResponse(response)
@@ -43,7 +43,7 @@ async def recover_account(
 async def login(
         request: Request,
         data: LoginRequest,
-        uow: AbstractUnitOfWork = Depends(get_uow),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> SuccessfulResponseSchema:
     try:
         user_agent = request.headers.get("user-agent")

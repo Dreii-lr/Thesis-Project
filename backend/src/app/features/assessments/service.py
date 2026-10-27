@@ -130,7 +130,6 @@ class AssessmentService:
                 )
 
         await self.uow.assessments.create_assessment(assessment, questions_record, material_records)
-        await self.uow.commit()
 
         detail = await self._build_detail_response(assessment.assessment_id)
         return SuccessfulResponseSchema(
@@ -228,7 +227,6 @@ class AssessmentService:
                 await self.uow.assessments.create_assessment(assessment, new_q)
 
         assessment.updated_at = utc_now()
-        await self.uow.commit()
 
         detail = await self._build_detail_response(assessment_id)
         return SuccessfulResponseSchema(
@@ -489,7 +487,6 @@ class AssessmentService:
             started_at=utc_now(),
         )
         await self.uow.assessments.create_submission(submission)
-        await self.uow.commit()
 
         questions_view = [QuestionStudentView(**q) for q in delivered_questions]
         materials_view = [AssessmentMaterialRead.model_validate(m) for m in assessment.materials]
@@ -642,7 +639,6 @@ class AssessmentService:
                 submission.status = SubmissionStatus.GRADED
                 submission.final_score = total_earned
 
-        await self.uow.commit()
 
         result = SubmissionDetailResponse(
             submission_id=submission.submission_id,
@@ -691,7 +687,6 @@ class AssessmentService:
         submission.status = SubmissionStatus.GRADED
         submission.updated_at = utc_now()
 
-        await self.uow.commit()
 
         result = SubmissionDetailResponse(
             submission_id=submission.submission_id,

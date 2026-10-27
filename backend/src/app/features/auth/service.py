@@ -74,7 +74,6 @@ class AuthService:
             raise e
 
     @staticmethod
-    @retry_on_transient
     async def recover_account(
         uow: AbstractUnitOfWork, data: AccountRecoveryRequest,
     ) -> SuccessfulResponseSchema:

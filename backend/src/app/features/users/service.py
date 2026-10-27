@@ -4,15 +4,18 @@ service.py — User management business logic consuming Unit of Work and normali
 from __future__ import annotations
 
 from datetime import date
+from functools import partial
+
+from starlette.concurrency import run_in_threadpool
 import logging
-from typing import Any, Optional
+from typing import Optional
 import uuid
 
 from fastapi.encoders import jsonable_encoder
 
-from app.core import unit_of_work
 from app.core.exceptions import (
     DomainException,
+    DomainAuthenticationUnavailableException,
     DomainEntityAlreadyExistsException,
     DomainEntityNotFoundException,
     DomainInvalidCredentialsException,
@@ -33,18 +36,15 @@ from app.features.users.models import (
     FamilyDetails,
     PersonalDetails,
     User,
-    UserCategory,
     UserRole,
     UserStatus,
     utc_now,
 )
 from app.features.users.schemas import (
     ChangePasswordRequest,
-    ListUserRead,
     TeacherCreate,
-    UserCreate,
     UserRead,
-    UserUpdate, ProfileUrl, MapStudent,
+    UserUpdate, MapStudent,
 )
 from app.features.users.utils import UsersUtils
 from app.features.locations.service import LocationService
@@ -52,6 +52,11 @@ from app.shared.schema import AdditionalData, SuccessfulResponseSchema
 from app.shared.utils import SharedUtils
 
 logger = logging.getLogger(__name__)
+
+
+async def _delete_profile_image(public_id: str) -> None:
+    if not await cloudinary_service.delete_image(public_id):
+        raise DomainException("Profile image cleanup failed.", error_code="CLOUDINARY_DELETE_ERROR")
 
 
 class UserService:
@@ -297,168 +302,151 @@ class UserService:
 
     @staticmethod
     async def create_user(uow: AbstractUnitOfWork,user_id : str):
-        is_inserted_on_firebase = False
-        firebase_uid = None
-        try:
-            # check if user exists
-            data = await uow.users.get_by_id(user_id)
+        # check if user exists
+        data = await uow.users.get_by_id(user_id)
 
-            if not data:
-                raise DomainEntityNotFoundException("This Mapped student is not exists.")
+        if not data:
+            raise DomainEntityNotFoundException("This Mapped student is not exists.")
 
-            account_id = data.account_id
-            email_for_firebase = data.email
-            #if existing then it must not create user.
-            existing = check_email_in_firebase(email_for_firebase)
-            if existing:
-                raise DomainEntityAlreadyExistsException("This mapped student is already exists.")
+        email_for_firebase = data.email
+        #if existing then it must not create user.
+        existing = check_email_in_firebase(email_for_firebase)
+        if existing:
+            raise DomainEntityAlreadyExistsException("This mapped student is already exists.")
 
-            # otherwise insert create a user password
-            # Determine raw password
-            raw_password = data.password
-            if not raw_password:
-                # ERD & Flowchart default password logic: Birthday as YYYYMMDD
-                if data.personal_details and data.personal_details.birth_date:
-                    bdate = data.personal_details.birth_date
-                    if isinstance(bdate, date):
-                        raw_password = bdate.strftime("%Y%m%d")
-                    else:
-                        raw_password = str(bdate).replace("-", "")
+        # otherwise insert create a user password
+        # Determine raw password
+        raw_password = data.password
+        if not raw_password:
+            # ERD & Flowchart default password logic: Birthday as YYYYMMDD
+            if data.personal_details and data.personal_details.birth_date:
+                bdate = data.personal_details.birth_date
+                if isinstance(bdate, date):
+                    raw_password = bdate.strftime("%Y%m%d")
+                else:
+                    raw_password = str(bdate).replace("-", "")
 
-            hashed_password = hash_password(raw_password)
+        hashed_password = hash_password(raw_password)
 
-            # insert user into firebase
-            firebase_new_user = create_firebase_new_user(email_for_firebase, raw_password)
-            is_inserted_on_firebase = True
-            firebase_uid = firebase_new_user.uid
+        # insert user into firebase
+        firebase_new_user = create_firebase_new_user(email_for_firebase, raw_password)
+        firebase_uid = firebase_new_user.uid
+        uow.on_rollback(partial(run_in_threadpool, delete_firebase_user, firebase_uid))
 
-            to_update = {"password": hashed_password,
-                         "firebase_uid":firebase_uid,
-                         "status": UserStatus.ACTIVE}
+        to_update = {"password": hashed_password,
+                     "firebase_uid":firebase_uid,
+                     "status": UserStatus.ACTIVE}
 
-            await uow.users.update(user_id, to_update)
-            return SuccessfulResponseSchema(message_status="Ok",message="Successfully created user account.")
-        except Exception as e:
-            # delete data if encountered an error.
-            if is_inserted_on_firebase and firebase_uid is not None:
-                delete_firebase_user(firebase_uid)
-            raise e
+        await uow.users.update(user_id, to_update)
+        return SuccessfulResponseSchema(message_status="Ok",message="Successfully created user account.")
 
     @staticmethod
     async def create_teacher_account(uow: AbstractUnitOfWork, data: TeacherCreate) -> SuccessfulResponseSchema:
-        is_inserted_on_firebase = False
-        firebase_uid = None
-        try:
-            # 1. Resolve and ensure account_id is filled
-            raw_id = (data.account_id or "").strip()
-            if raw_id:
-                account_id = raw_id
+        # 1. Resolve and ensure account_id is filled
+        raw_id = (data.account_id or "").strip()
+        if raw_id:
+            account_id = raw_id
+        else:
+            next_value = await uow.sequence_id_generator.get_next_value()
+            if not next_value:
+                await uow.sequence_id_generator.add()
+                next_value = 1
             else:
-                next_value = await uow.sequence_id_generator.get_next_value()
-                if not next_value:
-                    await uow.sequence_id_generator.add()
-                    next_value = 1
+                await uow.sequence_id_generator.update()
+                next_value += 1
+            account_id = UsersUtils.generate_account_id(UserRole.TEACHER, next_value)
+
+        # Check if account_id already exists in database
+        existing_teacher = await uow.users.get_by_account_id(account_id)
+        if existing_teacher:
+            raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+
+        # 2. Synthetic email credentials: only account_id is credentials and password
+        email_for_firebase = f"{account_id}@gmail.com"
+
+        # Check if existing in Firebase
+        existing = check_email_in_firebase(email_for_firebase)
+        if existing:
+            raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+
+        # 3. Determine raw password
+        raw_password = data.password
+        if not raw_password:
+            if data.personal_details and data.personal_details.birth_date:
+                bdate = data.personal_details.birth_date
+                if isinstance(bdate, date):
+                    raw_password = bdate.strftime("%Y%m%d")
                 else:
-                    await uow.sequence_id_generator.update()
-                    next_value += 1
-                account_id = UsersUtils.generate_account_id(UserRole.TEACHER, next_value)
+                    raw_password = str(bdate).replace("-", "")
+            else:
+                raw_password = "Password123!"
 
-            # Check if account_id already exists in database
-            existing_teacher = await uow.users.get_by_account_id(account_id)
-            if existing_teacher:
-                raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+        hashed_password = hash_password(raw_password)
 
-            # 2. Synthetic email credentials: only account_id is credentials and password
-            email_for_firebase = f"{account_id}@gmail.com"
+        # 4. Insert user into Firebase
+        firebase_new_user = create_firebase_new_user(email_for_firebase, raw_password)
+        firebase_uid = firebase_new_user.uid
+        uow.on_rollback(partial(run_in_threadpool, delete_firebase_user, firebase_uid))
 
-            # Check if existing in Firebase
-            existing = check_email_in_firebase(email_for_firebase)
-            if existing:
-                raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+        # 5. Insert teacher into existing users table
+        user = User(
+            user_id=str(uuid.uuid4()),
+            account_id=account_id,
+            first_name=data.first_name,
+            last_name=data.last_name,
+            middle_name=data.middle_name,
+            suffix=data.suffix,
+            role=UserRole.TEACHER,
+            password=hashed_password,
+            firebase_uid=firebase_uid,
+            user_category=data.user_category,
+            status=UserStatus.ACTIVE,
+            created_at=utc_now(),
+        )
 
-            # 3. Determine raw password
-            raw_password = data.password
-            if not raw_password:
-                if data.personal_details and data.personal_details.birth_date:
-                    bdate = data.personal_details.birth_date
-                    if isinstance(bdate, date):
-                        raw_password = bdate.strftime("%Y%m%d")
-                    else:
-                        raw_password = str(bdate).replace("-", "")
-                else:
-                    raw_password = "Password123!"
-
-            hashed_password = hash_password(raw_password)
-
-            # 4. Insert user into Firebase
-            firebase_new_user = create_firebase_new_user(email_for_firebase, raw_password)
-            is_inserted_on_firebase = True
-            firebase_uid = firebase_new_user.uid
-
-            # 5. Insert teacher into existing users table
-            user = User(
-                user_id=str(uuid.uuid4()),
+        # Attach optional personal/contact details if provided
+        if data.personal_details:
+            pd_bdate = data.personal_details.birth_date
+            if isinstance(pd_bdate, str) and pd_bdate:
+                try:
+                    pd_bdate = date.fromisoformat(pd_bdate[:10])
+                except Exception:
+                    pd_bdate = None
+            user.personal_details = PersonalDetails(
+                personal_details_id=str(uuid.uuid4()),
+                user_id=user.user_id,
                 account_id=account_id,
-                first_name=data.first_name,
-                last_name=data.last_name,
-                middle_name=data.middle_name,
-                suffix=data.suffix,
-                role=UserRole.TEACHER,
-                password=hashed_password,
-                firebase_uid=firebase_uid,
-                user_category=data.user_category,
-                status=UserStatus.ACTIVE,
-                created_at=utc_now(),
+                gender=data.personal_details.gender,
+                birth_date=pd_bdate if isinstance(pd_bdate, date) else None,
+                nationality=data.personal_details.nationality or "Filipino",
+                civil_status=data.personal_details.civil_status,
+                religion=data.personal_details.religion,
             )
 
-            # Attach optional personal/contact details if provided
-            if data.personal_details:
-                pd_bdate = data.personal_details.birth_date
-                if isinstance(pd_bdate, str) and pd_bdate:
-                    try:
-                        pd_bdate = date.fromisoformat(pd_bdate[:10])
-                    except Exception:
-                        pd_bdate = None
-                user.personal_details = PersonalDetails(
-                    personal_details_id=str(uuid.uuid4()),
-                    user_id=user.user_id,
-                    account_id=account_id,
-                    gender=data.personal_details.gender,
-                    birth_date=pd_bdate if isinstance(pd_bdate, date) else None,
-                    nationality=data.personal_details.nationality or "Filipino",
-                    civil_status=data.personal_details.civil_status,
-                    religion=data.personal_details.religion,
-                )
-
-            if data.contact_details:
-                user.contact_details = ContactDetails(
-                    contact_details_id=str(uuid.uuid4()),
-                    user_id=user.user_id,
-                    street_building_no=data.contact_details.street_building_no,
-                    municipality=data.contact_details.municipality,
-                    province=data.contact_details.province,
-                    contact_no=data.contact_details.contact_no,
-                )
-
-            await uow.users.create(user)
-
-            read_user = await uow.users.get_by_id_with_details(user.user_id)
-            if not read_user:
-                read_user = UserRead.model_validate(user)
-                del read_user.password
-            response_data = jsonable_encoder(read_user)
-
-            return SuccessfulResponseSchema(
-                message="Successfully created teacher account.",
-                message_status="Ok",
-                status_code=201,
-                data=AdditionalData(resources=response_data),
+        if data.contact_details:
+            user.contact_details = ContactDetails(
+                contact_details_id=str(uuid.uuid4()),
+                user_id=user.user_id,
+                street_building_no=data.contact_details.street_building_no,
+                municipality=data.contact_details.municipality,
+                province=data.contact_details.province,
+                contact_no=data.contact_details.contact_no,
             )
-        except Exception as e:
-            # Delete data on Firebase if encountered an error (mirrors create_user)
-            if is_inserted_on_firebase and firebase_uid is not None:
-                delete_firebase_user(firebase_uid)
-            raise e
+
+        await uow.users.create(user)
+
+        read_user = await uow.users.get_by_id_with_details(user.user_id)
+        if not read_user:
+            read_user = UserRead.model_validate(user)
+            del read_user.password
+        response_data = jsonable_encoder(read_user)
+
+        return SuccessfulResponseSchema(
+            message="Successfully created teacher account.",
+            message_status="Ok",
+            status_code=201,
+            data=AdditionalData(resources=response_data),
+        )
 
 
 
@@ -639,32 +627,32 @@ class UserService:
         if data.current_password == data.new_password:
             raise DomainValidationDomainException("New password cannot be the same as the current password.")
 
-        # Update Firebase Auth (Cloud-First)
-        if user.firebase_uid:
-            try:
-                update_firebase_user_password(user.firebase_uid, data.new_password)
-            except Exception as exc:
-                logger.error(f"Firebase password update failed for user {user_id}: {exc}")
-                raise DomainException("Failed to update cloud authentication credentials.", error_code="FIREBASE_SYNC_ERROR")
-
-        # Update PostgreSQL Database
-        new_hashed_pwd = hash_password(data.new_password)
-        user.password = new_hashed_pwd
         firebase_uid = user.firebase_uid
+        try:
+            update_firebase_user_password(firebase_uid, data.new_password)
+        except Exception as exc:
+            logger.error("Firebase password update failed (%s).", type(exc).__name__)
+            raise DomainException(
+                "Failed to update cloud authentication credentials.", error_code="FIREBASE_SYNC_ERROR"
+            ) from exc
 
-        # Only compensate when persistence fails. An unconditional rollback left
-        # email login using the old password while ID login used the new one.
+        # Register immediately: hashing, later service work, and final commit can fail.
+        uow.on_rollback(partial(
+            run_in_threadpool, update_firebase_user_password, firebase_uid, data.current_password
+        ))
+        user.password = hash_password(data.new_password)
 
-        if firebase_uid:
+        async def revoke_sessions() -> None:
             try:
-                    update_firebase_user_password(firebase_uid, data.current_password)
-            except Exception as revert_exc:
-                logger.error("Password rollback failed (%s).", type(revert_exc).__name__)
-                raise DomainException("Password synchronization failed. Please contact your administrator.", error_code="DATABASE_SYNC_ERROR") from revert_exc
+                if not await run_in_threadpool(revoke_firebase_user_tokens, firebase_uid):
+                    raise RuntimeError("Session revocation was not confirmed.")
+            except Exception as exc:
+                raise DomainAuthenticationUnavailableException(
+                    "Your password was saved, but session revocation could not be confirmed. "
+                    "Please contact your administrator."
+                ) from exc
 
-        # Revoke tokens on Firebase ONLY
-        if user.firebase_uid:
-            revoke_firebase_user_tokens(user.firebase_uid)
+        uow.after_commit(revoke_sessions)
 
         return SuccessfulResponseSchema(
             message="Password changed successfully.",
@@ -687,42 +675,31 @@ class UserService:
         if not user:
             raise DomainEntityNotFoundException(f"User '{user_id}' not found.")
 
-        # Extract previous public_id to purge old asset from Cloudinary
-        old_public_id = None
-        if user.profile_url:
-            old_public_id = user.profile_url.public_id
-
-        # Upload as-is into organized folder 'profiles/{user_id}'
+        old_public_id = (user.profile_url or {}).get("public_id")
         upload_result = await cloudinary_service.upload_image(
             file_bytes=file_bytes,
             filename=filename,
             folder=f"profiles/{user_id}",
         )
+        new_public_id = upload_result.public_id
+        if new_public_id != old_public_id:
+            uow.on_rollback(partial(_delete_profile_image, new_public_id))
+            if old_public_id:
+                uow.after_commit(
+                    partial(_delete_profile_image, old_public_id), best_effort=True
+                )
 
-        # Clean up old Cloudinary asset
-        if old_public_id:
-            try:
-                await cloudinary_service.delete_image(old_public_id)
-            except Exception as exc:
-                logger.warning("Failed to delete previous profile image %s: %s", old_public_id, exc)
-
-        # Update existing user entity JSON
         user.updated_at = utc_now()
-        user.profile_url = ProfileUrl(
-            public_id= upload_result.public_id,
-            public_url= upload_result.secure_url,
-        )
-        user_dict = {"profile_url":{
-            "public_id": upload_result.public_id,
+        user.profile_url = {
+            "public_id": new_public_id,
             "public_url": upload_result.secure_url,
-        }}
-        user.password = None
-        await uow.users.update(user_id,user_dict)
+        }
+        updated_user = await uow.users.get_by_id_with_details(user_id)
         return SuccessfulResponseSchema(
             message="Profile picture updated successfully.",
             message_status="SUCCESS_UPDATE",
             status_code=200,
-            data = AdditionalData(resources=user.model_dump())
+            data=AdditionalData(resources=jsonable_encoder(updated_user))
         )
 
     @staticmethod
@@ -740,7 +717,9 @@ class UserService:
         if user.profile_url and isinstance(user.profile_url, dict):
             public_id = user.profile_url.get("public_id")
             if public_id:
-                await cloudinary_service.delete_image(public_id)
+                uow.after_commit(
+                    partial(_delete_profile_image, public_id), best_effort=True
+                )
 
         user.profile_url = None
         user.updated_at = utc_now()

@@ -5,6 +5,28 @@ import {
 } from "./document-processor-api";
 import type { SubjectRecord } from "./subjects-api";
 
+/** Resolve within the caller's program-filtered subjects, never by list order. */
+export function resolveGeneratedSubject(
+  material: MaterialItem | null,
+  subjects: SubjectRecord[],
+): SubjectRecord | undefined {
+  if (!material?.learning_strand?.trim()) return undefined;
+  const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const strand = normalize(material.learning_strand);
+  const strandName = strand.replace(/^(?:(?:learning strand|ls)\s*)?(?:[1-6]|vi|iv|v|iii|ii|i)\s+/, "");
+  const exact = subjects.filter((subject) =>
+    [subject.name, subject.code].some((value) => {
+      const normalized = normalize(value || "");
+      return normalized && (normalized === strand || normalized === strandName);
+    }),
+  );
+  if (exact.length) return exact.length === 1 ? exact[0] : undefined;
+  const matches = subjects.filter((subject) => matchMaterialToSubject(
+    { ...material, main_learning_goal: "", cls_name: "" }, subject,
+  ));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export type ModuleStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 export type ModuleSort =
   "newest" | "oldest" | "title-asc" | "title-desc" | "topics";

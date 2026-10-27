@@ -33,7 +33,7 @@ security_bearer = HTTPBearer(auto_error=False)
 async def get_current_user(
     access_token: str | None = Cookie(default=None, alias="access_token"),
     credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> UserRead:
     # Prefer the cookie (browser clients); fall back to Bearer header (API/mobile clients)
     token = (credentials.credentials if credentials else None) or access_token
@@ -85,35 +85,35 @@ require_admin = require_roles(UserRole.ADMIN)
 # ── Domain Service Dependency Providers ───────────────────────────────────────
 
 def get_assessment_service(
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> AssessmentService:
     from app.features.assessments.service import AssessmentService
     return AssessmentService(uow)
 
 
 def get_user_category_service(
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> UserCategoryService:
     from app.features.user_categories.service import UserCategoryService
     return UserCategoryService(uow)
 
 
 def get_subject_service(
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> SubjectService:
     from app.features.subjects.service import SubjectService
     return SubjectService(uow)
 
 
 def get_cohort_analysis_service(
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> CohortAnalysisService:
     from app.features.assessments.analysis.service import CohortAnalysisService
     return CohortAnalysisService(uow)
 
 
 def get_flashcard_service(
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> FlashcardService:
     from app.features.flashcards.service import FlashcardService
     return FlashcardService(uow)

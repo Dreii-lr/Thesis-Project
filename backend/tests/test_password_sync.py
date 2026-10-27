@@ -3,13 +3,18 @@ from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
-from app.core.exceptions import DomainException, DomainInvalidCredentialsException
+from app.core.exceptions import DomainAuthenticationUnavailableException, DomainInvalidCredentialsException
+from app.core.unit_of_work import SQLModelUnitOfWork
 from app.features.users import service
 from app.features.users.schemas import ChangePasswordRequest
 
 
 @pytest.fixture(autouse=True)
-def setup_test_db():
+def setup_test_db(monkeypatch):
+    async def call_provider(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(service, "run_in_threadpool", call_provider)
     yield
 
 
@@ -17,11 +22,12 @@ def setup_test_db():
 @pytest.mark.parametrize("commit_fails", [False, True])
 async def test_password_is_reverted_only_when_database_commit_fails(monkeypatch, commit_fails):
     user = SimpleNamespace(firebase_uid="firebase-1", password="old-hash", email="user@example.com")
-    uow = SimpleNamespace(
-        users=SimpleNamespace(get_entity_with_details=AsyncMock(return_value=user)),
-        commit=AsyncMock(side_effect=RuntimeError("database unavailable") if commit_fails else None),
-        rollback=AsyncMock(),
-    )
+    uow = SQLModelUnitOfWork()
+    uow.users = SimpleNamespace(get_entity_with_details=AsyncMock(return_value=user))
+    uow.commit = AsyncMock(side_effect=RuntimeError("database unavailable") if commit_fails else None)
+    uow.rollback = AsyncMock()
+    uow._close = AsyncMock()
+
     update = Mock(return_value=True)
     revoke = Mock(return_value=True)
     verify = AsyncMock(return_value={"localId": "firebase-1"})
@@ -31,13 +37,17 @@ async def test_password_is_reverted_only_when_database_commit_fails(monkeypatch,
     monkeypatch.setattr(service, "revoke_firebase_user_tokens", revoke)
     data = ChangePasswordRequest(current_password="old-password", new_password="new-password", confirm_password="new-password")
     if commit_fails:
-        with pytest.raises(DomainException, match="Unable to save"):
+        with pytest.raises(RuntimeError, match="database unavailable"):
             await service.UserService.change_password(uow, "user-1", data)
+            revoke.assert_not_called()
+            await uow.__aexit__(None, None, None)
         assert update.call_args_list == [call("firebase-1", "new-password"), call("firebase-1", "old-password")]
         uow.rollback.assert_awaited_once()
         revoke.assert_not_called()
     else:
         await service.UserService.change_password(uow, "user-1", data)
+        revoke.assert_not_called()
+        await uow.__aexit__(None, None, None)
         update.assert_called_once_with("firebase-1", "new-password")
         assert user.password == "new-hash"
         revoke.assert_called_once_with("firebase-1")
@@ -59,3 +69,47 @@ async def test_password_change_rejects_stale_password_or_mismatched_account(monk
             current_password="old-password", new_password="new-password",
         ))
     update.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [False, RuntimeError("provider unavailable")])
+async def test_revocation_failure_does_not_revert_saved_password(monkeypatch, failure):
+    from test_uow_ownership import MemoryUnitOfWork
+
+    user = SimpleNamespace(firebase_uid="firebase-1", password="old-hash", email="user@example.com")
+    uow = MemoryUnitOfWork()
+    uow.users = SimpleNamespace(get_entity_with_details=AsyncMock(return_value=user))
+    update = Mock(return_value=True)
+    revoke = Mock(side_effect=failure) if isinstance(failure, Exception) else Mock(return_value=failure)
+    monkeypatch.setattr(service, "sign_in_with_password", AsyncMock(return_value={"localId": "firebase-1"}))
+    monkeypatch.setattr(service, "hash_password", Mock(return_value="new-hash"))
+    monkeypatch.setattr(service, "update_firebase_user_password", update)
+    monkeypatch.setattr(service, "revoke_firebase_user_tokens", revoke)
+    with pytest.raises(DomainAuthenticationUnavailableException, match="password was saved"):
+        async with uow:
+            await service.UserService.change_password(uow, "user-1", ChangePasswordRequest(
+                current_password="old-password", new_password="new-password"
+            ))
+    update.assert_called_once_with("firebase-1", "new-password")
+    uow.commit.assert_awaited_once()
+    uow.rollback.assert_not_awaited()
+    assert user.password == "new-hash"
+
+
+async def test_password_compensation_registered_before_hashing(monkeypatch):
+    from test_uow_ownership import MemoryUnitOfWork
+
+    uow = MemoryUnitOfWork()
+    uow.users = SimpleNamespace(get_entity_with_details=AsyncMock(return_value=SimpleNamespace(
+        firebase_uid="firebase-1", password="old-hash", email="user@example.com"
+    )))
+    update = Mock(return_value=True)
+    monkeypatch.setattr(service, "sign_in_with_password", AsyncMock(return_value={"localId": "firebase-1"}))
+    monkeypatch.setattr(service, "hash_password", Mock(side_effect=RuntimeError("hashing")))
+    monkeypatch.setattr(service, "update_firebase_user_password", update)
+    with pytest.raises(RuntimeError, match="hashing"):
+        async with uow:
+            await service.UserService.change_password(uow, "user-1", ChangePasswordRequest(
+                current_password="old-password", new_password="new-password"
+            ))
+    assert update.call_args_list == [call("firebase-1", "new-password"), call("firebase-1", "old-password")]
+    uow.commit.assert_not_awaited()

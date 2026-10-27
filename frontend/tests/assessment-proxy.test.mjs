@@ -18,3 +18,20 @@ test('assessment collection rewrites retain the backend slash before the catch-a
     assert.equal(rules[index].destination, 'http://backend.test/api/v1/assessments/');
   }
 });
+
+test('authenticated document writes proxy to document processing before the backend catch-all', async () => {
+  const exports = {};
+  const source = ts.transpileModule(fs.readFileSync(new URL('../next.config.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  vm.runInNewContext(source, { exports, process: { env: {
+    BACKEND_URL: 'http://backend.test', DOCUMENT_PROCESSING_URL: 'http://documents.test/',
+  } } });
+  const rules = await exports.default.rewrites();
+  const fallback = rules.findIndex(rule => rule.source === '/api/v1/:path*');
+  for (const path of ['/api/v1/document-processor/parser', '/api/v1/document-processor/documents/:documentId/process']) {
+    const index = rules.findIndex(rule => rule.source === path);
+    assert.ok(index >= 0 && index < fallback);
+    assert.equal(rules[index].destination, `http://documents.test${path}`);
+  }
+});

@@ -90,7 +90,6 @@ class CohortAnalysisService:
                 is_completed = True
                 assessment.status = TaskStatus.COMPLETED
                 assessment.updated_at = utc_now()
-                await self.uow.commit()
 
         if not is_completed:
             raise DomainValidationDomainException(
@@ -309,7 +308,6 @@ class CohortAnalysisService:
             updated_at=now,
         )
         saved = await self.uow.assessments.save_cohort_analysis(analysis_record)
-        await self.uow.commit()
 
         analysis_data["created_at"] = saved.created_at.isoformat() if saved.created_at else None
         analysis_data["updated_at"] = saved.updated_at.isoformat() if saved.updated_at else None

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { resolveGeneratedSubject } from "@/src/lib/module-library";
 import { JSONContent } from "@tiptap/react";
 import DocumentSidebar from "@/src/components/layout/teacher/lesson-content/ContentSidebar";
 import ContentHeader from "@/src/components/layout/teacher/lesson-content/ContentHeader";
@@ -125,9 +126,11 @@ export default function DocumentViewPage({
     () => (category ? subjectsForProgram(subjects, category) : []),
     [subjects, category],
   );
-  const selectedSubject = programSubjects.find(
-    (subject) => subject.subject_id === subjectId,
-  );
+  const hasGeneratedContent = lessons.some((lesson) => lesson.files.length > 0);
+  const selectedSubject = hasGeneratedContent
+    ? resolveGeneratedSubject(material, programSubjects)
+    : programSubjects.find((subject) => subject.subject_id === subjectId);
+  const effectiveSubjectId = selectedSubject?.subject_id || "";
   const validSubject = Boolean(
     selectedSubject &&
     material &&
@@ -360,7 +363,7 @@ export default function DocumentViewPage({
     setGenerationMessage(null);
     setActionError("");
     try {
-      await startLessonGeneration(owner, material, subjectId);
+      await startLessonGeneration(owner, material, effectiveSubjectId);
     } catch (err) {
       setActionError(
         err instanceof Error ? err.message : "Generation could not be started.",
@@ -646,8 +649,8 @@ export default function DocumentViewPage({
                 : "Draft · Choose generation & publication subject"}
               <select
                 aria-label="Generation and publication subject"
-                value={subjectId}
-                disabled={busy || isEditing}
+                value={hasGeneratedContent ? effectiveSubjectId : subjectId}
+                disabled={busy || isEditing || hasGeneratedContent}
                 onChange={(event) => {
                   setSubjectId(event.target.value);
                   setActionError("");
@@ -655,7 +658,7 @@ export default function DocumentViewPage({
                 className="mt-1.5 block w-full max-w-lg rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
               >
                 <option value="">
-                  Select a subject before generating or publishing
+                  {hasGeneratedContent ? "Subject could not be uniquely identified" : "Select a subject before generating or publishing"}
                 </option>
                 {programSubjects.map((subject) => (
                   <option
@@ -672,9 +675,16 @@ export default function DocumentViewPage({
               </select>
             </label>
             <p className="max-w-sm text-[11px] leading-5 text-slate-400">
-              Choose a subject matching the ILA learning strand. Published
-              lessons keep the document’s saved strand.
+              {hasGeneratedContent
+                ? "The subject is fixed to the saved learning strand because lesson content has already been generated."
+                : "Choose a subject matching the ILA learning strand. Published lessons keep the document’s saved strand."}
             </p>
+            {hasGeneratedContent && !selectedSubject && !subjectError && (
+              <p role="alert" className="w-full text-xs text-rose-700">
+                The saved learning strand and program do not identify a unique subject.
+                Check the module metadata and available subjects before generating or publishing.
+              </p>
+            )}
             {subjectError && (
               <p role="alert" className="w-full text-xs text-rose-700">
                 {subjectError}{" "}

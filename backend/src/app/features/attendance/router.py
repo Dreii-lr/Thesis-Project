@@ -25,7 +25,7 @@ require_teacher = require_roles(UserRole.TEACHER, UserRole.ADMIN)
 async def record_attendance_session(
     data: AttendanceSessionCreate,
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Take or update a class attendance session.
@@ -41,7 +41,7 @@ async def record_attendance_session(
 @router.get("/summary-metrics", status_code=status.HTTP_200_OK, tags=["Secured"])
 async def get_attendance_summary_metrics(
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Get aggregated counts for learners, attendance records (total sessions),
@@ -60,7 +60,7 @@ async def list_attendance_sessions(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=10, ge=1, le=100),
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     List class attendance sessions with filtering and pagination.
@@ -82,7 +82,7 @@ async def list_attendance_sessions(
 async def get_attendance_session(
     session_id: str,
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Get full details and learner marks for a specific attendance session.
@@ -97,7 +97,7 @@ async def get_attendance_session(
 async def get_student_attendance_history(
     account_id: str,
     current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow),
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Get attendance history and KPIs for a specific learner.

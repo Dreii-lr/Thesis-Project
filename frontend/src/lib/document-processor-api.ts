@@ -350,7 +350,7 @@ export async function parseModuleDocument(
   file: File,
   options: UploadModuleOptions = {},
 ): Promise<StructuresProcessedLessons> {
-  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const baseUrl = options.baseUrl || "/api/v1";
   const targetUrl = `${baseUrl}/document-processor/parser`;
 
   const formData = new FormData();
@@ -371,6 +371,7 @@ export async function parseModuleDocument(
     {
       method: "POST",
       headers,
+      credentials: "include",
       body: formData,
       signal: options.signal,
     },

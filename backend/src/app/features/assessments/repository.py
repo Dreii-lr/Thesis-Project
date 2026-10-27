@@ -72,13 +72,16 @@ class AssessmentRepository:
             self._session.add(questions)
         if materials:
             self._session.add_all(materials)
+        await self._session.flush()
         return assessment
 
     async def get_assessment_by_id(self, assessment_id: str) -> Optional[Assessment]:
+        await self._session.flush()
         await self.reconcile_assessment_statuses()
         stmt = (
             select(Assessment)
             .where(Assessment.assessment_id == assessment_id)
+            .execution_options(populate_existing=True)
             .options(
                 selectinload(Assessment.questions),
                 selectinload(Assessment.materials),
@@ -190,6 +193,9 @@ class AssessmentRepository:
 
     async def create_submission(self, submission: AssessmentSubmission) -> AssessmentSubmission:
         self._session.add(submission)
+        await self._session.flush()
+        # Immediate submission responses read account_id through this relationship.
+        await self._session.refresh(submission, attribute_names=["student"])
         return submission
 
     async def count_needs_grading(self, assessment_id: str) -> int:
@@ -278,8 +284,10 @@ class AssessmentRepository:
             existing.passing_rate = analysis.passing_rate
             existing.analysis_payload = analysis.analysis_payload
             existing.updated_at = analysis.updated_at or utc_now()
+            await self._session.flush()
             return existing
         else:
             self._session.add(analysis)
+            await self._session.flush()
             return analysis
 

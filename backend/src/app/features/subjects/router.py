@@ -7,6 +7,10 @@ Provides image input support for LS3 Math, LS6 Digital Citizenship, and all subj
 from __future__ import annotations
 
 from typing import Optional
+from fastapi import HTTPException
+from pydantic import BaseModel, StrictStr
+from app.core.unit_of_work import get_uow
+from .resolver import resolve_catalog, CatalogMatchError, InvalidCatalogError
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from starlette.responses import JSONResponse
 
@@ -25,6 +29,21 @@ from app.features.users.schemas import UserRead
 from app.shared.utils import SharedUtils
 
 router = APIRouter(prefix="/subjects", tags=["Subjects"])
+
+
+class CatalogResolveRequest(BaseModel):
+    als_program: StrictStr | None = None
+    learning_strand: StrictStr | None = None
+
+
+@router.post("/resolve", dependencies=[Depends(require_admin_teacher)])
+async def resolve_document_subject(data: CatalogResolveRequest, uow=Depends(get_uow, scope="function")):
+    try:
+        return await resolve_catalog(uow, data.als_program, data.learning_strand)
+    except CatalogMatchError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except InvalidCatalogError as exc:
+        raise HTTPException(503, "Subject catalog contains invalid records.") from exc
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)

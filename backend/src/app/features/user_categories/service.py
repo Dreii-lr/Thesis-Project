@@ -51,7 +51,6 @@ class UserCategoryService:
         )
 
         await self.uow.user_categories.create(category)
-        await self.uow.commit()
 
         read_dto = UserCategoryReadSchema.model_validate(category)
         return SuccessfulResponseSchema(
@@ -149,7 +148,6 @@ class UserCategoryService:
             raise DomainEntityNotFoundException(f"User category '{category_id}' not found.")
 
         await self.uow.user_categories.delete(category)
-        await self.uow.commit()
 
         return SuccessfulResponseSchema(
             message="User category and associated subjects deleted successfully.",

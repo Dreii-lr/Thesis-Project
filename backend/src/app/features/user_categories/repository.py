@@ -17,6 +17,7 @@ class UserCategoryRepository:
 
     async def create(self, category: UserCategoryModel) -> UserCategoryModel:
         self._session.add(category)
+        await self._session.flush()
         return category
 
     async def get_by_id(

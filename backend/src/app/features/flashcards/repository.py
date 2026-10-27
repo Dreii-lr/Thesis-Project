@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 from typing import List, Optional, Tuple
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -58,9 +58,11 @@ class FlashcardRepository:
 
     async def get_deck_by_id(self, deck_id: str) -> Optional[FlashcardDeck]:
         """Fetch a single deck with all cards loaded."""
+        await self._session.flush()
         stmt = (
             select(FlashcardDeck)
             .where(FlashcardDeck.id == deck_id)
+            .execution_options(populate_existing=True)
             .options(selectinload(FlashcardDeck.cards))
         )
         result = await self._session.execute(stmt)
@@ -242,7 +244,10 @@ class FlashcardRepository:
 
     async def update_deck(self, deck: FlashcardDeck) -> FlashcardDeck:
         """Add updated deck to session for persistence on commit."""
-        self._session.add(deck)
+        # Tracked decks are already dirty. Re-adding cascades to deleted cards
+        # still present in the old relationship collection during replacement.
+        if not inspect(deck).persistent:
+            self._session.add(deck)
         await self._session.flush()
         return deck
 
