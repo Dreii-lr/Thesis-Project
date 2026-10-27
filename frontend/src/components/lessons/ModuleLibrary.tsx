@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  ArchiveRestore,
   ArrowRight,
   BookOpen,
   CalendarDays,
@@ -21,11 +22,13 @@ import {
 import Modal from "@/src/components/ui/Modal";
 import {
   deleteMaterialById,
+  deleteModuleDocument,
   DocumentServiceError,
   getMaterialById,
   getLessonsByMaterial,
   matchMaterialToSubject,
   normalizeMaterialStatus,
+  updateMaterialStatus,
   type MaterialItem,
 } from "@/src/lib/document-processor-api";
 import type { SubjectRecord } from "@/src/lib/subjects-api";
@@ -96,6 +99,7 @@ export default function ModuleLibrary({
   const [deleteError, setDeleteError] = useState("");
   const [deleteUncertain, setDeleteUncertain] = useState(false);
   const [deleteStillExists, setDeleteStillExists] = useState(false);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
   const user = useOptionalAuth()?.user;
   const owner = String(user?.user_id || user?.id || "");
   const deleteLock = useRef(false);
@@ -144,6 +148,48 @@ export default function ModuleLibrary({
       setDeleteUncertain(false);
     }
   }
+
+  async function handleToggleArchive(material: MaterialItem) {
+    if (pending || archivingId) return;
+    if (isLessonGenerationActive(owner, material)) {
+      onNotice({
+        kind: "error",
+        title: "Cannot archive while generating",
+        message:
+          "Wait for AI content generation to complete before modifying module status.",
+      });
+      return;
+    }
+    const currentStatus = normalizeMaterialStatus(material.status);
+    const targetStatus = currentStatus === "ARCHIVED" ? "DRAFT" : "ARCHIVED";
+    setArchivingId(material.id);
+    try {
+      const updated = await updateMaterialStatus(material.id, targetStatus);
+      onUpdated(updated);
+      onNotice({
+        kind: "success",
+        title:
+          targetStatus === "ARCHIVED" ? "Module archived" : "Module restored",
+        message:
+          targetStatus === "ARCHIVED"
+            ? `“${moduleTitle(material)}” was archived and hidden from learners.`
+            : `“${moduleTitle(material)}” was restored to drafts.`,
+      });
+    } catch (err) {
+      onNotice({
+        kind: "error",
+        title:
+          targetStatus === "ARCHIVED" ? "Failed to archive" : "Failed to restore",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not update module status. Please try again.",
+      });
+    } finally {
+      setArchivingId(null);
+    }
+  }
+
   async function confirmDelete() {
     if (!deleting || deleteLock.current) return;
     if (isLessonGenerationActive(owner, deleting)) {
@@ -184,7 +230,11 @@ export default function ModuleLibrary({
               true,
             );
           rememberDeletion(deleting.id, true);
-          await deleteMaterialById(deleting.id);
+          if (deleting.document_id) {
+            await deleteModuleDocument(deleting.document_id);
+          } else {
+            await deleteMaterialById(deleting.id);
+          }
         };
         if (navigator.locks)
           await navigator.locks.request(
@@ -450,26 +500,52 @@ export default function ModuleLibrary({
                         </span>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${title}`}
-                      title="Delete module"
-                      disabled={pending}
-                      onClick={() => {
-                        const uncertain = deletionPending(material.id);
-                        setDeleteError(
-                          uncertain
-                            ? "A previous deletion is awaiting server confirmation. Check its status before sending another request."
-                            : "",
-                        );
-                        setDeleteUncertain(uncertain);
-                        setDeleteStillExists(false);
-                        setDeleting(material);
-                      }}
-                      className="-mr-1 -mt-1 shrink-0 rounded-lg p-2 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-2 focus-visible:outline-rose-400 disabled:opacity-40"
-                    >
-                      <Trash2 size={16} strokeWidth={1.7} />
-                    </button>
+                    <div className="-mr-1 -mt-1 flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        aria-label={
+                          status === "ARCHIVED"
+                            ? `Restore ${title}`
+                            : `Archive ${title}`
+                        }
+                        title={
+                          status === "ARCHIVED"
+                            ? "Restore to drafts"
+                            : "Archive module"
+                        }
+                        disabled={pending || archivingId === material.id}
+                        onClick={() => void handleToggleArchive(material)}
+                        className="rounded-lg p-2 text-slate-300 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-2 focus-visible:outline-slate-400 disabled:opacity-40"
+                      >
+                        {archivingId === material.id ? (
+                          <Loader2 size={16} className="animate-spin text-slate-400" />
+                        ) : status === "ARCHIVED" ? (
+                          <ArchiveRestore size={16} strokeWidth={1.7} />
+                        ) : (
+                          <FolderArchive size={16} strokeWidth={1.7} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${title}`}
+                        title="Delete module"
+                        disabled={pending || archivingId === material.id}
+                        onClick={() => {
+                          const uncertain = deletionPending(material.id);
+                          setDeleteError(
+                            uncertain
+                              ? "A previous deletion is awaiting server confirmation. Check its status before sending another request."
+                              : "",
+                          );
+                          setDeleteUncertain(uncertain);
+                          setDeleteStillExists(false);
+                          setDeleting(material);
+                        }}
+                        className="rounded-lg p-2 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-2 focus-visible:outline-rose-400 disabled:opacity-40"
+                      >
+                        <Trash2 size={16} strokeWidth={1.7} />
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100/80 pt-3.5">
                     <ModuleGenerationStatus
@@ -579,8 +655,8 @@ export default function ModuleLibrary({
             </div>
           </div>
           <p className="text-sm leading-7 text-slate-600">
-            This will permanently delete the module and its generated lesson
-            content. This action cannot be undone.
+            This will permanently delete the module, all generated lesson
+            content, and the uploaded document from storage. This action cannot be undone.
           </p>
           {hasPendingLessonGeneration(owner, deleting) &&
             !isLessonGenerationActive(owner, deleting) && (

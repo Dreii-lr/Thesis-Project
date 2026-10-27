@@ -2,11 +2,13 @@
 
 import { useState, useEffect, use, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { resolveGeneratedSubject } from "@/src/lib/module-library";
 import { JSONContent } from "@tiptap/react";
 import DocumentSidebar from "@/src/components/layout/teacher/lesson-content/ContentSidebar";
 import ContentHeader from "@/src/components/layout/teacher/lesson-content/ContentHeader";
 import TiptapEditor from "@/src/components/ui/teacher/lesson-content/TiptapEditor";
+import Modal from "@/src/components/ui/Modal";
 import {
   Edit2,
   Check,
@@ -15,6 +17,7 @@ import {
   Loader2,
   ArrowLeft,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import { ContentFile, LessonFolder } from "@/src/data/mockModules";
 import { processTiptapImagesForCloudinary } from "@/src/utils/cloudinaryUpload";
@@ -24,6 +27,8 @@ import {
 } from "@/src/utils/tiptapJsonHelpers";
 import {
   getMaterialById,
+  deleteMaterialById,
+  deleteModuleDocument,
   updateGeneratedLesson,
   updateMaterialStatus,
   normalizeMaterialStatus,
@@ -35,6 +40,7 @@ import {
 import GenerationReader from "@/src/components/lessons/GenerationReader";
 import {
   checkLessonGeneration,
+  forgetLessonGeneration,
   lessonMatchesTopic,
   startLessonGeneration,
   useLessonGeneration,
@@ -57,6 +63,7 @@ export default function DocumentViewPage({
 }) {
   const resolvedParams = use(params);
   const materialId = resolvedParams.id;
+  const router = useRouter();
 
   const [material, setMaterial] = useState<MaterialItem | null>(null);
   const [lessons, setLessons] = useState<LessonFolder[]>([]);
@@ -116,8 +123,6 @@ export default function DocumentViewPage({
 
   const [subjects, setSubjects] = useState<SubjectRecord[]>([]);
   const [categories, setCategories] = useState<UserCategoryItem[]>([]);
-  const [subjectId, setSubjectId] = useState("");
-  const [subjectError, setSubjectError] = useState("");
   const [actionError, setActionError] = useState("");
   const category = categories.find((item) =>
     programMatches(material?.als_program, item),
@@ -126,16 +131,15 @@ export default function DocumentViewPage({
     () => (category ? subjectsForProgram(subjects, category) : []),
     [subjects, category],
   );
-  const hasGeneratedContent = lessons.some((lesson) => lesson.files.length > 0);
-  const selectedSubject = hasGeneratedContent
-    ? resolveGeneratedSubject(material, programSubjects)
-    : programSubjects.find((subject) => subject.subject_id === subjectId);
-  const effectiveSubjectId = selectedSubject?.subject_id || "";
-  const validSubject = Boolean(
-    selectedSubject &&
-    material &&
-    matchMaterialToSubject(material, selectedSubject),
+  const selectedSubject = useMemo(
+    () =>
+      resolveGeneratedSubject(material, programSubjects) ||
+      programSubjects.find((subject) =>
+        matchMaterialToSubject(material, subject),
+      ),
+    [material, programSubjects],
   );
+  const effectiveSubjectId = selectedSubject?.subject_id || "";
   const allTopicsGenerated =
     lessons.length > 0 && lessons.every((lesson) => lesson.files.length > 0);
   const busy = Boolean(generation?.pending) || isSaving || isUpdatingStatus;
@@ -148,9 +152,8 @@ export default function DocumentViewPage({
       ]);
       setCategories(cats);
       setSubjects(subs);
-      setSubjectError("");
     } catch {
-      setSubjectError("Subjects could not be loaded. Retry to continue.");
+      /* Subject metadata is optional on the lesson editor page. */
     }
   }, []);
   useEffect(() => {
@@ -278,22 +281,6 @@ export default function DocumentViewPage({
 
   useEffect(() => {
     let active = true;
-    const savedSubject = generation?.subjectId;
-    if (
-      !subjectId &&
-      savedSubject &&
-      programSubjects.some((subject) => subject.subject_id === savedSubject)
-    )
-      void Promise.resolve().then(() => {
-        if (active) setSubjectId(savedSubject);
-      });
-    return () => {
-      active = false;
-    };
-  }, [generation?.subjectId, subjectId, programSubjects]);
-
-  useEffect(() => {
-    let active = true;
     void Promise.resolve().then(() => {
       if (active) return loadMaterialData();
     });
@@ -303,15 +290,17 @@ export default function DocumentViewPage({
     };
   }, [loadMaterialData]);
 
-  // Update material status handler (Publish or Save as Draft)
-  const handleUpdateStatus = async (newStatus: "DRAFT" | "PUBLISHED") => {
+  // Update material status handler (Publish, Save as Draft, or Archive)
+  const handleUpdateStatus = async (
+    newStatus: "DRAFT" | "PUBLISHED" | "ARCHIVED",
+  ) => {
     if (!material || busy || isEditing) return;
     if (
       newStatus === "PUBLISHED" &&
-      (!allTopicsGenerated || !validSubject || generationBlocked)
+      (!allTopicsGenerated || generationBlocked)
     ) {
       setActionError(
-        "Generate all topics, save your edits, and select a matching publication subject first.",
+        "Generate all topics and save your edits before publishing.",
       );
       return;
     }
@@ -330,7 +319,9 @@ export default function DocumentViewPage({
       setGenerationMessage(
         newStatus === "PUBLISHED"
           ? "Lesson content published successfully! It is now accessible to learners."
-          : "Lesson content saved as draft.",
+          : newStatus === "ARCHIVED"
+            ? "Module archived. It is now hidden from learners and moved to your Archived library."
+            : "Lesson content saved as draft.",
       );
     } catch (err) {
       console.error("Error updating material status:", err);
@@ -344,6 +335,38 @@ export default function DocumentViewPage({
     }
   };
 
+  // Delete module state & handler
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeletingModule, setIsDeletingModule] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    if (!material || isDeletingModule) return;
+    setIsDeletingModule(true);
+    setActionError("");
+    try {
+      if (material.document_id) {
+        await deleteModuleDocument(material.document_id);
+      } else {
+        await deleteMaterialById(material.id);
+      }
+      forgetLessonGeneration(owner, material.id);
+      router.push(
+        category
+          ? `/teacher/lesson-content?program=${category.code.toLowerCase()}`
+          : "/teacher/lesson-content",
+      );
+    } catch (err) {
+      console.error("Error deleting module:", err);
+      setIsDeletingModule(false);
+      setShowDeleteModal(false);
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Failed to delete module and uploaded document.",
+      );
+    }
+  };
+
   // The shared workflow owns the POST, so route navigation only detaches this view.
   const handleGenerateContent = async () => {
     if (
@@ -354,12 +377,6 @@ export default function DocumentViewPage({
       normalizeMaterialStatus(material.status) !== "DRAFT"
     )
       return;
-    if (!validSubject) {
-      setActionError(
-        "Select a subject matching the document's learning strand before generating.",
-      );
-      return;
-    }
     setGenerationMessage(null);
     setActionError("");
     try {
@@ -610,7 +627,6 @@ export default function DocumentViewPage({
             onGenerateContent={handleGenerateContent}
             hasGeneratedContent={allTopicsGenerated}
             generationDisabled={
-              !validSubject ||
               generationBlocked ||
               busy ||
               isEditing ||
@@ -618,7 +634,6 @@ export default function DocumentViewPage({
             }
             publishDisabled={
               !allTopicsGenerated ||
-              !validSubject ||
               busy ||
               isEditing ||
               generationBlocked
@@ -633,6 +648,8 @@ export default function DocumentViewPage({
             status={material.status}
             onUpdateStatus={handleUpdateStatus}
             isUpdatingStatus={isUpdatingStatus}
+            onDelete={() => setShowDeleteModal(true)}
+            isDeleting={isDeletingModule}
             isSidebarOpen={isSidebarOpen}
             onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
             materialTitle={
@@ -642,58 +659,6 @@ export default function DocumentViewPage({
             }
           />
 
-          <div className="flex flex-wrap items-end gap-3 border-b border-slate-100 bg-white px-5 py-3">
-            <label className="min-w-0 flex-1 text-xs font-semibold text-slate-600">
-              {normalizeMaterialStatus(material.status) === "PUBLISHED"
-                ? "Publication subject"
-                : "Draft · Choose generation & publication subject"}
-              <select
-                aria-label="Generation and publication subject"
-                value={hasGeneratedContent ? effectiveSubjectId : subjectId}
-                disabled={busy || isEditing || hasGeneratedContent}
-                onChange={(event) => {
-                  setSubjectId(event.target.value);
-                  setActionError("");
-                }}
-                className="mt-1.5 block w-full max-w-lg rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
-              >
-                <option value="">
-                  {hasGeneratedContent ? "Subject could not be uniquely identified" : "Select a subject before generating or publishing"}
-                </option>
-                {programSubjects.map((subject) => (
-                  <option
-                    key={subject.subject_id}
-                    value={subject.subject_id}
-                    disabled={!matchMaterialToSubject(material, subject)}
-                  >
-                    {subject.name}
-                    {!matchMaterialToSubject(material, subject)
-                      ? " · Different learning strand"
-                      : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="max-w-sm text-[11px] leading-5 text-slate-400">
-              {hasGeneratedContent
-                ? "The subject is fixed to the saved learning strand because lesson content has already been generated."
-                : "Choose a subject matching the ILA learning strand. Published lessons keep the document’s saved strand."}
-            </p>
-            {hasGeneratedContent && !selectedSubject && !subjectError && (
-              <p role="alert" className="w-full text-xs text-rose-700">
-                The saved learning strand and program do not identify a unique subject.
-                Check the module metadata and available subjects before generating or publishing.
-              </p>
-            )}
-            {subjectError && (
-              <p role="alert" className="w-full text-xs text-rose-700">
-                {subjectError}{" "}
-                <button onClick={loadSubjects} className="font-bold underline">
-                  Retry subjects
-                </button>
-              </p>
-            )}
-          </div>
           {actionError && (
             <div
               role="alert"
@@ -845,7 +810,7 @@ export default function DocumentViewPage({
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">
                   {generationBlocked
                     ? "Saved content could not be confirmed. Check progress before starting another generation request."
-                    : "This curriculum topic does not have saved lesson content yet. Generate lesson materials tailored for ALS learners."}
+                    : "This curriculum topic does not have saved lesson content yet. Use Generate Content in the header above to generate lesson materials tailored for ALS learners."}
                 </p>
 
                 {activeLesson.sub_topics &&
@@ -861,31 +826,6 @@ export default function DocumentViewPage({
                       ))}
                     </div>
                   )}
-
-                <div className="mt-6 flex justify-center">
-                  <button
-                    onClick={handleGenerateContent}
-                    disabled={
-                      isGenerating ||
-                      generationBlocked ||
-                      !validSubject ||
-                      normalizeMaterialStatus(material.status) !== "DRAFT"
-                    }
-                    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {isGenerating ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Generating Content…
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={14} />
-                        Generate Lesson Content
-                      </>
-                    )}
-                  </button>
-                </div>
               </div>
             </div>
           ) : (
@@ -895,6 +835,73 @@ export default function DocumentViewPage({
           )}
         </div>
       </div>
+
+      {showDeleteModal && material && (
+        <Modal
+          title="Delete this module?"
+          onClose={() => {
+            if (!isDeletingModule) setShowDeleteModal(false);
+          }}
+          pending={isDeletingModule}
+        >
+          <div className="mb-5 flex items-start gap-3 rounded-xl border border-rose-100 bg-rose-50/60 p-4">
+            <span className="rounded-lg bg-white p-2 text-rose-600">
+              <Trash2 size={18} />
+            </span>
+            <div className="min-w-0">
+              <p className="line-clamp-3 text-sm font-semibold leading-6 text-slate-800">
+                {material.learning_strand ||
+                  material.main_learning_goal ||
+                  "Untitled Module"}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {material.structured_records?.length || 0} topics ·{" "}
+                {normalizeMaterialStatus(material.status).toLowerCase()} ·{" "}
+                {category?.name || "Curriculum"}
+              </p>
+            </div>
+          </div>
+          <p className="text-sm leading-7 text-slate-600">
+            This will permanently delete the module, all generated lesson
+            content, and the uploaded document from storage. This action cannot
+            be undone.
+          </p>
+          {normalizeMaterialStatus(material.status) === "PUBLISHED" && (
+            <p className="mt-2 text-xs leading-6 text-amber-700">
+              This module is published. Learners will lose access to its lesson
+              content.
+            </p>
+          )}
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              disabled={isDeletingModule}
+              onClick={() => setShowDeleteModal(false)}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isDeletingModule}
+              onClick={() => void handleConfirmDelete()}
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+            >
+              {isDeletingModule ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Deleting…</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 size={14} />
+                  <span>Delete permanently</span>
+                </>
+              )}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -11,6 +11,9 @@ import {
   FileText,
   CheckCircle2,
   PanelLeftDashed,
+  FolderArchive,
+  ArchiveRestore,
+  Trash2,
 } from "lucide-react";
 import { normalizeMaterialStatus } from "@/src/lib/document-processor-api";
 
@@ -21,8 +24,10 @@ interface ContentHeaderProps {
   hideWhenGenerated?: boolean;
   onExportDatabaseJson?: () => void;
   status?: string | null;
-  onUpdateStatus?: (newStatus: "DRAFT" | "PUBLISHED") => Promise<void> | void;
+  onUpdateStatus?: (newStatus: "DRAFT" | "PUBLISHED" | "ARCHIVED") => Promise<void> | void;
   isUpdatingStatus?: boolean;
+  onDelete?: () => void;
+  isDeleting?: boolean;
   generationDisabled?: boolean;
   publishDisabled?: boolean;
   actionsDisabled?: boolean;
@@ -41,6 +46,8 @@ export default function ContentHeader({
   status,
   onUpdateStatus,
   isUpdatingStatus = false,
+  onDelete,
+  isDeleting = false,
   generationDisabled = false,
   publishDisabled = false,
   actionsDisabled = false,
@@ -131,60 +138,111 @@ export default function ContentHeader({
 
         {onUpdateStatus && (
           <>
-            <button
-              type="button"
-              onClick={() => onUpdateStatus("DRAFT")}
-              disabled={actionsDisabled || isUpdatingStatus || !isPublished}
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 py-1.5 text-xs font-semibold shadow-2xs transition-all ${
-                !isPublished
-                  ? "border-slate-200 bg-slate-50 text-slate-400 cursor-default"
-                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98]"
-              } disabled:opacity-50`}
-              title={
-                !isPublished
-                  ? "Material is currently in draft"
-                  : "Revert material to draft"
-              }
-            >
-              {isUpdatingStatus ? (
-                <Loader2 size={13} className="animate-spin text-slate-400" />
-              ) : (
-                <FileText size={13} className="text-slate-500" />
-              )}
-              <span className="hidden sm:inline">Save as </span>
-              <span>Draft</span>
-            </button>
+            {!isArchived ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus("DRAFT")}
+                  disabled={actionsDisabled || isUpdatingStatus || !isPublished}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 py-1.5 text-xs font-semibold shadow-2xs transition-all ${
+                    !isPublished
+                      ? "border-slate-200 bg-slate-50 text-slate-400 cursor-default"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98]"
+                  } disabled:opacity-50`}
+                  title={
+                    !isPublished
+                      ? "Material is currently in draft"
+                      : "Revert material to draft"
+                  }
+                >
+                  {isUpdatingStatus ? (
+                    <Loader2 size={13} className="animate-spin text-slate-400" />
+                  ) : (
+                    <FileText size={13} className="text-slate-500" />
+                  )}
+                  <span className="hidden sm:inline">Save as </span>
+                  <span>Draft</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => onUpdateStatus("PUBLISHED")}
-              disabled={
-                publishDisabled ||
-                actionsDisabled ||
-                isUpdatingStatus ||
-                isPublished
-              }
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-all ${
-                isPublished
-                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700 cursor-default"
-                  : "border border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 hover:border-emerald-700 active:scale-[0.98]"
-              } disabled:opacity-50`}
-              title={
-                isPublished
-                  ? "Material is published and active"
-                  : "Publish lesson content to learners"
-              }
-            >
-              {isUpdatingStatus ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : isPublished ? (
-                <CheckCircle2 size={13} className="text-emerald-600" />
-              ) : (
-                <Globe size={13} />
-              )}
-              <span>{isPublished ? "Published" : "Publish"}</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus("PUBLISHED")}
+                  disabled={
+                    publishDisabled ||
+                    actionsDisabled ||
+                    isUpdatingStatus ||
+                    isPublished
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-all ${
+                    isPublished
+                      ? "border border-emerald-200 bg-emerald-50 text-emerald-700 cursor-default"
+                      : "border border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 hover:border-emerald-700 active:scale-[0.98]"
+                  } disabled:opacity-50`}
+                  title={
+                    isPublished
+                      ? "Material is published and active"
+                      : "Publish lesson content to learners"
+                  }
+                >
+                  {isUpdatingStatus ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : isPublished ? (
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                  ) : (
+                    <Globe size={13} />
+                  )}
+                  <span>{isPublished ? "Published" : "Publish"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus("ARCHIVED")}
+                  disabled={actionsDisabled || isUpdatingStatus}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50"
+                  title="Archive module and hide from learners"
+                >
+                  {isUpdatingStatus ? (
+                    <Loader2 size={13} className="animate-spin text-slate-400" />
+                  ) : (
+                    <FolderArchive size={13} className="text-slate-500" />
+                  )}
+                  <span className="hidden sm:inline">Archive</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onUpdateStatus("DRAFT")}
+                disabled={actionsDisabled || isUpdatingStatus}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50"
+                title="Restore module to draft"
+              >
+                {isUpdatingStatus ? (
+                  <Loader2 size={13} className="animate-spin text-slate-400" />
+                ) : (
+                  <ArchiveRestore size={13} className="text-slate-500" />
+                )}
+                <span>Restore to Draft</span>
+              </button>
+            )}
           </>
+        )}
+
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={actionsDisabled || isDeleting || isUpdatingStatus}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-rose-600 shadow-2xs transition-all hover:border-rose-200 hover:bg-rose-50 active:scale-[0.98] disabled:opacity-50"
+            title="Delete module and uploaded document"
+          >
+            {isDeleting ? (
+              <Loader2 size={13} className="animate-spin text-rose-500" />
+            ) : (
+              <Trash2 size={13} />
+            )}
+            <span className="hidden sm:inline">Delete</span>
+          </button>
         )}
 
         {onGenerateContent && !(hasGeneratedContent && hideWhenGenerated) && (

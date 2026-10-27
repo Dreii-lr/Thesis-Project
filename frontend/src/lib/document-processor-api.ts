@@ -1119,8 +1119,7 @@ export async function getLessonsByMaterial(
 
 /**
  * Triggers AI TipTap lesson module generation for a material.
- * Calls enhanced V2 endpoint with guaranteed subtopic expansion,
- * falling back only when the enhanced route is unavailable.
+ * Route: POST /document-processor/generate-lesson/{materials_id}
  */
 export async function generateLessonForMaterial(
   materialsId: string,
@@ -1130,36 +1129,10 @@ export async function generateLessonForMaterial(
     preferEnhanced?: boolean;
   } = {},
 ): Promise<unknown> {
-  const preferEnhanced = options.preferEnhanced ?? true;
   const baseUrl = options.baseUrl || DOCS_MS_URL;
-  const msHost = baseUrl.replace(/\/api\/v1\/?$/, "");
-  const enhancedUrl = `${msHost}/api/v2/enhanced-lesson-generation/generate-lesson/${encodeURIComponent(materialsId)}`;
-  const legacyUrl = `${baseUrl}/document-processor/generate-lesson/${encodeURIComponent(materialsId)}`;
+  const targetUrl = `${baseUrl}/document-processor/generate-lesson/${encodeURIComponent(materialsId)}`;
 
-  if (preferEnhanced) {
-    const response = await fetch(enhancedUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      signal: options.signal,
-    });
-
-    const body = await response.json().catch(() => null);
-    if (response.ok) {
-      return body;
-    }
-    // Only an unavailable route justifies a second generation request.
-    if (response.status !== 404 && response.status !== 405) {
-      throw new DocumentServiceError(
-        extractErrorMessage(body, response.status),
-        response.status,
-      );
-    }
-  }
-
-  const response = await fetch(legacyUrl, {
+  const response = await fetch(targetUrl, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -1182,7 +1155,7 @@ export async function generateLessonForMaterial(
 
 /**
  * Updates a generated lesson's title and TipTap document content.
- * Attempts enhanced V2 endpoint first, falling back to legacy endpoint.
+ * Route: PUT /document-processor/lessons/{lesson_id}
  */
 export async function updateGeneratedLesson(
   lessonId: string,
@@ -1194,11 +1167,8 @@ export async function updateGeneratedLesson(
     timeoutMs?: number;
   } = {},
 ): Promise<GeneratedLessonItem> {
-  const preferEnhanced = options.preferEnhanced ?? true;
   const baseUrl = options.baseUrl || DOCS_MS_URL;
-  const msHost = baseUrl.replace(/\/api\/v1\/?$/, "");
-  const enhancedUrl = `${msHost}/api/v2/enhanced-lesson-generation/lessons/${encodeURIComponent(lessonId)}`;
-  const legacyUrl = `${baseUrl}/document-processor/lessons/${encodeURIComponent(lessonId)}`;
+  const targetUrl = `${baseUrl}/document-processor/lessons/${encodeURIComponent(lessonId)}`;
 
   const matches = (value: unknown): value is GeneratedLessonItem => {
     if (
@@ -1218,42 +1188,32 @@ export async function updateGeneratedLesson(
     );
   };
   try {
-    const urls = preferEnhanced ? [enhancedUrl, legacyUrl] : [legacyUrl];
-    for (let index = 0; index < urls.length; index++) {
-      const { response, body } = await requestDocumentJson(
-        urls[index],
-        {
-          method: "PUT",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-          signal: options.signal,
+    const { response, body } = await requestDocumentJson(
+      targetUrl,
+      {
+        method: "PUT",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
         },
-        options.timeoutMs ?? 30000,
+        body: JSON.stringify(payload),
+        signal: options.signal,
+      },
+      options.timeoutMs ?? 30000,
+    );
+    if (!response.ok) {
+      throw new DocumentServiceError(
+        extractErrorMessage(body, response.status),
+        response.status,
       );
-      if (!response.ok) {
-        if (
-          index === 0 &&
-          urls.length > 1 &&
-          [404, 405].includes(response.status)
-        )
-          continue;
-        throw new DocumentServiceError(
-          extractErrorMessage(body, response.status),
-          response.status,
-        );
-      }
-      if (!matches(body))
-        throw new DocumentServiceError(
-          "The lesson save could not be verified. Your edits are still open.",
-          0,
-          true,
-        );
-      return body;
     }
-    throw new DocumentServiceError("The lesson save endpoint is unavailable.");
+    if (!matches(body))
+      throw new DocumentServiceError(
+        "The lesson save could not be verified. Your edits are still open.",
+        0,
+        true,
+      );
+    return body;
   } catch (error) {
     if (
       !(error instanceof DocumentServiceError) ||

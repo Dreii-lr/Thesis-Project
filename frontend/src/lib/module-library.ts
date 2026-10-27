@@ -27,7 +27,7 @@ export function resolveGeneratedSubject(
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-export type ModuleStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type ModuleStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED" | "GENERATING";
 export type ModuleSort =
   "newest" | "oldest" | "title-asc" | "title-desc" | "topics";
 export interface ModuleFilters {

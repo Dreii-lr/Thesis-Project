@@ -280,11 +280,11 @@ export async function checkLessonGeneration(
 export async function startLessonGeneration(
   owner: string,
   material: MaterialItem,
-  subjectId: string,
+  subjectId = "",
 ): Promise<void> {
   const entry = ensure(owner, material);
-  if (!owner || !subjectId)
-    throw new Error("Select a subject before generating.");
+  if (!owner)
+    throw new Error("Sign in again before generating lesson content.");
   if (
     entry.request ||
     entry.state.pending ||
@@ -295,6 +295,7 @@ export async function startLessonGeneration(
       "Check the existing generation request before starting another.",
     );
   if (entry.state.phase === "ready") return;
+  let surfacedError: Error | null = null;
   const run = async () => {
     // Recheck storage after acquiring the browser lock to cover other tabs.
     const existing = readAttempt(owner, material.id);
@@ -328,23 +329,43 @@ export async function startLessonGeneration(
       // A later connection error must not undo that confirmed result.
       if (entry.deleted || (entry.state.phase === "ready" && !entry.attempt))
         return;
+      // When the backend returns 409 Conflict (e.g., another module is currently
+      // generating content), clear the attempt so this module stays idle and
+      // surface the backend message to the user.
+      if (error instanceof DocumentServiceError && error.status === 409) {
+        entry.attempt = null;
+        saveAttempt(entry);
+        const msg =
+          error.message ||
+          "Lesson content generation is currently in progress. Please wait for the generation of content to finish.";
+        update(entry, {
+          phase: "idle",
+          pending: false,
+          message: msg,
+        });
+        surfacedError = new Error(msg);
+        return;
+      }
       // A network disconnect is ambiguous. Only an explicit rejection marks a
       // failed request; never automatically issue another potentially paid POST.
       const rejected =
         error instanceof DocumentServiceError &&
         error.status >= 400 &&
-        error.status < 500 &&
-        error.status !== 409;
+        error.status < 500;
       if (rejected && entry.attempt) entry.attempt.failed = true;
       saveAttempt(entry);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : "Generation could not be verified.";
       update(entry, {
         phase: rejected ? "failed" : "unknown",
         pending: !rejected,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Generation could not be verified.",
+        message: msg,
       });
+      if (rejected) {
+        surfacedError = new Error(msg);
+      }
     } finally {
       clearTimeout(timeout);
     }
@@ -374,6 +395,7 @@ export async function startLessonGeneration(
   entry.request = tracked;
   schedule(entry);
   await tracked;
+  if (surfacedError) throw surfacedError;
 }
 
 export function forgetLessonGeneration(owner: string, materialId: string) {
