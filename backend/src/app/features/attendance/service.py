@@ -30,10 +30,11 @@ from app.shared.schema import AdditionalData, SuccessfulResponseSchema
 
 
 class AttendanceService:
+    def __init__(self, uow: AbstractUnitOfWork) -> None:
+        self.uow = uow
 
-    @staticmethod
     async def record_session(
-        uow: AbstractUnitOfWork,
+        self,
         teacher_id: str,
         data: AttendanceSessionCreate,
     ) -> SuccessfulResponseSchema:
@@ -48,7 +49,7 @@ class AttendanceService:
         subject_code = data.subject_code or getattr(data, "strand_code", "") or ""
 
         # Check if an existing session exists for this teacher, date, category, and subject
-        existing_session = await uow.attendance.get_session_by_criteria(
+        existing_session = await self.uow.attendance.get_session_by_criteria(
             teacher_id=teacher_id,
             session_date=session_date,
             category_code=category_code,
@@ -62,7 +63,7 @@ class AttendanceService:
             existing_session.updated_at = current_time
             session = existing_session
             session_id = existing_session.session_id
-            await uow.attendance.delete_records_for_session(session_id)
+            await self.uow.attendance.delete_records_for_session(session_id)
         else:
             session_id = str(uuid.uuid4())
             session = AttendanceSession(
@@ -74,7 +75,7 @@ class AttendanceService:
                 status=data.status,
                 created_at=current_time,
             )
-            await uow.attendance.create_session(session)
+            await self.uow.attendance.create_session(session)
 
         # Add records
         records = [
@@ -88,8 +89,8 @@ class AttendanceService:
             )
             for r in data.records
         ]
-        await uow.attendance.add_records(records)
-        await uow.attendance.flush()
+        await self.uow.attendance.add_records(records)
+        await self.uow.attendance.flush()
 
         # Compute summary counts
         total_count = len(records)
@@ -137,9 +138,8 @@ class AttendanceService:
             data=AdditionalData(resources=session_read.model_dump(mode="json")),
         )
 
-    @staticmethod
     async def list_sessions(
-        uow: AbstractUnitOfWork,
+        self,
         level: str | None = None,
         subject: str | None = None,
         search_date: str | None = None,
@@ -147,7 +147,7 @@ class AttendanceService:
         limit: int = 10,
     ) -> SuccessfulResponseSchema:
         offset = (page - 1) * limit
-        sessions, total = await uow.attendance.list_sessions(
+        sessions, total = await self.uow.attendance.list_sessions(
             level=level,
             subject=subject,
             search_date=search_date,
@@ -192,9 +192,8 @@ class AttendanceService:
             data=AdditionalData(resources=response_payload.model_dump(mode="json")),
         )
 
-    @staticmethod
-    async def get_session(uow: AbstractUnitOfWork, session_id: str) -> SuccessfulResponseSchema:
-        session = await uow.attendance.get_session_by_id(session_id)
+    async def get_session(self, session_id: str) -> SuccessfulResponseSchema:
+        session = await self.uow.attendance.get_session_by_id(session_id)
         if not session:
             raise DomainEntityNotFoundException(f"Attendance session '{session_id}' not found.")
 
@@ -242,21 +241,20 @@ class AttendanceService:
             data=AdditionalData(resources=session_read.model_dump(mode="json")),
         )
 
-    @staticmethod
-    async def get_student_history(uow: AbstractUnitOfWork, account_id: str) -> SuccessfulResponseSchema:
+    async def get_student_history(self, account_id: str) -> SuccessfulResponseSchema:
         # Resolve candidate identifiers (user_id and account_id) for record lookup
         candidate_ids = [account_id]
-        if hasattr(uow, "users") and uow.users:
-            user = await uow.users.get_by_account_id(account_id)
+        if hasattr(self.uow, "users") and self.uow.users:
+            user = await self.uow.users.get_by_account_id(account_id)
             if not user:
-                user = await uow.users.get_by_id(account_id)
+                user = await self.uow.users.get_by_id(account_id)
             if user:
                 if user.user_id and user.user_id not in candidate_ids:
                     candidate_ids.append(user.user_id)
                 if user.account_id and user.account_id not in candidate_ids:
                     candidate_ids.append(user.account_id)
 
-        raw_items = await uow.attendance.get_student_records(candidate_ids)
+        raw_items = await self.uow.attendance.get_student_records(candidate_ids)
 
         items: list[StudentAttendanceItem] = []
         total_days = len(raw_items)
@@ -302,9 +300,8 @@ class AttendanceService:
             data=AdditionalData(resources=history.model_dump(mode="json")),
         )
 
-    @staticmethod
-    async def get_summary_metrics(uow: AbstractUnitOfWork) -> SuccessfulResponseSchema:
-        db_categories, _ = await uow.user_categories.list()
+    async def get_summary_metrics(self) -> SuccessfulResponseSchema:
+        db_categories, _ = await self.uow.user_categories.list()
         if db_categories:
             categories_input = [
                 {
@@ -321,7 +318,7 @@ class AttendanceService:
                 {"category_id": None, "code": "BLP", "name": "Basic Literacy Program"},
             ]
 
-        metrics_data = await uow.attendance.get_summary_metrics(categories_input)
+        metrics_data = await self.uow.attendance.get_summary_metrics(categories_input)
         metrics = [
             AttendanceProgramMetric(
                 category_id=m["category_id"],

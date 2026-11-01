@@ -1,13 +1,22 @@
-export type RequirementId = 'birth' | 'school' | 'identity';
+import { DEFAULT_REQUIREMENTS, type RequirementItem } from './requirements-api';
+
+export type RequirementId =
+  | 'rpl'
+  | 'af1'
+  | 'af2'
+  | 'flt'
+  | 'psa_police_clearance'
+  | 'proof_of_education'
+  | 'birth'
+  | 'school'
+  | 'identity'
+  | (string & {});
 export type RequirementStatus = 'auto_verified' | 'review' | 'correction' | 'verified' | 'exempted';
 export type DemoScenario = 'pass' | 'review' | 'correction';
 export type ReviewerRole = 'teacher' | 'admin';
 
-export const REQUIREMENTS: { id: RequirementId; title: string; description: string; types: string[]; guidance: string; conditional?: boolean }[] = [
-  { id: 'birth', title: 'Birth / date-of-birth proof', description: 'Submit one accepted document showing your name and date of birth.', types: ['PSA Birth Certificate', 'Local Civil Registrar Birth Certificate', 'Baptismal Certificate', 'Barangay Certification of Birth'], guidance: 'An accepted alternative completes this requirement. For a baptismal certificate, your date of birth must be shown separately from the baptism date.' },
-  { id: 'school', title: 'Previous school records', description: 'Submit your last report card or permanent school record, if applicable.', types: ['Form 138 / Report Card', 'Form 137 / Permanent Record', 'Alternative proof for staff review'], guidance: 'Unable to obtain your records, or never attended formal school? Request teacher assistance below. Staff will confirm an alternative or exemption.', conditional: true },
-  { id: 'identity', title: 'Identification', description: 'Submit one accepted identification document or 2x2 photo.', types: ['Government-issued ID', 'Barangay Clearance', 'Student ID', '2x2 ID Photo (White background)'], guidance: 'Include both sides when your details appear on the back. For 2x2 photos, ensure a clear white background and formal attire.' },
-];
+export { DEFAULT_REQUIREMENTS, type RequirementItem };
+export const REQUIREMENTS: RequirementItem[] = DEFAULT_REQUIREMENTS;
 
 export const STATUS_LABELS: Record<RequirementStatus, string> = {
   auto_verified: 'Verified', review: 'Under review', correction: 'Correction needed', verified: 'Verified by admin', exempted: 'Exempted by admin',
@@ -45,11 +54,27 @@ export function simulationResult(scenario: DemoScenario, type: string): { status
   return { status: 'correction', note: 'The document is incomplete or unreadable. Please upload a clear, complete replacement.' };
 }
 
-export function validateRequirementFile(file: Pick<File, 'name' | 'size' | 'type'>): string | null {
-  const allowed: Record<string, string[]> = { pdf: ['application/pdf'], jpg: ['image/jpeg'], jpeg: ['image/jpeg'], png: ['image/png'], webp: ['image/webp'] };
+export function validateRequirementFile(file: Pick<File, 'name' | 'size' | 'type'>, maxMb = 10, allowedExts?: string[]): string | null {
+  const allowedMap: Record<string, string[]> = {
+    pdf: ['application/pdf'],
+    jpg: ['image/jpeg'],
+    jpeg: ['image/jpeg'],
+    png: ['image/png'],
+    webp: ['image/webp'],
+  };
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
-  if (!allowed[extension] || (file.type && !allowed[extension].includes(file.type))) return 'Choose a PDF, JPG, PNG, or WebP file.';
-  if (!file.size || file.size > 10 * 1024 * 1024) return 'Choose a non-empty file up to 10 MB.';
+  if (allowedExts && allowedExts.length > 0) {
+    const cleanExts = allowedExts.map(e => e.toLowerCase().replace(/^\./, ''));
+    if (!cleanExts.includes(extension)) {
+      return `Allowed file formats: ${cleanExts.join(', ').toUpperCase()}`;
+    }
+  } else if (!allowedMap[extension] || (file.type && !allowedMap[extension].includes(file.type))) {
+    return 'Choose a PDF, JPG, PNG, or WebP file.';
+  }
+  const maxBytes = maxMb * 1024 * 1024;
+  if (!file.size || file.size > maxBytes) {
+    return `Choose a non-empty file up to ${maxMb} MB.`;
+  }
   return null;
 }
 

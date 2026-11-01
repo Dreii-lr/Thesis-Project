@@ -21,9 +21,13 @@ from app.features.users.schemas import UserRead
 if TYPE_CHECKING:
     from app.features.assessments.service import AssessmentService
     from app.features.assessments.analysis.service import CohortAnalysisService
+    from app.features.attendance.service import AttendanceService
+    from app.features.auth.service import AuthService
     from app.features.flashcards.service import FlashcardService
+    from app.features.requirements.service import RequirementService
     from app.features.subjects.service import SubjectService
     from app.features.user_categories.service import UserCategoryService
+    from app.features.users.service import UserService
 
 security_bearer = HTTPBearer(auto_error=False)
 
@@ -117,4 +121,35 @@ def get_flashcard_service(
 ) -> FlashcardService:
     from app.features.flashcards.service import FlashcardService
     return FlashcardService(uow)
+
+
+def get_requirement_service(
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+) -> RequirementService:
+    from app.features.requirements.service import RequirementService
+    return RequirementService(uow)
+
+
+def get_user_service(
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+) -> UserService:
+    from app.features.users.service import UserService
+    return UserService(uow)
+
+
+def get_auth_service(
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+) -> AuthService:
+    from app.features.auth.service import AuthService
+    return AuthService(uow)
+
+
+def get_attendance_service(
+    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+) -> AttendanceService:
+    from app.features.attendance.service import AttendanceService
+    return AttendanceService(uow)
+
+
+
 

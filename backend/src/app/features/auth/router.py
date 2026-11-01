@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, Request, Response, status, Cookie
 from httpx import Cookies
 from sqlmodel import default
 
+from app.core.dependencies import get_auth_service
 from app.core.security import set_auth_cookies, clear_auth_cookies
-from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user
 from app.features.auth.schemas import (
     AccountRecoveryRequest,
@@ -31,9 +31,9 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/recover", response_model=SuccessfulResponseSchema)
 async def recover_account(
     data: AccountRecoveryRequest,
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+    service: AuthService = Depends(get_auth_service),
 ) -> SuccessfulResponseSchema:
-    response  = await AuthService.recover_account(uow, data)
+    response = await service.recover_account(data)
     response = SharedUtils.SuccessfulResponse(response)
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -43,14 +43,13 @@ async def recover_account(
 async def login(
         request: Request,
         data: LoginRequest,
-        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+        service: AuthService = Depends(get_auth_service),
 ) -> SuccessfulResponseSchema:
     try:
         user_agent = request.headers.get("user-agent")
         ip_address = request.client.host if request.client else None
 
-        result = await AuthService.login_with_password(
-            uow=uow,
+        result = await service.login_with_password(
             data=data,
             user_agent=user_agent,
             ip_address=ip_address,
@@ -75,8 +74,9 @@ async def login(
 @router.post("/refresh", response_model=SuccessfulResponseSchema)
 async def refresh(
         refresh_token: str = Cookie(default=None, alias="refresh_token"),
+        service: AuthService = Depends(get_auth_service),
 ) -> SuccessfulResponseSchema:
-    result = await AuthService.refresh_firebase_token(refresh_token=refresh_token)
+    result = await service.refresh_firebase_token(refresh_token=refresh_token)
 
     id_token = result.data.token.idToken
     refresh_token = result.data.token.refreshToken
@@ -94,9 +94,10 @@ async def refresh(
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
-        access_token : str = Cookie(default=None, alias="access_token")
+        access_token: str = Cookie(default=None, alias="access_token"),
+        service: AuthService = Depends(get_auth_service),
 ) -> SuccessfulResponseSchema:
-    response = await AuthService.logout(access_token=access_token)
+    response = await service.logout(access_token=access_token)
     response.status_code = status.HTTP_200_OK
     actual_response = SharedUtils.SuccessfulResponse(response)
 
@@ -107,7 +108,7 @@ async def logout(
 @router.get("/me", response_model=UserRead)
 async def get_me(
         response: Response,
-        current_user: User = Depends(get_current_active_user),
+        current_user: UserRead = Depends(get_current_active_user),
 ) -> UserRead:
     response.headers["Cache-Control"] = "no-store"
     return UserRead.model_validate(current_user)

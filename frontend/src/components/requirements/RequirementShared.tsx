@@ -11,7 +11,18 @@ export const primaryClass = 'inline-flex min-h-10 items-center justify-center ga
 export const fieldClass = 'mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:opacity-50';
 
 export function RequirementIcon({ id, size = 22 }: { id: RequirementId; size?: number }) {
-  const Icon = id === 'birth' ? FileText : id === 'school' ? GraduationCap : Fingerprint;
+  const Icon =
+    id === 'rpl'
+      ? FileText
+      : id === 'af1' || id === 'af2'
+      ? FileText
+      : id === 'flt'
+      ? GraduationCap
+      : id === 'psa_police_clearance' || id === 'identity' || id === 'birth'
+      ? Fingerprint
+      : id === 'proof_of_education' || id === 'school'
+      ? GraduationCap
+      : FileCheck2;
   return <Icon size={size} strokeWidth={1.7} />;
 }
 

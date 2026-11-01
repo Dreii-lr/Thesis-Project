@@ -6,8 +6,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, status
 from starlette.responses import JSONResponse
 
+from app.core.dependencies import get_attendance_service
 from app.core.exceptions import DomainForbiddenDomainException
-from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user, require_roles
 from app.features.attendance.schemas import AttendanceSessionCreate
 from app.features.attendance.service import AttendanceService
@@ -25,7 +25,7 @@ require_teacher = require_roles(UserRole.TEACHER, UserRole.ADMIN)
 async def record_attendance_session(
     data: AttendanceSessionCreate,
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+    service: AttendanceService = Depends(get_attendance_service),
 ) -> JSONResponse:
     """
     Take or update a class attendance session.
@@ -34,21 +34,21 @@ async def record_attendance_session(
     """
     # Align with ERD: attendance_sessions.teacher_id references users.user_id
     teacher_id = current_user.user_id
-    response = await AttendanceService.record_session(uow, teacher_id, data)
+    response = await service.record_session(teacher_id, data)
     return SharedUtils.SuccessfulResponse(response)
 
 
 @router.get("/summary-metrics", status_code=status.HTTP_200_OK, tags=["Secured"])
 async def get_attendance_summary_metrics(
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+    service: AttendanceService = Depends(get_attendance_service),
 ) -> JSONResponse:
     """
     Get aggregated counts for learners, attendance records (total sessions),
     and completed sessions across learning program categories.
     Protected: Only authenticated teachers (EMPLOYEE) and admins.
     """
-    response = await AttendanceService.get_summary_metrics(uow)
+    response = await service.get_summary_metrics()
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -60,15 +60,14 @@ async def list_attendance_sessions(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=10, ge=1, le=100),
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+    service: AttendanceService = Depends(get_attendance_service),
 ) -> JSONResponse:
     """
     List class attendance sessions with filtering and pagination.
     Protected: Only authenticated teachers (EMPLOYEE) and admins can browse session history.
     Students (STUDENT) are forbidden.
     """
-    response = await AttendanceService.list_sessions(
-        uow=uow,
+    response = await service.list_sessions(
         level=level,
         subject=subject,
         search_date=search_date,
@@ -82,14 +81,14 @@ async def list_attendance_sessions(
 async def get_attendance_session(
     session_id: str,
     current_user: UserRead = Depends(require_teacher),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+    service: AttendanceService = Depends(get_attendance_service),
 ) -> JSONResponse:
     """
     Get full details and learner marks for a specific attendance session.
     Protected: Only authenticated teachers (EMPLOYEE) and admins can view session details.
     Students (STUDENT) are forbidden.
     """
-    response = await AttendanceService.get_session(uow, session_id)
+    response = await service.get_session(session_id)
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -97,7 +96,7 @@ async def get_attendance_session(
 async def get_student_attendance_history(
     account_id: str,
     current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+    service: AttendanceService = Depends(get_attendance_service),
 ) -> JSONResponse:
     """
     Get attendance history and KPIs for a specific learner.
@@ -120,5 +119,5 @@ async def get_student_attendance_history(
     if not (is_teacher_or_admin or is_own_record):
         raise DomainForbiddenDomainException("Operation not permitted for your role.")
 
-    response = await AttendanceService.get_student_history(uow, target_account_id)
+    response = await service.get_student_history(target_account_id)
     return SharedUtils.SuccessfulResponse(response)

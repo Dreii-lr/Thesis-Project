@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowUpRight, Check, ChevronRight, CircleHelp, FileCheck2, Loader2, RefreshCw, ShieldCheck, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useOptionalAuth } from '@/src/context/AuthContext';
 import StudentPageHeader, { studentHeaderActionClass } from '@/src/components/layout/student/StudentPageHeader';
 import Modal from '@/src/components/ui/Modal';
-import { REQUIREMENTS, formatRequirementDate, isSatisfied, type RequirementId } from '@/src/lib/requirements';
+import { REQUIREMENTS, formatRequirementDate, isSatisfied, type RequirementId, type RequirementItem } from '@/src/lib/requirements';
+import { getDefaultRequirements } from '@/src/lib/requirements-api';
 import { RequirementError, RequirementIcon, RequirementStats, StatusBadge, SubmissionDetails, buttonClass, primaryClass } from './RequirementShared';
 import RequirementUpload, { AssistanceRequest, type RequirementLearner } from './RequirementUpload';
 import { useRequirements } from './useRequirements';
@@ -24,30 +25,69 @@ export default function StudentRequirements() {
 
 function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
   const { records, loading, error, reload } = useRequirements();
+  const [requirementsList, setRequirementsList] = useState<RequirementItem[]>(REQUIREMENTS);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setCatalogLoading(true);
+    void getDefaultRequirements()
+      .then(items => {
+        if (active && items.length > 0) {
+          setRequirementsList(items);
+        }
+      })
+      .catch(err => {
+        console.warn('Failed to fetch dynamic student requirements catalog:', err);
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const refreshAll = async () => {
+    setCatalogLoading(true);
+    try {
+      const [_, items] = await Promise.all([
+        reload(),
+        getDefaultRequirements(),
+      ]);
+      if (items && items.length > 0) {
+        setRequirementsList(items);
+      }
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const isBusy = loading || catalogLoading;
   const own = records.filter(record => record.ownerId === learner.ownerId);
   const [uploadId, setUploadId] = useState<RequirementId | null>(null);
   const [viewId, setViewId] = useState<RequirementId | null>(null);
-  const [assistance, setAssistance] = useState(false);
+  const [assistanceReq, setAssistanceReq] = useState<RequirementItem | null>(null);
   const [notice, setNotice] = useState('');
   const [filter, setFilter] = useState<'all' | 'action' | 'satisfied'>('all');
   const getRecord = (id: RequirementId) => own.find(record => record.requirementId === id);
+  const totalCount = requirementsList.length || 1;
   const satisfied = own.filter(record => isSatisfied(record.status)).length;
   const waiting = own.filter(record => record.status === 'review').length;
-  const action = REQUIREMENTS.filter(item => !getRecord(item.id) || getRecord(item.id)?.status === 'correction').length;
-  const visible = REQUIREMENTS.filter(item => filter === 'all' || (filter === 'satisfied' ? isSatisfied(getRecord(item.id)?.status) : !getRecord(item.id) || getRecord(item.id)?.status === 'correction'));
+  const action = requirementsList.filter(item => !getRecord(item.id) || getRecord(item.id)?.status === 'correction').length;
+  const visible = requirementsList.filter(item => filter === 'all' || (filter === 'satisfied' ? isSatisfied(getRecord(item.id)?.status) : !getRecord(item.id) || getRecord(item.id)?.status === 'correction'));
   const viewing = viewId ? getRecord(viewId) : undefined;
-  function saved() { setUploadId(null); setAssistance(false); setNotice('Your document was successfully submitted for teacher review.'); }
+  const selectedUpload = requirementsList.find(item => item.id === uploadId || item.code === uploadId);
+  function saved() { setUploadId(null); setAssistanceReq(null); setNotice('Your document was successfully submitted for teacher review.'); }
   return <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-    <StudentPageHeader eyebrow="Student records · Enrollment documents" title="My requirements" description="A clear path to a complete learner record. Submit your documents, follow their progress, and get help when you need it." actions={<button type="button" className={studentHeaderActionClass} disabled={loading} onClick={reload}><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /><span className="ml-2">Refresh</span></button>}>
+    <StudentPageHeader eyebrow="Student records · Enrollment documents" title="My requirements" description="A clear path to a complete learner record. Submit your documents, follow their progress, and get help when you need it." actions={<button type="button" className={studentHeaderActionClass} disabled={isBusy} onClick={refreshAll}><RefreshCw size={15} className={isBusy ? 'animate-spin' : ''} /><span className="ml-2">Refresh</span></button>}>
       <div className="flex flex-wrap items-center gap-5">
         <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/20"><ShieldCheck size={26} strokeWidth={1.5} /></span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3 text-xs">
             <span className="font-semibold">Your document checklist</span>
-            <span className="text-blue-100">{loading ? 'Loading…' : `${satisfied} of 3 verified${waiting > 0 ? ` · ${waiting} under review` : ''}`}</span>
+            <span className="text-blue-100">{isBusy ? 'Loading…' : `${satisfied} of ${totalCount} verified${waiting > 0 ? ` · ${waiting} under review` : ''}`}</span>
           </div>
-          <div role="progressbar" aria-label="Requirements satisfied" aria-valuenow={satisfied} aria-valuemin={0} aria-valuemax={3} className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/15">
-            <div className="h-full rounded-full bg-white transition-all" style={{ width: `${(satisfied / 3) * 100}%` }} />
+          <div role="progressbar" aria-label="Requirements satisfied" aria-valuenow={satisfied} aria-valuemin={0} aria-valuemax={totalCount} className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/15">
+            <div className="h-full rounded-full bg-white transition-all" style={{ width: `${Math.min(100, (satisfied / totalCount) * 100)}%` }} />
           </div>
           <p className="mt-2 text-[11px] text-blue-100">Verified documents and approved exemptions count toward your DepEd ALS enrollment completion.</p>
         </div>
@@ -66,12 +106,12 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
       </div>
     )}
 
-    {error && <div className="space-y-2"><RequirementError message={error} /><button type="button" className={buttonClass} onClick={reload}>Retry loading</button></div>}
+    {error && <div className="space-y-2"><RequirementError message={error} /><button type="button" className={buttonClass} onClick={refreshAll}>Retry loading</button></div>}
 
     <RequirementStats items={[
-      { label: 'Requirements verified', value: loading || error ? '—' : `${satisfied} / 3`, detail: 'Verified documents or approved exemptions' },
-      { label: 'Under teacher review', value: loading || error ? '—' : waiting, detail: 'Documents submitted awaiting teacher verification' },
-      { label: 'Action needed', value: loading || error ? '—' : action, detail: 'Missing requirements or corrections requested' }
+      { label: 'Requirements verified', value: isBusy || error ? '—' : `${satisfied} / ${totalCount}`, detail: 'Verified documents or approved exemptions' },
+      { label: 'Under teacher review', value: isBusy || error ? '—' : waiting, detail: 'Documents submitted awaiting teacher verification' },
+      { label: 'Action needed', value: isBusy || error ? '—' : action, detail: 'Missing requirements or corrections requested' }
     ]} />
 
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -88,7 +128,7 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
           </div>
         </div>
 
-        {loading ? (
+        {isBusy ? (
           <p role="status" className="flex items-center justify-center gap-2 p-12 text-xs text-slate-400"><Loader2 size={17} className="animate-spin" />Loading your checklist…</p>
         ) : error ? (
           <p className="p-8 text-center text-xs text-slate-500">Could not load requirements. Please refresh the page.</p>
@@ -99,6 +139,9 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
               const isUnderReview = record?.status === 'review';
               const isCorrection = record?.status === 'correction';
               const isGood = isSatisfied(record?.status);
+              const itemTypes = (item.types && item.types.length > 0) ? item.types : (item.accepted_document_types || []);
+              const allowedExts = (item.allowed_extensions && item.allowed_extensions.length > 0) ? item.allowed_extensions : ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+              const maxMb = item.max_file_size_mb || 10;
 
               return (
                 <article key={item.id} className={`rounded-2xl border p-4 sm:p-5 transition ${isCorrection ? 'border-rose-200 bg-rose-50/20' : isUnderReview ? 'border-amber-200/80 bg-amber-50/15' : isGood ? 'border-emerald-200/80 bg-emerald-50/10' : 'border-slate-200/80 bg-white'}`}>
@@ -112,21 +155,21 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
                         <StatusBadge status={record?.status} />
                       </div>
                       <p className="mt-1 text-xs leading-5 text-slate-500">{item.description}</p>
-                      {item.conditional && <span className="mt-2 inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">If applicable · teacher assistance available</span>}
+                      {(item.conditional || item.is_conditional) && <span className="mt-2 inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">If applicable · teacher assistance available</span>}
                     </div>
                   </div>
 
                   <details className="mt-3.5 rounded-xl bg-slate-50/80 px-3.5 py-2.5">
                     <summary className="cursor-pointer text-[11px] font-semibold text-slate-600 hover:text-slate-900">Accepted documents & guidance</summary>
                     <ul className="mt-2.5 space-y-1.5 border-t border-slate-200/60 pt-2">
-                      {item.types.map(type => (
+                      {itemTypes.map(type => (
                         <li key={type} className="flex items-start gap-2 text-xs leading-5 text-slate-500">
                           <Check size={12} className="mt-1 shrink-0 text-blue-600" />
                           <span>{type}</span>
                         </li>
                       ))}
                     </ul>
-                    <p className="mt-2.5 border-t border-slate-200/60 pt-2 text-xs leading-5 text-slate-500">{item.guidance}</p>
+                    {item.guidance && <p className="mt-2.5 border-t border-slate-200/60 pt-2 text-xs leading-5 text-slate-500">{item.guidance}</p>}
                   </details>
 
                   {record && (
@@ -137,13 +180,13 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
                   )}
 
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                    {item.id === 'school' && !isSatisfied(record?.status) ? (
-                      <button type="button" className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700" onClick={() => setAssistance(true)}>
+                    {(item.allow_assistance || item.id === 'school' || item.id === 'proof_of_education') && !isSatisfied(record?.status) ? (
+                      <button type="button" className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700" onClick={() => setAssistanceReq(item)}>
                         <CircleHelp size={14} />
-                        Need help with school records?
+                        Need help with {item.title}?
                       </button>
                     ) : (
-                      <span className="text-[11px] text-slate-400">PDF, JPG, PNG, WebP · Up to 10 MB</span>
+                      <span className="text-[11px] text-slate-400">{allowedExts.map(e => e.toUpperCase()).join(', ')} · Up to {maxMb} MB</span>
                     )}
 
                     <div className="ml-auto flex flex-wrap gap-2">
@@ -225,8 +268,30 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
       </aside>
     </div>
 
-    {uploadId && <RequirementUpload key={uploadId} requirementId={uploadId} learner={learner} previous={getRecord(uploadId)} onClose={() => setUploadId(null)} onSaved={saved} />}
-    {assistance && <AssistanceRequest learner={learner} previous={getRecord('school')} onClose={() => setAssistance(false)} onSaved={saved} />}
-    {viewing && <Modal title="Your submission details" onClose={() => setViewId(null)}><SubmissionDetails key={`${viewing.id}:${viewing.updatedAt}`} record={viewing} /></Modal>}
+    {uploadId && (
+      <RequirementUpload
+        key={uploadId}
+        requirement={selectedUpload}
+        requirementId={uploadId}
+        learner={learner}
+        previous={getRecord(uploadId)}
+        onClose={() => setUploadId(null)}
+        onSaved={saved}
+      />
+    )}
+    {assistanceReq && (
+      <AssistanceRequest
+        learner={learner}
+        requirement={assistanceReq}
+        previous={getRecord(assistanceReq.id || assistanceReq.code || 'proof_of_education')}
+        onClose={() => setAssistanceReq(null)}
+        onSaved={saved}
+      />
+    )}
+    {viewing && (
+      <Modal title="Your submission details" onClose={() => setViewId(null)}>
+        <SubmissionDetails key={`${viewing.id}:${viewing.updatedAt}`} record={viewing} />
+      </Modal>
+    )}
   </div>;
 }

@@ -5,6 +5,7 @@ import { useStudents } from '@/src/context/StudentContext';
 import { listSubjects } from '@/src/lib/subjects-api';
 import { listUserCategories } from '@/src/lib/user-categories-api';
 import { listAttendanceSessions } from '@/src/lib/attendance-api';
+import { adminGetRequirementStats } from '@/src/lib/requirements-api';
 import { useApiData } from '@/src/lib/use-api-data';
 import ApiState from '@/src/components/ui/ApiState';
 
@@ -13,6 +14,7 @@ export default function AdminDashboard() {
   const subjects = useApiData(listSubjects);
   const programs = useApiData(listUserCategories);
   const attendance = useApiData(listAttendanceSessions);
+  const reqStats = useApiData(adminGetRequirementStats);
   const completed = attendance.data?.filter(session => session.status === 'COMPLETED') || [];
   const marks = completed.reduce((total, session) => ({ present: total.present + session.presentCount, count: total.count + session.totalCount }), { present: 0, count: 0 });
   const metrics = [
@@ -20,6 +22,7 @@ export default function AdminDashboard() {
     { label: 'Learning programs', href: '/admin/user-categories', value: programs.data?.length, loading: programs.loading, error: programs.error, retry: programs.reload },
     { label: 'Subjects', href: '/admin/subjects', value: subjects.data?.length, loading: subjects.loading, error: subjects.error, retry: subjects.reload },
     { label: 'Attendance sessions', href: '/admin/attendance', value: attendance.data?.length, loading: attendance.loading, error: attendance.error, retry: attendance.reload },
+    { label: 'Student requirements', href: '/admin/requirements', value: reqStats.data?.total_requirements ?? 0, loading: reqStats.loading, error: reqStats.error, retry: reqStats.reload },
   ];
 
   return (

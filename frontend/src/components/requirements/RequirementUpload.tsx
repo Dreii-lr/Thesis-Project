@@ -3,15 +3,45 @@
 import { useRef, useState } from 'react';
 import { ArrowRight, FileCheck, FileUp, Loader2, UploadCloud, X } from 'lucide-react';
 import Modal from '@/src/components/ui/Modal';
-import { REQUIREMENTS, createStudentSubmission, validateRequirementFile, type RequirementId, type RequirementRecord } from '@/src/lib/requirements';
+import { REQUIREMENTS, createStudentSubmission, validateRequirementFile, type RequirementId, type RequirementItem, type RequirementRecord } from '@/src/lib/requirements';
 import { FilePreview, RequirementError, buttonClass, fieldClass, primaryClass } from './RequirementShared';
 import { saveRequirement } from './useRequirements';
 
 export interface RequirementLearner { ownerId: string; learnerName: string; email: string; program: string }
 
-export default function RequirementUpload({ requirementId, learner, previous, onClose, onSaved }: { requirementId: RequirementId; learner: RequirementLearner; previous?: RequirementRecord; onClose: () => void; onSaved: () => void }) {
-  const requirement = REQUIREMENTS.find(item => item.id === requirementId)!;
-  const [type, setType] = useState(requirement.types[0]);
+export default function RequirementUpload({
+  requirement,
+  requirementId,
+  learner,
+  previous,
+  onClose,
+  onSaved,
+}: {
+  requirement?: RequirementItem;
+  requirementId?: RequirementId;
+  learner: RequirementLearner;
+  previous?: RequirementRecord;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const req = requirement || REQUIREMENTS.find(item => item.id === requirementId) || {
+    id: requirementId || 'rpl',
+    code: requirementId || 'rpl',
+    title: 'Requirement Document',
+    types: ['Official Document'],
+    accepted_document_types: ['Official Document'],
+    description: '',
+    guidance: '',
+    allowed_extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
+    max_file_size_mb: 10,
+  };
+  const activeTypes = req.types?.length ? req.types : req.accepted_document_types?.length ? req.accepted_document_types : ['Official Document'];
+  const allowedExts = req.allowed_extensions?.length ? req.allowed_extensions : ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+  const maxMb = req.max_file_size_mb || 10;
+  const acceptAttr = allowedExts.map(e => `.${e.toLowerCase().replace(/^\./, '')}`).join(',');
+  const resolvedId = req.id || req.code || requirementId || 'rpl';
+
+  const [type, setType] = useState(activeTypes[0] || 'Official Document');
   const [file, setFile] = useState<File>();
   const [remarks, setRemarks] = useState('');
   const [error, setError] = useState('');
@@ -22,7 +52,7 @@ export default function RequirementUpload({ requirementId, learner, previous, on
 
   function choose(selected?: File) {
     if (!selected || busy) return;
-    const issue = validateRequirementFile(selected);
+    const issue = validateRequirementFile(selected, maxMb, allowedExts);
     setError(issue || '');
     if (!issue) setFile(selected);
   }
@@ -35,7 +65,7 @@ export default function RequirementUpload({ requirementId, learner, previous, on
 
   async function submit() {
     if (!file || lock.current) return;
-    const issue = validateRequirementFile(file);
+    const issue = validateRequirementFile(file, maxMb, allowedExts);
     if (issue) { setError(issue); return; }
     lock.current = true; setBusy(true); setError('');
     try {
@@ -43,7 +73,7 @@ export default function RequirementUpload({ requirementId, learner, previous, on
       const result = createStudentSubmission(type, remarks);
       const at = new Date().toISOString();
       const record: RequirementRecord = {
-        ...learner, id: previous?.id || `${learner.ownerId}:${requirementId}`, requirementId,
+        ...learner, id: previous?.id || `${learner.ownerId}:${resolvedId}`, requirementId: resolvedId,
         ...result, updatedAt: at,
         versions: [{ id: crypto.randomUUID(), at, type, fileName: file.name, fileSize: file.size, mime: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'), scenario: 'submission', ...result }, ...(previous?.versions || [])],
         events: [{ id: crypto.randomUUID(), at, actor: learner.learnerName, message: previous ? `Replacement document (${type}) submitted for review.` : `Document (${type}) submitted for review.` }, ...(previous?.events || [])],
@@ -62,23 +92,25 @@ export default function RequirementUpload({ requirementId, learner, previous, on
   return <Modal title={previous ? 'Upload a replacement document' : 'Submit requirement document'} pending={busy} onClose={onClose}>
     <div className="space-y-5">
       <div>
-        <p className="text-sm font-semibold text-slate-800">{requirement.title}</p>
-        <p className="mt-1 text-xs leading-6 text-slate-500">{requirement.description}</p>
+        <p className="text-sm font-semibold text-slate-800">{req.title}</p>
+        {req.description && <p className="mt-1 text-xs leading-6 text-slate-500">{req.description}</p>}
       </div>
 
       <div>
         <label className="block text-xs font-semibold text-slate-700">Select document type</label>
         <select className={fieldClass} value={type} disabled={busy} onChange={event => setType(event.target.value)}>
-          {requirement.types.map(value => <option key={value}>{value}</option>)}
+          {activeTypes.map(value => <option key={value}>{value}</option>)}
         </select>
       </div>
 
-      <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3.5 text-xs leading-5 text-slate-600">
-        <strong className="font-semibold text-blue-900">Document Guidelines: </strong>
-        {requirement.guidance}
-      </div>
+      {req.guidance && (
+        <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3.5 text-xs leading-5 text-slate-600">
+          <strong className="font-semibold text-blue-900">Document Guidelines: </strong>
+          {req.guidance}
+        </div>
+      )}
 
-      <input ref={input} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" aria-label="Choose requirement document" disabled={busy} className="sr-only" onChange={event => { choose(event.target.files?.[0]); event.target.value = ''; }} />
+      <input ref={input} type="file" accept={acceptAttr} aria-label="Choose requirement document" disabled={busy} className="sr-only" onChange={event => { choose(event.target.files?.[0]); event.target.value = ''; }} />
 
       {!file ? (
         <button
@@ -179,24 +211,136 @@ export default function RequirementUpload({ requirementId, learner, previous, on
   </Modal>;
 }
 
-export function AssistanceRequest({ learner, previous, onClose, onSaved }: { learner: RequirementLearner; previous?: RequirementRecord; onClose: () => void; onSaved: () => void }) {
-  const [reason, setReason] = useState('I cannot obtain my previous school records.');
+export function AssistanceRequest({
+  learner,
+  requirement,
+  previous,
+  onClose,
+  onSaved,
+}: {
+  learner: RequirementLearner;
+  requirement?: RequirementItem;
+  previous?: RequirementRecord;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const resolvedId = requirement?.id || requirement?.code || 'proof_of_education';
+  const reqTitle = requirement?.title || 'school records';
+  const [reason, setReason] = useState(
+    requirement ? `I cannot obtain my ${reqTitle}.` : 'I cannot obtain my previous school records.'
+  );
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const lock = useRef(false);
+
   async function submit() {
     if (lock.current) return;
-    lock.current = true; setBusy(true); setError('');
+    lock.current = true;
+    setBusy(true);
+    setError('');
     try {
       const at = new Date().toISOString();
       const message = `${reason}${note.trim() ? ` ${note.trim()}` : ''}`;
-      await saveRequirement({ ...learner, id: previous?.id || `${learner.ownerId}:school`, requirementId: 'school', status: 'review', note: message, updatedAt: at,
-        versions: [{ id: crypto.randomUUID(), at, type: 'School-record assistance', fileName: '', fileSize: 0, mime: '', status: 'review', note: message, scenario: 'assistance' }, ...(previous?.versions || [])],
-        events: [{ id: crypto.randomUUID(), at, actor: learner.learnerName, message: `Requested assistance: ${message}` }, ...(previous?.events || [])] }, undefined, previous?.updatedAt || null);
+      await saveRequirement(
+        {
+          ...learner,
+          id: previous?.id || `${learner.ownerId}:${resolvedId}`,
+          requirementId: resolvedId,
+          status: 'review',
+          note: message,
+          updatedAt: at,
+          versions: [
+            {
+              id: crypto.randomUUID(),
+              at,
+              type: `${reqTitle} assistance`,
+              fileName: '',
+              fileSize: 0,
+              mime: '',
+              status: 'review',
+              note: message,
+              scenario: 'assistance',
+            },
+            ...(previous?.versions || []),
+          ],
+          events: [
+            {
+              id: crypto.randomUUID(),
+              at,
+              actor: learner.learnerName,
+              message: `Requested assistance: ${message}`,
+            },
+            ...(previous?.events || []),
+          ],
+        },
+        undefined,
+        previous?.updatedAt || null
+      );
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Your request could not be saved.'); }
-    finally { lock.current = false; setBusy(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Your request could not be saved.');
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
-  return <Modal title="Get help with school records" onClose={onClose} pending={busy}><div className="space-y-4"><p className="text-sm leading-6 text-slate-500">Your teacher can help find alternative proof. An admin can confirm an exemption where applicable.</p><label className="block text-xs font-semibold text-slate-600">What do you need help with?<select disabled={busy} className={fieldClass} value={reason} onChange={event => setReason(event.target.value)}><option>I cannot obtain my previous school records.</option><option>I have never attended formal school.</option></select></label><label className="block text-xs font-semibold text-slate-600">Additional details (optional)<textarea disabled={busy} className={fieldClass} rows={3} value={note} maxLength={1000} onChange={event => setNote(event.target.value)} placeholder="Tell your teacher how they can help." /></label><p className="text-xs leading-6 text-slate-400">This creates a review request. It does not automatically exempt the requirement.</p>{error && <RequirementError message={error} />}<div className="flex justify-end gap-2"><button type="button" className={buttonClass} disabled={busy} onClick={onClose}>Cancel</button><button type="button" className={primaryClass} disabled={busy} onClick={submit}>{busy ? 'Saving…' : 'Request assistance'}</button></div></div></Modal>;
+
+  return (
+    <Modal title={`Get help with ${reqTitle}`} onClose={onClose} pending={busy}>
+      <div className="space-y-4">
+        <p className="text-sm leading-6 text-slate-500">
+          Your teacher can help find alternative proof. An admin can confirm an exemption where applicable.
+        </p>
+        <label className="block text-xs font-semibold text-slate-600">
+          What do you need help with?
+          <select
+            disabled={busy}
+            className={fieldClass}
+            value={reason}
+            onChange={event => setReason(event.target.value)}
+          >
+            {requirement ? (
+              <>
+                <option value={`I cannot obtain my ${reqTitle}.`}>I cannot obtain my {reqTitle}.</option>
+                <option value={`I need an alternative document or exemption for ${reqTitle}.`}>
+                  I need an alternative document or exemption for {reqTitle}.
+                </option>
+                <option value="I have never attended formal school.">I have never attended formal school.</option>
+              </>
+            ) : (
+              <>
+                <option>I cannot obtain my previous school records.</option>
+                <option>I have never attended formal school.</option>
+              </>
+            )}
+          </select>
+        </label>
+        <label className="block text-xs font-semibold text-slate-600">
+          Additional details (optional)
+          <textarea
+            disabled={busy}
+            className={fieldClass}
+            rows={3}
+            value={note}
+            maxLength={1000}
+            onChange={event => setNote(event.target.value)}
+            placeholder="Tell your teacher how they can help."
+          />
+        </label>
+        <p className="text-xs leading-6 text-slate-400">
+          This creates a review request. It does not automatically exempt the requirement.
+        </p>
+        {error && <RequirementError message={error} />}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={buttonClass} disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className={primaryClass} disabled={busy} onClick={submit}>
+            {busy ? 'Saving…' : 'Request assistance'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
