@@ -29,6 +29,7 @@ export interface ModuleLesson {
 }
 
 export interface StructuresProcessedLessons {
+  status?: string | null;
   document_id?: string | null;
   materials_id?: string | null;
   user_id?: string | null;
@@ -45,11 +46,39 @@ export interface StructuresProcessedLessons {
   message?: string | null;
 }
 
+export interface ActiveProcessingStatus {
+  is_processing: boolean;
+  document_id?: string | null;
+  filename?: string | null;
+  created_at?: string | null;
+  message?: string | null;
+}
+
+export interface PollDocumentOptions {
+  baseUrl?: string;
+  signal?: AbortSignal;
+  maxAttempts?: number;
+  intervalMs?: number;
+  onProgress?: (progress: {
+    status: string;
+    message?: string;
+    attempt: number;
+    elapsedMs: number;
+  }) => void;
+}
+
 export interface UploadModuleOptions {
   userId?: string | null;
   baseUrl?: string; // Allows targeting document-processing-ms (:9090) or thesis backend (:8989)
   signal?: AbortSignal;
   timeoutMs?: number;
+  autoPoll?: boolean; // Default true: automatically polls GET /documents/{id} until COMPLETED
+  onProgress?: (progress: {
+    status: string;
+    message?: string;
+    attempt: number;
+    elapsedMs: number;
+  }) => void;
 }
 
 export interface DocumentDeleteResponse {
@@ -152,7 +181,20 @@ function extractErrorMessage(body: unknown, status: number): string {
     }
     if (typeof detail === "string") return detail;
     const message = (body as { message?: string }).message;
-    if (typeof message === "string") return message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+
+    // Check if raw_text was captured from a non-JSON or HTML server error
+    const rawText = (body as { raw_text?: string }).raw_text;
+    if (typeof rawText === "string" && rawText.trim()) {
+      const clean = rawText.trim();
+      const titleMatch = clean.match(/<title>([^<]+)<\/title>/i);
+      if (titleMatch && titleMatch[1]) {
+        return `Server error (${status}): ${titleMatch[1].trim()}`;
+      }
+      if (clean.length < 200 && !clean.includes("<html")) {
+        return clean;
+      }
+    }
   }
   return `Document processing failed with status ${status}.`;
 }
@@ -186,10 +228,23 @@ async function requestDocumentJson(
       signal: controller.signal,
       cache: "no-store",
     });
-    const body = await response.json().catch((error: unknown) => {
-      if (controller.signal.aborted) throw error;
-      return null;
-    });
+    let body: unknown = null;
+    const responseClone = typeof response.clone === "function" ? response.clone() : null;
+    try {
+      body = await response.json();
+    } catch (parseError) {
+      if (controller.signal.aborted) throw parseError;
+      if (responseClone) {
+        try {
+          const text = await responseClone.text();
+          if (text && text.trim()) {
+            body = { raw_text: text.trim() };
+          }
+        } catch {
+          body = null;
+        }
+      }
+    }
     return { response, body };
   } catch (error) {
     if (init.signal?.aborted) throw error;
@@ -342,6 +397,167 @@ async function resolveEffectiveUserId(
 }
 
 /**
+ * Checks PostgreSQL (the single source of truth) to see if a document is actively being processed.
+ * Route: GET /document-processor/documents/active-processing
+ */
+export async function checkActiveProcessingDocument(
+  options: { baseUrl?: string; signal?: AbortSignal } = {},
+): Promise<ActiveProcessingStatus> {
+  const baseUrl =
+    options.baseUrl ||
+    (typeof window !== "undefined" ? "/api/v1" : DOCS_MS_URL);
+  const targetUrl = `${baseUrl}/document-processor/documents/active-processing`;
+
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: options.signal,
+    },
+    10000,
+  );
+
+  if (!response.ok) {
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
+  }
+
+  return (body as ActiveProcessingStatus) || { is_processing: false };
+}
+
+/**
+ * Awaits background document processing completion using server-side task_notifier.
+ * Connects to GET /document-processor/documents/{document_id}/wait?timeout=60, which holds
+ * the connection and responds immediately when the background OCR + AI task completes.
+ * Eliminates repetitive periodic polling of /documents/{id}.
+ */
+export async function pollDocumentUntilCompleted(
+  documentId: string,
+  options: PollDocumentOptions = {},
+): Promise<StructuresProcessedLessons> {
+  const maxDurationMs = 300000; // 5 minutes total timeout budget
+  const startTime = Date.now();
+  let attempt = 0;
+
+  // Emit initial progress message
+  options.onProgress?.({
+    status: "PROCESSING",
+    message: "Reading document layout and executing OCR text recognition...",
+    attempt: 0,
+    elapsedMs: 0,
+  });
+
+  // Client-side timer to keep UI progress messages dynamic without making ANY extra HTTP requests
+  const progressTimer = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    let stageMessage = "Processing document and extracting curriculum topics with AI...";
+    if (elapsed > 45000) {
+      stageMessage = "Finalizing curriculum topics and structuring module lessons...";
+    } else if (elapsed > 20000) {
+      stageMessage = "Analyzing competencies, learning strands, and hierarchy with Gemini AI...";
+    } else {
+      stageMessage = "Reading document layout and executing OCR text recognition...";
+    }
+    options.onProgress?.({
+      status: "PROCESSING",
+      message: stageMessage,
+      attempt,
+      elapsedMs: elapsed,
+    });
+  }, 4000);
+
+  try {
+    while (Date.now() - startTime < maxDurationMs) {
+      attempt++;
+      if (options.signal?.aborted) {
+        throw new DocumentServiceError(
+          "Document processing was cancelled.",
+          0,
+          false,
+        );
+      }
+
+      let doc: DocumentDetailResponse;
+      try {
+        // Long-polling connection held by backend task_notifier (asyncio.Event).
+        // Responds immediately once background processing finishes (COMPLETED or FAILED).
+        doc = await getModuleDocumentWait(documentId, {
+          baseUrl: options.baseUrl,
+          signal: options.signal,
+          timeoutSeconds: 60,
+        });
+      } catch (waitErr) {
+        if (options.signal?.aborted) throw waitErr;
+        // Fallback: If /wait is unsupported or transient network drop occurs, check status via standard GET
+        try {
+          doc = await getModuleDocumentById(documentId, {
+            baseUrl: options.baseUrl,
+            signal: options.signal,
+          });
+        } catch (fallbackErr) {
+          if (options.signal?.aborted) throw fallbackErr;
+          // Brief 2s delay before retrying wait
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+      }
+
+      if (doc.status === "COMPLETED") {
+        // Background processing completed. Fetch child curriculum materials.
+        const materials = await getMaterials({
+          documentId: doc.id,
+          baseUrl: options.baseUrl,
+          signal: options.signal,
+          pageSize: 100,
+        });
+
+        const primaryMaterial = materials[0];
+        return {
+          status: "COMPLETED",
+          document_id: doc.id,
+          materials_id: primaryMaterial?.id || null,
+          filename: doc.filename,
+          storage_url: doc.storage_url,
+          storage_key: doc.storage_key,
+          learner_name: primaryMaterial?.learner_name || null,
+          cls_name: primaryMaterial?.cls_name || null,
+          als_program: primaryMaterial?.als_program || doc.als_program || null,
+          learning_strand:
+            primaryMaterial?.learning_strand || doc.learning_strand || null,
+          main_learning_goal: primaryMaterial?.main_learning_goal || null,
+          records: (primaryMaterial?.structured_records || []) as ModuleLesson[],
+          is_existing: false,
+          message: "Document processing completed successfully.",
+        };
+      }
+
+      if (doc.status === "FAILED") {
+        throw new DocumentServiceError(
+          doc.error_message ||
+            "Document parsing failed during background processing.",
+          500,
+        );
+      }
+
+      // If still PROCESSING (e.g., 60s server-wait timeout reached before completion),
+      // the loop proceeds to the next wait cycle up to the 5-minute total budget.
+    }
+
+    throw new DocumentServiceError(
+      "Document processing timed out while waiting for background task to complete. Please check the module library or retry.",
+      504,
+    );
+  } finally {
+    clearInterval(progressTimer);
+  }
+}
+
+
+
+/**
  * Uploads and parses a learning module file.
  * Route: POST /document-processor/parser
  * Works with both document-processing-ms (:9090) and thesis backend (:8989).
@@ -384,6 +600,38 @@ export async function parseModuleDocument(
       response.status,
     );
   }
+
+  const parsedBody = body as Partial<StructuresProcessedLessons> | null;
+  const docStatus = parsedBody?.status;
+  const docId = parsedBody?.document_id;
+
+  if (docStatus === "PROCESSING" && docId) {
+    if (options.autoPoll !== false) {
+      options.onProgress?.({
+        status: "PROCESSING",
+        message:
+          parsedBody.message ||
+          "Document registered. Processing in background...",
+        attempt: 0,
+        elapsedMs: 0,
+      });
+      return await pollDocumentUntilCompleted(docId, {
+        baseUrl: options.baseUrl,
+        signal: options.signal,
+        onProgress: options.onProgress,
+      });
+    }
+    return {
+      status: "PROCESSING",
+      document_id: docId,
+      filename: parsedBody.filename || file.name,
+      records: Array.isArray(parsedBody.records) ? parsedBody.records : [],
+      message:
+        parsedBody.message ||
+        "Document uploaded successfully and is being processed in the background.",
+    };
+  }
+
   if (
     !body ||
     typeof body !== "object" ||
@@ -465,12 +713,45 @@ export async function getModuleDocumentById(
   documentId: string,
   options: { baseUrl?: string; signal?: AbortSignal } = {},
 ): Promise<DocumentDetailResponse> {
-  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const baseUrl =
+    options.baseUrl ||
+    (typeof window !== "undefined" ? "/api/v1" : DOCS_MS_URL);
   const targetUrl = `${baseUrl}/document-processor/documents/${encodeURIComponent(documentId)}`;
 
   const response = await fetch(targetUrl, {
     method: "GET",
     headers: { Accept: "application/json" },
+    signal: options.signal,
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body, response.status));
+  }
+
+  return body as DocumentDetailResponse;
+}
+
+/**
+ * Awaits completion of a background document task using server-side hold.
+ * Route: GET /document-processor/documents/{document_id}/wait?timeout={timeout}
+ * Eliminates periodic polling: the server responds immediately upon completion.
+ */
+export async function getModuleDocumentWait(
+  documentId: string,
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutSeconds?: number } = {},
+): Promise<DocumentDetailResponse> {
+  const baseUrl =
+    options.baseUrl ||
+    (typeof window !== "undefined" ? "/api/v1" : DOCS_MS_URL);
+  const timeoutSec = options.timeoutSeconds ?? 60;
+  const targetUrl = `${baseUrl}/document-processor/documents/${encodeURIComponent(documentId)}/wait?timeout=${timeoutSec}`;
+
+  const response = await fetch(targetUrl, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "include",
     signal: options.signal,
   });
 
@@ -626,7 +907,9 @@ export interface GetMaterialsOptions {
 export async function getMaterials(
   options: GetMaterialsOptions = {},
 ): Promise<MaterialItem[]> {
-  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const baseUrl =
+    options.baseUrl ||
+    (typeof window !== "undefined" ? "/api/v1" : DOCS_MS_URL);
   const params = new URLSearchParams();
   if (options.documentId) params.set("document_id", options.documentId);
   if (options.status) params.set("status", options.status);
@@ -841,6 +1124,210 @@ export async function updateMaterialStatus(
     }
     throw error;
   }
+}
+
+/**
+ * Updates an existing topic at topicIndex.
+ * If syncToLessons is true, forward-synchronizes the topic rename to matching generated lessons.
+ * Route: PUT /document-processor/materials/{material_id}/topics/{topic_index}
+ */
+export async function updateMaterialTopic(
+  materialId: string,
+  topicIndex: number,
+  payload: Partial<MaterialTopic>,
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number; syncToLessons?: boolean } = {},
+): Promise<MaterialItem> {
+  if (!materialId.trim()) throw new Error("Select a module to update.");
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const syncParam = options.syncToLessons !== false ? "true" : "false";
+  const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}/topics/${topicIndex}?sync_to_lessons=${syncParam}`;
+
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: options.signal,
+    },
+    options.timeoutMs ?? 20000,
+  );
+
+  if (!response.ok) {
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
+  }
+  if (!body || typeof body !== "object" || !("id" in body) || !("structured_records" in body)) {
+    throw new DocumentServiceError("The document service returned an invalid module response.");
+  }
+  return body as MaterialItem;
+}
+
+/**
+ * Deletes a topic at topicIndex from a material's structured records.
+ * Route: DELETE /document-processor/materials/{material_id}/topics/{topic_index}
+ */
+export async function deleteMaterialTopic(
+  materialId: string,
+  topicIndex: number,
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<MaterialItem> {
+  if (!materialId.trim()) throw new Error("Select a module to update.");
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}/topics/${topicIndex}`;
+
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+      signal: options.signal,
+    },
+    options.timeoutMs ?? 20000,
+  );
+
+  if (!response.ok) {
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
+  }
+  if (!body || typeof body !== "object" || !("id" in body) || !("structured_records" in body)) {
+    throw new DocumentServiceError("The document service returned an invalid module response.");
+  }
+  return body as MaterialItem;
+}
+
+/**
+ * Appends a new structured topic to a material.
+ * Route: POST /document-processor/materials/{material_id}/topics
+ */
+export async function addMaterialTopic(
+  materialId: string,
+  topic: Partial<MaterialTopic>,
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<MaterialItem> {
+  if (!materialId.trim()) throw new Error("Select a module to update.");
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}/topics`;
+
+  const payload: MaterialTopic = {
+    main_topic: topic.main_topic || "New Topic",
+    sub_topics: topic.sub_topics || [],
+    recognize_competencies: topic.recognize_competencies ?? null,
+    delivery_mode: topic.delivery_mode ?? null,
+    duration: topic.duration ?? null,
+    expected_output: topic.expected_output ?? null,
+    start_date: topic.start_date ?? null,
+    finished_date: topic.finished_date ?? null,
+    status: topic.status ?? "pending",
+  };
+
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: options.signal,
+    },
+    options.timeoutMs ?? 20000,
+  );
+
+  if (!response.ok) {
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
+  }
+  if (!body || typeof body !== "object" || !("id" in body) || !("structured_records" in body)) {
+    throw new DocumentServiceError("The document service returned an invalid module response.");
+  }
+  return body as MaterialItem;
+}
+
+/**
+ * Appends a subtopic string to a specific topic at topicIndex.
+ * Route: POST /document-processor/materials/{material_id}/topics/{topic_index}/subtopics
+ */
+export async function addMaterialSubtopic(
+  materialId: string,
+  topicIndex: number,
+  subTopic: string,
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<MaterialItem> {
+  if (!materialId.trim()) throw new Error("Select a module to update.");
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}/topics/${topicIndex}/subtopics`;
+
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ sub_topic: subTopic }),
+      signal: options.signal,
+    },
+    options.timeoutMs ?? 20000,
+  );
+
+  if (!response.ok) {
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
+  }
+  if (!body || typeof body !== "object" || !("id" in body) || !("structured_records" in body)) {
+    throw new DocumentServiceError("The document service returned an invalid module response.");
+  }
+  return body as MaterialItem;
+}
+
+/**
+ * Deletes a specific subtopic from the topic at topicIndex.
+ * Route: DELETE /document-processor/materials/{material_id}/topics/{topic_index}/subtopics/{subtopic_index}
+ */
+export async function deleteMaterialSubtopic(
+  materialId: string,
+  topicIndex: number,
+  subtopicIndex: number,
+  options: { baseUrl?: string; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<MaterialItem> {
+  if (!materialId.trim()) throw new Error("Select a module to update.");
+  const baseUrl = options.baseUrl || DOCS_MS_URL;
+  const targetUrl = `${baseUrl}/document-processor/materials/${encodeURIComponent(materialId)}/topics/${topicIndex}/subtopics/${subtopicIndex}`;
+
+  const { response, body } = await requestDocumentJson(
+    targetUrl,
+    {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+      signal: options.signal,
+    },
+    options.timeoutMs ?? 20000,
+  );
+
+  if (!response.ok) {
+    throw new DocumentServiceError(
+      extractErrorMessage(body, response.status),
+      response.status,
+    );
+  }
+  if (!body || typeof body !== "object" || !("id" in body) || !("structured_records" in body)) {
+    throw new DocumentServiceError("The document service returned an invalid module response.");
+  }
+  return body as MaterialItem;
 }
 
 /**

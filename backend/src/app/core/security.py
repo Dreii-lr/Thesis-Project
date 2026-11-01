@@ -63,7 +63,13 @@ def decode_token(token: str) -> dict:
     )
 
 
-COOKIE_SECURE = constants.COOKIE_SECURE or constants.APP_ENV.lower() == "production"
+COOKIE_SECURE = getattr(constants, "COOKIE_SECURE", False) or getattr(constants, "APP_ENV", "development").lower() == "production"
+COOKIE_SAMESITE = (getattr(constants, "COOKIE_SAMESITE", "lax") or "lax").lower()
+COOKIE_DOMAIN = (
+    getattr(constants, "COOKIE_DOMAIN", None)
+    if getattr(constants, "COOKIE_DOMAIN", None) and getattr(constants, "COOKIE_DOMAIN", None) not in ("localhost", "127.0.0.1", "")
+    else None
+)
 
 # Lifespans
 ACCESS_TOKEN_MAX_AGE = 60 * 60            # 1 hour (Firebase idToken expiration)
@@ -108,7 +114,8 @@ def set_auth_cookies(
         expires=access_expires,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite=COOKIE_SAMESITE,
+        domain=COOKIE_DOMAIN,
         path="/",  # Needed on API requests to authenticate endpoints
     )
 
@@ -120,7 +127,8 @@ def set_auth_cookies(
         expires=refresh_expires,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite=COOKIE_SAMESITE,
+        domain=COOKIE_DOMAIN,
         path="/api/v1/auth",  # Restricted: only sent to auth routes (refresh, logout)
     )
 
@@ -140,7 +148,8 @@ def clear_auth_cookies(response: Response) -> None:
         path="/",
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite=COOKIE_SAMESITE,
+        domain=COOKIE_DOMAIN,
     )
     response.set_cookie(
         key="refresh_token",
@@ -150,5 +159,6 @@ def clear_auth_cookies(response: Response) -> None:
         path="/api/v1/auth",
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite=COOKIE_SAMESITE,
+        domain=COOKIE_DOMAIN,
     )

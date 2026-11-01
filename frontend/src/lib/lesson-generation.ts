@@ -154,13 +154,14 @@ function schedule(entry: Entry) {
     !entry.state.pending ||
     entry.deleted ||
     !canCheckAutomatically() ||
-    entry.checks >= MAX_CHECKS
+    entry.checks >= MAX_CHECKS ||
+    Boolean(entry.request) // Zero periodic calls while the generation POST is active
   )
     return;
   entry.timer = setTimeout(() => {
-    if (entry.watchers && entry.state.pending && !entry.deleted)
+    if (entry.watchers && entry.state.pending && !entry.deleted && !entry.request)
       void checkLessonGeneration(entry.owner, entry.material, { automatic: true });
-  }, Math.min(30000, 4000 * 2 ** Math.floor(entry.checks / 5)));
+  }, Math.min(45000, 8000 * 2 ** Math.floor(entry.checks / 3)));
 }
 
 export async function checkLessonGeneration(
@@ -391,9 +392,13 @@ export async function startLessonGeneration(
     if (!entry.deleted) {
       await checkLessonGeneration(owner, entry.material, { automatic: true });
     }
+    // Only schedule subsequent verification if still pending after POST settled (e.g. gateway timeout)
+    if (entry.state.pending && !entry.deleted) {
+      schedule(entry);
+    }
   });
   entry.request = tracked;
-  schedule(entry);
+  // NOTE: Zero periodic polling during generation. The connection stays open and receives the result directly.
   await tracked;
   if (surfacedError) throw surfacedError;
 }

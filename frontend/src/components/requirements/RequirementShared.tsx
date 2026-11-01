@@ -23,7 +23,7 @@ export function StatusBadge({ status }: { status?: RequirementStatus }) {
 }
 
 export function DemoNotice() {
-  return <div className="flex items-start gap-3 rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-xs leading-5 text-amber-900"><Info size={16} className="mt-0.5 shrink-0" /><p><strong className="font-semibold">Frontend demonstration.</strong> Checks and decisions are simulated; no OCR or issuer verification runs. Files stay in this browser and can be viewed from its student, teacher, and admin demo screens. Use sample documents only. Nothing is sent to the server or synced to other devices.</p></div>;
+  return null;
 }
 
 export function RequirementError({ message }: { message: string }) {
@@ -50,12 +50,12 @@ export function FilePreview({ version, localFile, sample = false }: { version?: 
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [key, localFile, sample]);
   const mime = localFile?.type || version?.mime;
-  if (sample || !key) return <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center"><FileText size={30} strokeWidth={1.3} className="text-slate-300" /><p className="mt-3 text-xs text-slate-500">{sample ? 'Illustrative sample — no real document attached.' : 'No file attached to this assistance request.'}</p></div>;
-  if (result?.key !== key) return <p role="status" className="flex items-center gap-2 p-6 text-xs text-slate-500"><Loader2 size={16} className="animate-spin" />Opening preview…</p>;
+  if (sample || !key) return <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center"><FileText size={30} strokeWidth={1.3} className="text-slate-300" /><p className="mt-3 text-xs text-slate-500">No document file is attached to this record.</p></div>;
+  if (result?.key !== key) return <p role="status" className="flex items-center justify-center gap-2 p-8 text-xs text-slate-500"><Loader2 size={16} className="animate-spin" />Opening document preview…</p>;
   if (result.error) return <RequirementError message={result.error} />;
   return <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-    {mime?.startsWith('image/') ? <div className="flex max-h-80 justify-center overflow-auto p-3"><Image unoptimized src={result.url} width={900} height={700} alt="Selected requirement document" className="h-auto max-h-72 w-auto max-w-full object-contain" /></div> : <iframe title="Requirement PDF preview" src={result.url} className="h-72 w-full bg-white" />}
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2"><p className="min-w-0 truncate text-[11px] text-slate-500">{localFile?.name || version?.fileName}</p><a href={result.url} download={localFile?.name || version?.fileName} className="text-xs font-semibold text-blue-600 underline underline-offset-2">Download file</a></div>
+    {mime?.startsWith('image/') ? <div className="flex max-h-80 justify-center overflow-auto p-3"><Image unoptimized src={result.url} width={900} height={700} alt="Selected requirement document" className="h-auto max-h-72 w-auto max-w-full object-contain rounded-lg shadow-sm" /></div> : <iframe title="Requirement PDF preview" src={result.url} className="h-72 w-full bg-white" />}
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2"><p className="min-w-0 truncate text-[11px] font-medium text-slate-600">{localFile?.name || version?.fileName}</p><a href={result.url} download={localFile?.name || version?.fileName} className="text-xs font-semibold text-blue-600 hover:text-blue-700 underline underline-offset-2">Download file</a></div>
   </div>;
 }
 
@@ -65,9 +65,9 @@ export function SubmissionDetails({ record }: { record: RequirementRecord }) {
   return <div className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-medium text-slate-500">{REQUIREMENTS.find(item => item.id === record.requirementId)?.title}</p><p className="mt-1 text-sm font-semibold text-slate-800">{selected?.type || 'School-record assistance'}</p></div><StatusBadge status={record.status} /></div>
     <FilePreview key={selected?.id} version={selected} sample={record.sample} />
-    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p className="flex items-center gap-2 text-xs font-semibold text-blue-800"><FileCheck2 size={15} />Latest result & feedback</p><p className="mt-2 text-xs leading-6 text-slate-600">{record.note}</p></div>
+    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><p className="flex items-center gap-2 text-xs font-semibold text-blue-800"><FileCheck2 size={15} />Status & teacher feedback</p><p className="mt-2 text-xs leading-6 text-slate-600">{record.note}</p></div>
     {selected && <div className="grid grid-cols-2 gap-3 text-xs"><div><p className="text-slate-400">Version being viewed</p><p className="mt-1 font-medium">{selected.id === record.versions[0]?.id ? 'Latest submission' : 'Previous submission'}</p></div><div><p className="text-slate-400">Submitted</p><p className="mt-1 font-medium">{formatRequirementDate(selected.at)}</p></div></div>}
     {record.versions.length > 1 && <label className="block text-xs font-medium text-slate-600">Submission history<select className={fieldClass} value={selected?.id} onChange={event => setVersionId(event.target.value)}>{record.versions.map((version, index) => <option key={version.id} value={version.id}>{index === 0 ? 'Latest' : `Version ${record.versions.length - index}`} · {version.fileName || 'Assistance request'} · {formatRequirementDate(version.at)}</option>)}</select></label>}
-    <details className="rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer text-xs font-semibold text-slate-700">Activity history · {record.events.length} updates</summary><ol className="mt-4 space-y-4">{record.events.map(event => <li key={event.id} className="flex gap-2"><Check size={13} className="mt-1 shrink-0 text-blue-600" /><div><p className="text-xs leading-6 text-slate-600">{event.message}</p><p className="mt-1 text-[10px] text-slate-400">{event.actor} · {formatRequirementDate(event.at)}</p></div></li>)}</ol></details>
+    <details className="rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer text-xs font-semibold text-slate-700">Activity history · {record.events.length} update{record.events.length !== 1 ? 's' : ''}</summary><ol className="mt-4 space-y-4">{record.events.map(event => <li key={event.id} className="flex gap-2"><Check size={13} className="mt-1 shrink-0 text-blue-600" /><div><p className="text-xs leading-6 text-slate-600">{event.message}</p><p className="mt-1 text-[10px] text-slate-400">{event.actor} · {formatRequirementDate(event.at)}</p></div></li>)}</ol></details>
   </div>;
 }

@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   AlertCircle,
   Trash2,
+  Plus,
 } from "lucide-react";
 import { ContentFile, LessonFolder } from "@/src/data/mockModules";
 import { processTiptapImagesForCloudinary } from "@/src/utils/cloudinaryUpload";
@@ -33,6 +34,11 @@ import {
   updateMaterialStatus,
   normalizeMaterialStatus,
   matchMaterialToSubject,
+  updateMaterialTopic,
+  deleteMaterialTopic,
+  addMaterialTopic,
+  addMaterialSubtopic,
+  deleteMaterialSubtopic,
   type MaterialItem,
   type MaterialTopic,
 } from "@/src/lib/document-processor-api";
@@ -142,7 +148,32 @@ export default function DocumentViewPage({
   const effectiveSubjectId = selectedSubject?.subject_id || "";
   const allTopicsGenerated =
     lessons.length > 0 && lessons.every((lesson) => lesson.files.length > 0);
-  const busy = Boolean(generation?.pending) || isSaving || isUpdatingStatus;
+
+  const activeTopicIndex = lessons.findIndex(
+    (lesson) => lesson.id === activeLessonId,
+  );
+
+  // Topic and Subtopic editing states
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
+  const [topicDraftTitle, setTopicDraftTitle] = useState("");
+  const [editingSubtopicIndex, setEditingSubtopicIndex] = useState<number | null>(
+    null,
+  );
+  const [subtopicDraftText, setSubtopicDraftText] = useState("");
+  const [isAddingSubtopic, setIsAddingSubtopic] = useState(false);
+  const [newSubtopicText, setNewSubtopicText] = useState("");
+  const [topicToDelete, setTopicToDelete] = useState<{
+    id: string;
+    title: string;
+    index: number;
+  } | null>(null);
+  const [isDeletingTopic, setIsDeletingTopic] = useState(false);
+
+  const busy =
+    Boolean(generation?.pending) ||
+    isSaving ||
+    isUpdatingStatus ||
+    isDeletingTopic;
 
   const loadSubjects = useCallback(async () => {
     try {
@@ -414,22 +445,154 @@ export default function DocumentViewPage({
       setActionError("Enter a lesson title between 1 and 255 characters.");
       return;
     }
-    if (!target.files.length) {
-      setActionError("Generate this topic before renaming it.");
+    const topicIndex = lessons.findIndex((lesson) => lesson.id === lessonId);
+    if (topicIndex === -1) return;
+
+    setIsSaving(true);
+    setActionError("");
+    try {
+      await updateMaterialTopic(materialId, topicIndex, {
+        main_topic: newTitle.trim(),
+      });
+      if (target.files.length > 0) {
+        for (const file of target.files)
+          await updateGeneratedLesson(file.id, {
+            lesson_title: newTitle.trim(),
+            content: getFileTiptapJson(file),
+          });
+      }
+      await loadMaterialData();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "The topic could not be renamed.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAddTopic = async (title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed || busy || isEditing) return;
+    if (trimmed.length > 255) {
+      setActionError("Enter a topic title between 1 and 255 characters.");
       return;
     }
     setIsSaving(true);
     setActionError("");
     try {
-      for (const file of target.files)
-        await updateGeneratedLesson(file.id, {
-          lesson_title: newTitle.trim(),
-          content: getFileTiptapJson(file),
-        });
+      const updated = await addMaterialTopic(materialId, {
+        main_topic: trimmed,
+        sub_topics: [],
+      });
+      const newIndex = (updated.structured_records?.length || 1) - 1;
+      const newLessonId = `topic-${newIndex + 1}`;
+      activeSelection.current = { lessonId: newLessonId, fileId: "" };
+      setActiveLessonId(newLessonId);
+      setActiveFileId("");
       await loadMaterialData();
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : "The topic could not be renamed.",
+        err instanceof Error ? err.message : "The topic could not be added.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteTopic = (lessonId: string) => {
+    const target = lessons.find((lesson) => lesson.id === lessonId);
+    const topicIndex = lessons.findIndex((lesson) => lesson.id === lessonId);
+    if (!target || topicIndex === -1 || busy || isEditing) return;
+    setTopicToDelete({ id: lessonId, title: target.title, index: topicIndex });
+  };
+
+  const confirmDeleteTopic = async () => {
+    if (!topicToDelete || busy) return;
+    setIsDeletingTopic(true);
+    setActionError("");
+    try {
+      await deleteMaterialTopic(materialId, topicToDelete.index);
+      const remaining = lessons.filter((l) => l.id !== topicToDelete.id);
+      if (remaining.length > 0) {
+        const nextIdx = Math.min(topicToDelete.index, remaining.length - 1);
+        const nextSelected = remaining[nextIdx];
+        activeSelection.current = {
+          lessonId: nextSelected.id,
+          fileId: nextSelected.files[0]?.id || "",
+        };
+        setActiveLessonId(nextSelected.id);
+        setActiveFileId(nextSelected.files[0]?.id || "");
+      } else {
+        activeSelection.current = { lessonId: "", fileId: "" };
+        setActiveLessonId("");
+        setActiveFileId("");
+      }
+      setTopicToDelete(null);
+      await loadMaterialData();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "The topic could not be deleted.",
+      );
+    } finally {
+      setIsDeletingTopic(false);
+    }
+  };
+
+  const handleAddSubtopic = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || activeTopicIndex === -1 || busy || isEditing) return;
+    setIsSaving(true);
+    setActionError("");
+    try {
+      await addMaterialSubtopic(materialId, activeTopicIndex, trimmed);
+      setIsAddingSubtopic(false);
+      setNewSubtopicText("");
+      await loadMaterialData();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "The subtopic could not be added.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteSubtopic = async (subtopicIndex: number) => {
+    if (activeTopicIndex === -1 || busy || isEditing) return;
+    setIsSaving(true);
+    setActionError("");
+    try {
+      await deleteMaterialSubtopic(materialId, activeTopicIndex, subtopicIndex);
+      await loadMaterialData();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "The subtopic could not be deleted.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleEditSubtopic = async (subtopicIndex: number, newText: string) => {
+    const trimmed = newText.trim();
+    if (!trimmed || activeTopicIndex === -1 || busy || isEditing) return;
+    const currentSubs = [...(activeLesson?.sub_topics || [])];
+    if (subtopicIndex >= currentSubs.length) return;
+    currentSubs[subtopicIndex] = trimmed;
+
+    setIsSaving(true);
+    setActionError("");
+    try {
+      await updateMaterialTopic(materialId, activeTopicIndex, {
+        sub_topics: currentSubs,
+      });
+      setEditingSubtopicIndex(null);
+      setSubtopicDraftText("");
+      await loadMaterialData();
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "The subtopic could not be updated.",
       );
     } finally {
       setIsSaving(false);
@@ -617,6 +780,8 @@ export default function DocumentViewPage({
             readOnly={busy || isEditing}
             onRenameLesson={handleRenameLesson}
             onRenameFile={handleRenameFile}
+            onDeleteLesson={handleDeleteTopic}
+            onAddTopic={handleAddTopic}
             onToggleCollapse={() => setIsSidebarOpen(false)}
           />
         </div>
@@ -794,38 +959,249 @@ export default function DocumentViewPage({
             </article>
           ) : activeLesson ? (
             /* Selected lesson has no generated files yet */
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8 text-center bg-white">
-              <div className="max-w-md">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
-                  <Sparkles size={24} />
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-6 sm:p-10 bg-slate-50/50">
+              <div className="w-full max-w-xl rounded-2xl border border-slate-200/80 bg-white p-6 sm:p-8 shadow-xs">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
+                  <Sparkles size={22} />
                 </div>
-                <span className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 mb-2">
-                  {generationBlocked
-                    ? "Content status unavailable"
-                    : "Awaiting Content Generation"}
-                </span>
-                <h2 className="text-xl font-bold text-slate-900">
-                  {activeLesson.title}
-                </h2>
-                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <span className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
+                    {generationBlocked
+                      ? "Content status unavailable"
+                      : "Awaiting Content Generation"}
+                  </span>
+                  <span className="inline-block rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                    Topic {activeTopicIndex + 1} of {lessons.length}
+                  </span>
+                </div>
+
+                {/* Editable Topic Title */}
+                {editingTopicId === activeLesson.id ? (
+                  <div className="mb-3 flex items-center gap-2 rounded-xl border border-blue-500 bg-white p-2 shadow-xs">
+                    <input
+                      type="text"
+                      value={topicDraftTitle}
+                      onChange={(e) => setTopicDraftTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          void handleRenameLesson(activeLesson.id, topicDraftTitle);
+                          setEditingTopicId(null);
+                        } else if (e.key === "Escape") {
+                          setEditingTopicId(null);
+                        }
+                      }}
+                      autoFocus
+                      disabled={busy}
+                      className="min-w-0 flex-1 bg-transparent px-2 text-base font-bold text-slate-900 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        void handleRenameLesson(activeLesson.id, topicDraftTitle);
+                        setEditingTopicId(null);
+                      }}
+                      className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                      title="Save title"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setEditingTopicId(null)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                      title="Cancel"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="group mb-2 flex items-center justify-center gap-2 text-center">
+                    <h2 className="text-xl font-bold tracking-tight text-slate-900">
+                      {activeLesson.title}
+                    </h2>
+                    {!busy && (
+                      <div className="flex items-center gap-1 opacity-80 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingTopicId(activeLesson.id);
+                            setTopicDraftTitle(activeLesson.title);
+                          }}
+                          className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          title="Edit topic title"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTopic(activeLesson.id)}
+                          className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="Delete topic"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <p className="mx-auto max-w-md text-xs leading-relaxed text-slate-500">
                   {generationBlocked
                     ? "Saved content could not be confirmed. Check progress before starting another generation request."
-                    : "This curriculum topic does not have saved lesson content yet. Use Generate Content in the header above to generate lesson materials tailored for ALS learners."}
+                    : "Review and customize this topic and its subtopics. When ready, click Generate Content above to generate the lesson tailored for ALS learners."}
                 </p>
 
-                {activeLesson.sub_topics &&
-                  activeLesson.sub_topics.length > 0 && (
-                    <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-                      {activeLesson.sub_topics.map((sub, sIdx) => (
-                        <span
-                          key={sIdx}
-                          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                {/* Subtopics Management Section */}
+                <div className="mt-6 border-t border-slate-100 pt-5 text-left">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      Sub-competencies & Subtopics
+                    </span>
+                    <span className="text-[11px] font-medium text-slate-500">
+                      {activeLesson.sub_topics?.length || 0} items
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {activeLesson.sub_topics &&
+                      activeLesson.sub_topics.map((sub, sIdx) => {
+                        const isEditingThisSub = editingSubtopicIndex === sIdx;
+
+                        if (isEditingThisSub) {
+                          return (
+                            <div
+                              key={sIdx}
+                              className="flex items-center gap-1.5 rounded-lg border border-blue-500 bg-white px-2.5 py-1 shadow-2xs"
+                            >
+                              <input
+                                type="text"
+                                value={subtopicDraftText}
+                                onChange={(e) => setSubtopicDraftText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    void handleEditSubtopic(sIdx, subtopicDraftText);
+                                  } else if (e.key === "Escape") {
+                                    setEditingSubtopicIndex(null);
+                                  }
+                                }}
+                                autoFocus
+                                disabled={busy}
+                                className="min-w-[120px] max-w-[280px] bg-transparent text-xs text-slate-800 focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void handleEditSubtopic(sIdx, subtopicDraftText)}
+                                className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                                title="Save"
+                              >
+                                <Check size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setEditingSubtopicIndex(null)}
+                                className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                                title="Cancel"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={sIdx}
+                            className="group/chip inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-xs text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+                          >
+                            <span className="font-medium leading-relaxed">{sub}</span>
+                            {!busy && (
+                              <div className="flex items-center gap-0.5 opacity-60 group-hover/chip:opacity-100">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingSubtopicIndex(sIdx);
+                                    setSubtopicDraftText(sub);
+                                  }}
+                                  className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                  title="Edit subtopic"
+                                >
+                                  <Edit2 size={11} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteSubtopic(sIdx)}
+                                  className="rounded p-0.5 text-slate-400 hover:text-rose-600"
+                                  title="Remove subtopic"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                    {/* Inline Add Subtopic Input or Button */}
+                    {!busy && (
+                      isAddingSubtopic ? (
+                        <div className="flex items-center gap-1.5 rounded-lg border border-blue-500 bg-white px-2.5 py-1 shadow-2xs">
+                          <input
+                            type="text"
+                            value={newSubtopicText}
+                            onChange={(e) => setNewSubtopicText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                void handleAddSubtopic(newSubtopicText);
+                              } else if (e.key === "Escape") {
+                                setIsAddingSubtopic(false);
+                                setNewSubtopicText("");
+                              }
+                            }}
+                            placeholder="Type subtopic & press Enter..."
+                            autoFocus
+                            className="min-w-[140px] max-w-[280px] bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleAddSubtopic(newSubtopicText)}
+                            className="text-emerald-600 hover:text-emerald-700"
+                            title="Add subtopic"
+                          >
+                            <Check size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAddingSubtopic(false);
+                              setNewSubtopicText("");
+                            }}
+                            className="text-slate-400 hover:text-slate-600"
+                            title="Cancel"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingSubtopic(true);
+                            setNewSubtopicText("");
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 transition hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700"
                         >
-                          {sub}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                          <Plus size={12} />
+                          <span>Add Subtopic</span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -896,6 +1272,62 @@ export default function DocumentViewPage({
                 <>
                   <Trash2 size={14} />
                   <span>Delete permanently</span>
+                </>
+              )}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {topicToDelete && (
+        <Modal
+          title="Delete this topic?"
+          onClose={() => {
+            if (!isDeletingTopic) setTopicToDelete(null);
+          }}
+          pending={isDeletingTopic}
+        >
+          <div className="mb-5 flex items-start gap-3 rounded-xl border border-rose-100 bg-rose-50/60 p-4">
+            <span className="rounded-lg bg-white p-2 text-rose-600">
+              <Trash2 size={18} />
+            </span>
+            <div className="min-w-0">
+              <p className="line-clamp-2 text-sm font-semibold leading-6 text-slate-800">
+                {topicToDelete.title}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Topic {topicToDelete.index + 1} of {lessons.length}
+              </p>
+            </div>
+          </div>
+          <p className="text-sm leading-7 text-slate-600">
+            This will permanently remove this topic and all its subtopics from
+            the curriculum module. This action cannot be undone.
+          </p>
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              disabled={isDeletingTopic}
+              onClick={() => setTopicToDelete(null)}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isDeletingTopic}
+              onClick={() => void confirmDeleteTopic()}
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+            >
+              {isDeletingTopic ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Deleting…</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 size={14} />
+                  <span>Delete topic</span>
                 </>
               )}
             </button>

@@ -94,7 +94,6 @@ class PersonalDetails(SQLModel, table=True):
     religion: Optional[str] = Field(default=None, nullable=True)
     learning_modalities: Optional[LearningModality] = Field(default=LearningModality.FTF, nullable=True)
     lrn_number: Optional[str] = Field(default=None, index=True, nullable=True)
-
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),

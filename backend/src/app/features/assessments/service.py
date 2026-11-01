@@ -449,8 +449,7 @@ class AssessmentService:
                 matching_pool = []
                 if c_type == "Matching Type":
                     matches = [q.get("match", "") for q in sampled if q.get("match")]
-                    max_delivery_distractors = len(sampled) // 5
-                    extra_distractors = [d for d in cat.get("distractors", []) if d][:max_delivery_distractors]
+                    extra_distractors = [d for d in cat.get("distractors", []) if d]
                     combined = list(dict.fromkeys(matches + extra_distractors))
                     random.shuffle(combined)
                     matching_pool = combined
@@ -470,7 +469,7 @@ class AssessmentService:
                         "points_per_item": points,
                         "text": q.get("text"),
                         "options": options_copy,
-                        "premise": None if str(c_type).lower() == "essay" else q.get("premise"),
+                        "premise": q.get("premise"),
                         "match": None,  # Hide match answer!
                         "matching_pool": matching_pool if c_type == "Matching Type" else None,
                         "image_url": q.get("image_url") or None,
@@ -643,6 +642,7 @@ class AssessmentService:
         result = SubmissionDetailResponse(
             submission_id=submission.submission_id,
             assessment_id=submission.assessment_id,
+            student_id=submission.student_id,
             account_id=submission.account_id,
             student_category=submission.student_category,
             auto_score=submission.auto_score,
@@ -691,6 +691,7 @@ class AssessmentService:
         result = SubmissionDetailResponse(
             submission_id=submission.submission_id,
             assessment_id=submission.assessment_id,
+            student_id=submission.student_id,
             account_id=submission.account_id,
             student_category=submission.student_category,
             auto_score=submission.auto_score,
@@ -725,6 +726,7 @@ class AssessmentService:
                 SubmissionDetailResponse(
                     submission_id=s.submission_id,
                     assessment_id=s.assessment_id,
+                    student_id=s.student_id,
                     account_id=account_id,
                     student_name=student_name,
                     student_category=s.student_category,
@@ -763,6 +765,7 @@ class AssessmentService:
         result = SubmissionDetailResponse(
             submission_id=submission.submission_id,
             assessment_id=submission.assessment_id,
+            student_id=submission.student_id,
             account_id=account_id,
             student_name=student_name,
             student_category=submission.student_category,
@@ -806,6 +809,7 @@ class AssessmentService:
         result = SubmissionDetailResponse(
             submission_id=s.submission_id,
             assessment_id=s.assessment_id,
+            student_id=s.student_id,
             account_id=account_id,
             student_name=student_name,
             student_category=s.student_category,

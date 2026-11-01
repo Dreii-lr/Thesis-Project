@@ -80,13 +80,24 @@ app.include_router(locations_router, prefix=constants.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])
-async def health_check():
-    return {
+async def health_check(check_db: bool = False):
+    result = {
         "status": "healthy",
         "project": constants.APP_NAME,
         "version": constants.VERSION,
         "environment": constants.APP_ENV,
     }
+    if check_db:
+        try:
+            from app.core.database import engine
+            from sqlalchemy import text
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            result["database"] = "healthy"
+        except Exception as exc:
+            result["status"] = "degraded"
+            result["database"] = f"unhealthy: {type(exc).__name__}"
+    return result
 
 
 if __name__ == '__main__':

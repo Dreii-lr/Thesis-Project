@@ -25,21 +25,29 @@ class UserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_by_id(self, user_id: str) -> UserRead | None:
+    async def get_by_id(self, user_id: str | None) -> UserRead | None:
         """Retrieve user by ID including all normalized details (personal, contact, family)."""
         statement = _user_query().where(User.user_id == user_id)
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
-        return UserRead.model_validate(data) if data is not None else None
+        if data is not None:
+            user_read = UserRead.model_validate(data)
+            user_read.password = None
+            return user_read
+        return None
 
-    async def get_by_lrn(self, lrn: str) -> UserRead | None:
+    async def get_by_lrn(self, lrn: str | None) -> UserRead | None:
         """Retrieve user by ID including all normalized details (personal, contact, family)."""
         statement = _user_query().join(PersonalDetails, PersonalDetails.user_id == User.user_id).where(PersonalDetails.lrn_number == lrn)
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
-        return UserRead.model_validate(data) if data is not None else None
+        if data is not None:
+            user_read = UserRead.model_validate(data)
+            user_read.password = None
+            return user_read
+        return None
 
-    async def get_by_id_with_details(self, user_id: str) -> UserRead | None:
+    async def get_by_id_with_details(self, user_id: str | None) -> UserRead | None:
         """
         Get or select user including its other info (personal_details, contact_details, family_details)
         that matches the UserRead response schema.
@@ -55,11 +63,11 @@ class UserRepository:
             return user_read
         return None
 
-    async def get_user_with_details(self, user_id: str) -> UserRead | None:
+    async def get_user_with_details(self, user_id: str | None) -> UserRead | None:
         """Alias for get_by_id_with_details."""
         return await self.get_by_id_with_details(user_id)
 
-    async def get_by_id_no_password(self, user_id: str) -> UserRead | None:
+    async def get_by_id_no_password(self, user_id: str | None)  -> UserRead | None:
         """Retrieve user with all details and exclude sensitive password."""
         statement = _user_query().where(User.user_id == user_id)
         result = await self._session.execute(statement)
@@ -70,27 +78,32 @@ class UserRepository:
             return user_read
         return None
 
-    async def get_by_email(self, email: str) -> UserRead | None:
+    async def get_by_email(self, email: str | None) -> UserRead | None:
         statement = _user_query().where(User.email == email.lower())
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
-        return UserRead.model_validate(data) if data is not None else None
+        if data is not None:
+            user_read = UserRead.model_validate(data)
+            user_read.password = None
+            return user_read
+        return None
 
     async def select_user_with_details(self, user_id: str) -> UserRead | None:
         """Select user including its other info matching UserRead response schema."""
         return await self.get_by_id_with_details(user_id)
 
-    async def get_entity_with_details(self, user_id: str) -> User | None:
+    async def get_entity_with_details(self, user_id: str | None) -> User | None:
         """Return the tracked entity; redact credentials only in response DTOs."""
         return await self.get_entity_by_id(user_id)
 
-    async def get_by_account_id(self, account_id: str) -> UserRead | None:
+    async def get_by_account_id(self, account_id: str | None) -> UserRead | None:
         stmt = _user_query().where(User.account_id == account_id)
         result = await self._session.execute(stmt)
         data = result.scalar_one_or_none()
 
         if data is not None:
             user_read = UserRead.model_validate(data)
+            user_read.password = None
             return user_read
         return None
 
@@ -99,7 +112,7 @@ class UserRepository:
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def get_entity_by_id(self, user_id: str) -> User | None:
+    async def get_entity_by_id(self, user_id: str | None) -> User | None:
         """Return a tracked entity so nested profile edits are persisted."""
         result = await self._session.execute(_user_query().where(User.user_id == user_id))
         return result.scalar_one_or_none()
@@ -202,3 +215,9 @@ class UserRepository:
                 entity = result.scalar_one_or_none()
                 if entity:
                     await self._session.delete(entity)
+
+    async def get_user_by_full_name(self,first_name=None,
+                                    middle_name=None,
+                                    last_name=None,
+                                    birth_date=None):
+        condition = []

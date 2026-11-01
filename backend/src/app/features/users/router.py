@@ -13,12 +13,13 @@ from app.core.unit_of_work import AbstractUnitOfWork, get_uow
 from app.features.auth.dependencies import get_current_active_user, require_roles, require_teacher
 from app.features.users.models import UserRole
 from app.features.users.schemas import (
+    ChangeEmailRequest,
     ChangePasswordRequest,
     ListUserRead,
     TeacherCreate,
     UserCreate,
     UserRead,
-    UserUpdate, MapStudent,
+    UserUpdate, MapStudent, CreateAdmin,
 )
 from app.features.users.service import UserService
 from app.shared.utils import SharedUtils
@@ -36,6 +37,8 @@ def _validate_image_file(file: UploadFile) -> None:
         raise DomainValidationDomainException("Only JPEG, PNG, and WebP image files are allowed for profile pictures.")
 
 
+@router.post("/teachers", status_code=status.HTTP_201_CREATED)
+@router.post("/teacher", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post("/create-teacher-account", status_code=status.HTTP_201_CREATED)
 async def create_teacher_account(
         data: TeacherCreate,
@@ -52,6 +55,8 @@ async def create_teacher_account(
     return SharedUtils.SuccessfulResponse(response)
 
 
+@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post("/mapping", status_code=status.HTTP_201_CREATED)
 async def mapping_student(
         data: MapStudent,
@@ -114,19 +119,35 @@ async def change_password(
     return json_response
 
 
+@router.post("/change-email", status_code=status.HTTP_200_OK)
+async def change_email(
+        data: ChangeEmailRequest,
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+) -> JSONResponse:
+    """
+    Change email for the authenticated user.
+    Synchronously updates Firebase Auth and PostgreSQL database,
+    revokes refresh tokens, and clears browser auth cookies.
+    """
+    response = await UserService.change_email(uow, current_user.user_id, data)
+    json_response = SharedUtils.SuccessfulResponse(response)
+    clear_auth_cookies(json_response)
+    return json_response
+
+
 # ── Profile Picture Endpoints for Current User (Student, Teacher, Admin) ─────
 @router.patch("/profile-picture", status_code=status.HTTP_200_OK)
 async def update_current_user_profile_picture(
-    file: UploadFile = File(...),
-    current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+        file: UploadFile = File(...),
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Update profile picture for currently authenticated user (Student, Teacher, Admin).
     Accepts both POST and PATCH methods.
     Strictly an update process; separated from account creation.
     """
-    print("Hey")
     _validate_image_file(file)
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE_BYTES:
@@ -143,8 +164,8 @@ async def update_current_user_profile_picture(
 
 @router.delete("/profile-picture", status_code=status.HTTP_200_OK)
 async def delete_current_user_profile_picture(
-    current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Remove profile picture for currently authenticated user (Student, Teacher, Admin).
@@ -174,15 +195,41 @@ async def change_password_by_id(
     json_response = SharedUtils.SuccessfulResponse(response)
     if current_user.user_id == user_id:
         clear_auth_cookies(json_response)
+    response.status_code = status.HTTP_200_OK
+
+    return json_response
+
+
+@router.patch("/{user_id}/change-email", status_code=status.HTTP_200_OK)
+async def change_email_by_id(
+        user_id: str,
+        data: ChangeEmailRequest,
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+) -> JSONResponse:
+    """
+    Change email by user ID.
+    Users can change their own email.
+    Admins can update emails for any user.
+    """
+    if current_user.user_id != user_id and current_user.role != UserRole.ADMIN:
+        raise DomainForbiddenDomainException("You do not have permission to change another user's email.")
+
+    response = await UserService.change_email(uow, user_id, data, actor_user=current_user)
+    json_response = SharedUtils.SuccessfulResponse(response)
+    if current_user.user_id == user_id:
+        clear_auth_cookies(json_response)
+    response.status_code = status.HTTP_200_OK
+
     return json_response
 
 
 @router.patch("/{user_id}/profile-picture", status_code=status.HTTP_200_OK)
 async def update_user_profile_picture_by_id(
-    user_id: str,
-    file: UploadFile = File(...),
-    current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+        user_id: str,
+        file: UploadFile = File(...),
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Update profile picture by user ID.
@@ -203,14 +250,16 @@ async def update_user_profile_picture_by_id(
         file_bytes=file_bytes,
         filename=file.filename or f"profile_{user_id}.jpg",
     )
+    response.status_code = status.HTTP_200_OK
+
     return SharedUtils.SuccessfulResponse(response)
 
 
 @router.delete("/{user_id}/profile-picture", status_code=status.HTTP_200_OK)
 async def delete_user_profile_picture(
-    user_id: str,
-    current_user: UserRead = Depends(get_current_active_user),
-    uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+        user_id: str,
+        current_user: UserRead = Depends(get_current_active_user),
+        uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
 ) -> JSONResponse:
     """
     Remove profile picture by user ID.
@@ -233,6 +282,8 @@ async def unenroll_student(
     Dedicated endpoint to unenroll a student (soft delete).
     """
     response = await UserService.soft_delete_user(uow, user_id)
+    response.status_code = status.HTTP_200_OK
+
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -254,6 +305,7 @@ async def get_user(
     if current_user.user_id != user_id and current_user.role not in (UserRole.ADMIN, UserRole.TEACHER):
         raise DomainForbiddenDomainException("You do not have permission to view another user's details.")
     response = await UserService.get_user_by_id(uow, user_id)
+    response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -278,6 +330,7 @@ async def update_user(
         data.user_category = None
 
     response = await UserService.update_user(uow, user_id, data)
+    response.status_code = status.HTTP_200_OK
     return SharedUtils.SuccessfulResponse(response)
 
 
@@ -307,4 +360,20 @@ async def delete_user(
     Restricted to ADMIN.
     """
     response = await UserService.delete_user(uow, user_id)
+    response.status_code = status.HTTP_200_OK
+
     return SharedUtils.SuccessfulResponse(response)
+
+
+# for admin creation
+@router.post("/create-admin", status_code=status.HTTP_201_CREATED)
+async def create_admin_account(secret_key: str,
+                               data: CreateAdmin,
+                               uow: AbstractUnitOfWork = Depends(get_uow, scope="function"),
+                               ):
+    try:
+        response = await UserService.create_admin(secret_key, uow, data)
+        response.status_code = status.HTTP_201_CREATED
+        return SharedUtils.SuccessfulResponse(response)
+    except Exception as e:
+        raise e

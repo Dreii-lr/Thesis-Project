@@ -273,6 +273,25 @@ function ModuleDashboard() {
             });
             void reload();
           }}
+          onDeleted={(deleted) => {
+            if (deleted.materialId) {
+              deletedIds.current.add(deleted.materialId);
+              setMaterials((prev) =>
+                prev.filter((item) => item.id !== deleted.materialId),
+              );
+            }
+            if (deleted.documentId) {
+              setMaterials((prev) =>
+                prev.filter((item) => item.document_id !== deleted.documentId),
+              );
+            }
+            setNotice({
+              kind: "info",
+              title: "Document deleted",
+              message: `“${deleted.filename}” and its extracted modules were removed from your library.`,
+            });
+            void reload();
+          }}
         />
       )}
     </div>

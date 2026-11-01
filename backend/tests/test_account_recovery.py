@@ -12,22 +12,28 @@ from app.core import firebase
 from app.core.exceptions import DomainAuthenticationUnavailableException, DomainRecoveryRateLimitException
 from app.core.unit_of_work import get_uow
 from app.features.auth import service
-from app.features.users.schemas import UserRead
+from app.features.users.schemas import UserRead, UserRole, UserStatus
 from app.main import app
 
 
-@pytest.fixture(autouse=True)
-def setup_test_db():
+@pytest_asyncio.fixture(autouse=True)
+async def setup_test_db():
     yield  # These tests use repository doubles, not a live database.
 
 
 @pytest_asyncio.fixture
 async def recovery_client(monkeypatch):
-    user = UserRead(user_id="user-1", firebase_uid="firebase-1", email="user@example.com", role="student", status="active")
+    user = UserRead(
+        user_id="user-1",
+        firebase_uid="firebase-1",
+        email="user@example.com",
+        role=UserRole.STUDENT,
+        status=UserStatus.ACTIVE,
+    )
     users = SimpleNamespace(
         get_by_email=AsyncMock(return_value=user),
-        get_by_student_id=AsyncMock(return_value=user),
-        get_by_teacher_id=AsyncMock(return_value=user),
+        get_by_account_id=AsyncMock(return_value=user),
+        get_by_id=AsyncMock(return_value=user),
     )
     async def provide_uow():
         yield SimpleNamespace(users=users)
@@ -45,8 +51,6 @@ async def recovery_client(monkeypatch):
 @pytest.mark.parametrize("identity,kind", [("  USER@EXAMPLE.COM  ", "email"), (" STU-123 ", "student"), ("TCH-123", "teacher")])
 async def test_recovery_accepts_email_and_institutional_ids(recovery_client, identity, kind):
     client, users, _, send = recovery_client
-    if kind == "teacher":
-        users.get_by_student_id.return_value = None
     response = await client.post("/api/v1/auth/recover", json={"email": identity})
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
@@ -56,11 +60,8 @@ async def test_recovery_accepts_email_and_institutional_ids(recovery_client, ide
     send.assert_awaited_once_with("firebase-1")
     if kind == "email":
         users.get_by_email.assert_awaited_once_with("user@example.com")
-    elif kind == "student":
-        users.get_by_student_id.assert_awaited_once_with("STU-123")
-        users.get_by_teacher_id.assert_not_awaited()
     else:
-        users.get_by_teacher_id.assert_awaited_once_with("TCH-123")
+        users.get_by_account_id.assert_awaited_once_with(identity.strip())
 
 
 @pytest.mark.asyncio

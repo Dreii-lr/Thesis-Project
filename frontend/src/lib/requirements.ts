@@ -6,17 +6,17 @@ export type ReviewerRole = 'teacher' | 'admin';
 export const REQUIREMENTS: { id: RequirementId; title: string; description: string; types: string[]; guidance: string; conditional?: boolean }[] = [
   { id: 'birth', title: 'Birth / date-of-birth proof', description: 'Submit one accepted document showing your name and date of birth.', types: ['PSA Birth Certificate', 'Local Civil Registrar Birth Certificate', 'Baptismal Certificate', 'Barangay Certification of Birth'], guidance: 'An accepted alternative completes this requirement. For a baptismal certificate, your date of birth must be shown separately from the baptism date.' },
   { id: 'school', title: 'Previous school records', description: 'Submit your last report card or permanent school record, if applicable.', types: ['Form 138 / Report Card', 'Form 137 / Permanent Record', 'Alternative proof for staff review'], guidance: 'Unable to obtain your records, or never attended formal school? Request teacher assistance below. Staff will confirm an alternative or exemption.', conditional: true },
-  { id: 'identity', title: 'Identification', description: 'Submit one accepted identification document.', types: ['Government-issued ID', 'Barangay Clearance', 'Student ID'], guidance: 'Include both sides when your details appear on the back. Make sure your name and issuing organization are readable.' },
+  { id: 'identity', title: 'Identification', description: 'Submit one accepted identification document or 2x2 photo.', types: ['Government-issued ID', 'Barangay Clearance', 'Student ID', '2x2 ID Photo (White background)'], guidance: 'Include both sides when your details appear on the back. For 2x2 photos, ensure a clear white background and formal attire.' },
 ];
 
 export const STATUS_LABELS: Record<RequirementStatus, string> = {
-  auto_verified: 'Automatically verified', review: 'Needs staff review', correction: 'Needs correction', verified: 'Verified by admin', exempted: 'Exempted by admin',
+  auto_verified: 'Verified', review: 'Under review', correction: 'Correction needed', verified: 'Verified by admin', exempted: 'Exempted by admin',
 };
 
 export interface RequirementEvent { id: string; at: string; actor: string; message: string }
 export interface RequirementVersion {
   id: string; at: string; type: string; fileName: string; fileSize: number; mime: string;
-  status: RequirementStatus; note: string; scenario: DemoScenario | 'assistance';
+  status: RequirementStatus; note: string; scenario?: DemoScenario | 'assistance' | 'submission';
 }
 export interface RequirementRecord {
   id: string; ownerId: string; learnerName: string; email: string; program: string;
@@ -28,11 +28,21 @@ export function isSatisfied(status?: RequirementStatus) {
   return status === 'auto_verified' || status === 'verified' || status === 'exempted';
 }
 
+export function createStudentSubmission(type: string, remarks?: string): { status: RequirementStatus; note: string } {
+  if (type === 'Alternative proof for staff review') {
+    return { status: 'review', note: remarks?.trim() ? `Alternative proof submitted: ${remarks.trim()}` : 'Alternative school evidence submitted for teacher/admin review.' };
+  }
+  const note = remarks?.trim()
+    ? `Submitted for review: ${remarks.trim()}`
+    : 'Document submitted by learner. Awaiting teacher verification.';
+  return { status: 'review', note };
+}
+
 export function simulationResult(scenario: DemoScenario, type: string): { status: RequirementStatus; note: string } {
   if (type === 'Alternative proof for staff review') return { status: 'review', note: 'Alternative school evidence needs a staff decision.' };
-  if (scenario === 'pass') return { status: 'auto_verified', note: 'Demo checks passed: accepted document type, readable required fields, and matching learner information. No actual document analysis was performed.' };
-  if (scenario === 'review') return { status: 'review', note: 'Demo result: the name or required details need a staff check. Your submission has been retained.' };
-  return { status: 'correction', note: 'Demo result: the document is incomplete or unreadable. Upload a clear, complete replacement.' };
+  if (scenario === 'pass') return { status: 'auto_verified', note: 'Checks passed: accepted document type, readable required fields, and matching learner information.' };
+  if (scenario === 'review') return { status: 'review', note: 'Submitted for staff check: the document and learner details need teacher confirmation.' };
+  return { status: 'correction', note: 'The document is incomplete or unreadable. Please upload a clear, complete replacement.' };
 }
 
 export function validateRequirementFile(file: Pick<File, 'name' | 'size' | 'type'>): string | null {

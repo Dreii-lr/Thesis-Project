@@ -18,6 +18,10 @@ const nextConfig: NextConfig = {
         destination: `${DOCUMENT_PROCESSING_URL}/api/v1/document-processor/documents/:documentId/process`,
       },
       {
+        source: '/api/v1/document-processor/:path*',
+        destination: `${DOCUMENT_PROCESSING_URL}/api/v1/document-processor/:path*`,
+      },
+      {
         source: '/api/v1/assessments',
         destination: `${BACKEND_URL}/api/v1/assessments/`,
       },

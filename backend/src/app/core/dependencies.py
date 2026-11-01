@@ -39,10 +39,10 @@ async def get_current_user(
     token = (credentials.credentials if credentials else None) or access_token
 
     if not token:
-        raise DomainUnauthorizedDomainException("Authentication token missing.", "TOKEN_MISSING")
+        raise DomainUnauthorizedDomainException("Authentication token missing.", "UNAUTHORIZED")
 
     # Firebase performs blocking certificate/revocation requests.
-    claims = verify_firebase_id_token(token, check_revoked=True)
+    claims = await run_in_threadpool(verify_firebase_id_token, token, check_revoked=True)
     if not claims:
         raise DomainUnauthorizedDomainException("Invalid, expired, or revoked token.")
 

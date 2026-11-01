@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from app.features.assessments.models import (
     SubmissionStatus,
@@ -144,6 +144,11 @@ class AssessmentDetailResponse(BaseModel):
 
     assessment_id: str
     teacher_id: str
+
+    @computed_field
+    @property
+    def id(self) -> str:
+        return self.assessment_id
     title: str
     description: Optional[str] = None
     subject_code: str
@@ -254,6 +259,7 @@ class SubmissionDetailResponse(BaseModel):
 
     submission_id: str
     assessment_id: str
+    student_id: Optional[str] = None
     account_id: Optional[str] = None
     student_name: Optional[str] = None
     student_category: Optional[UserCategory] = None

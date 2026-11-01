@@ -185,7 +185,7 @@ class CloudinaryService:
         Raises DomainException if service is uninitialized or deletion fails.
         """
         if not public_id:
-            return True
+            return False
 
         self._ensure_initialized()
 

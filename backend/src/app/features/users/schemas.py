@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Annotated, Any, List, Optional, Dict
 
 from fastapi import Form, Body
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
 from app.shared.utils import SharedUtils
 
@@ -54,6 +54,7 @@ class PersonalDetailsInput(BaseModel):
     religion: str | None = None
     learning_modalities: LearningModality | None = LearningModality.FTF
     lrn_number: Annotated[str, Field(pattern=r"^[0-9]{12}$")] | None = None
+    place_of_birth: str | None = None
 
     @field_validator("birth_date", mode="before")
     @classmethod
@@ -87,6 +88,7 @@ class PersonalDetailsRead(BaseModel):
     religion: str | None = None
     learning_modalities: LearningModality | None = None
     lrn_number: str | None = None
+    place_of_birth: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -211,6 +213,7 @@ class FamilyDetailsRead(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
+    @computed_field
     @property
     def mother_name(self) -> Optional[str]:
         if isinstance(self.mother, dict):
@@ -219,6 +222,7 @@ class FamilyDetailsRead(BaseModel):
             return getattr(self.mother, "name", None)
         return None
 
+    @computed_field
     @property
     def father_name(self) -> Optional[str]:
         if isinstance(self.father, dict):
@@ -227,6 +231,7 @@ class FamilyDetailsRead(BaseModel):
             return getattr(self.father, "name", None)
         return None
 
+    @computed_field
     @property
     def guardian_name(self) -> Optional[str]:
         if isinstance(self.guardian, dict):
@@ -235,6 +240,7 @@ class FamilyDetailsRead(BaseModel):
             return getattr(self.guardian, "name", None)
         return None
 
+    @computed_field
     @property
     def guardian_relation(self) -> Optional[str]:
         if isinstance(self.guardian, dict):
@@ -243,6 +249,7 @@ class FamilyDetailsRead(BaseModel):
             return getattr(self.guardian, "relationship", None)
         return None
 
+    @computed_field
     @property
     def contact_no(self) -> Optional[str]:
         for entity in (self.guardian, self.mother, self.father):
@@ -275,9 +282,98 @@ class MapStudent(BaseModel):
     contact_details: ContactDetailsInput | None = Field(default=None, )
     family_details: FamilyDetailsInput | None = Field(default=None, )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_flat_or_nested_input(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+
+        first_name = d.get("first_name") or d.get("firstName") or ""
+        last_name = d.get("last_name") or d.get("lastName") or ""
+        middle_name = d.get("middle_name") or d.get("middleName")
+        d["first_name"] = first_name
+        d["last_name"] = last_name
+        if middle_name:
+            d["middle_name"] = middle_name
+
+        level = d.get("level") or d.get("user_category") or d.get("category")
+        if level:
+            lvl_str = str(level).strip().upper()
+            if lvl_str in ("JUNIOR", "JUNIOR HIGH SCHOOL", "SECONDARY"):
+                d["user_category"] = UserCategory.SECONDARY
+            elif lvl_str in ("ELEMENTARY",):
+                d["user_category"] = UserCategory.ELEMENTARY
+            elif lvl_str in ("BLP", "BASIC LITERACY", "BASIC LITERACY PROGRAM"):
+                d["user_category"] = UserCategory.BLP
+
+        role = d.get("role")
+        if isinstance(role, str):
+            r_str = role.strip().upper()
+            if r_str == "STUDENT":
+                d["role"] = UserRole.STUDENT
+            elif r_str == "TEACHER":
+                d["role"] = UserRole.TEACHER
+            elif r_str == "ADMIN":
+                d["role"] = UserRole.ADMIN
+
+        pd = d.get("personal_details")
+        if pd is None or not isinstance(pd, dict):
+            pd = {}
+        lrn = d.get("lrn") or d.get("lrn_number") or pd.get("lrn_number")
+        if not lrn:
+            import time
+            lrn = f"99{str(int(time.time() * 1000))[-10:]}"
+        pd["lrn_number"] = lrn
+        if d.get("gender"):
+            pd["gender"] = d["gender"]
+        if d.get("birthDate") or d.get("birth_date"):
+            pd["birth_date"] = d.get("birthDate") or d.get("birth_date")
+        if d.get("placeOfBirth") or d.get("place_of_birth"):
+            pd["place_of_birth"] = d.get("placeOfBirth") or d.get("place_of_birth")
+        if d.get("civilStatus") or d.get("civil_status"):
+            pd["civil_status"] = d.get("civilStatus") or d.get("civil_status")
+        if d.get("nationality"):
+            pd["nationality"] = d["nationality"]
+        if d.get("religion"):
+            pd["religion"] = d["religion"]
+        d["personal_details"] = pd
+
+        cd = d.get("contact_details")
+        if cd is None or not isinstance(cd, dict):
+            cd = {}
+        if d.get("street") or d.get("street_building_no"):
+            cd["street_building_no"] = d.get("street") or d.get("street_building_no")
+        if d.get("city") or d.get("municipality"):
+            cd["municipality"] = d.get("city") or d.get("municipality")
+        if d.get("province"):
+            cd["province"] = d["province"]
+        if d.get("phone") or d.get("contact_no"):
+            cd["contact_no"] = d.get("phone") or d.get("contact_no")
+        if cd:
+            d["contact_details"] = cd
+
+        fd = d.get("family_details")
+        if fd is None or not isinstance(fd, dict):
+            fd = {}
+        if d.get("motherName") and "mother" not in fd:
+            fd["mother"] = {"name": d["motherName"]}
+        if d.get("fatherName") and "father" not in fd:
+            fd["father"] = {"name": d["fatherName"]}
+        if (d.get("guardianName") or d.get("guardianRelation") or d.get("guardianPhone")) and "guardian" not in fd:
+            fd["guardian"] = {
+                "name": d.get("guardianName"),
+                "relationship": d.get("guardianRelation"),
+                "contact_no": d.get("guardianPhone"),
+            }
+        if fd:
+            d["family_details"] = fd
+
+        return d
+
     @model_validator(mode="after")
     def require_student_lrn(self):
-        if not self.personal_details.lrn_number:
+        if not self.personal_details or not self.personal_details.lrn_number:
             raise ValueError("A 12-digit Learner Reference Number (LRN) is required.")
         return self
 
@@ -358,6 +454,7 @@ class TeacherCreate(BaseModel):
     first_name: str = Field(min_length=1, description="Teacher's first name")
     last_name: str = Field(min_length=1, description="Teacher's last name")
     middle_name: Optional[str] = Field(default=None, description="Optional middle name")
+    email: Optional[EmailStr] = Field(default=None)
     suffix: Optional[str] = Field(default=None, description="Optional suffix (e.g. Jr., III)")
     account_id: Optional[str] = Field(default=None, description="Account ID (e.g. TCH-2026-0001). Auto-generated if omitted.")
     password: Optional[str] = Field(default=None, description="Initial account password.")
@@ -373,6 +470,53 @@ class TeacherCreate(BaseModel):
         if isinstance(value, str) and value:
             return SharedUtils.capitalized_first_letter(value)
         return value
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def force_teacher_role(cls, value: Any) -> UserRole:
+        return UserRole.TEACHER
+
+
+
+
+class CreateAdmin(BaseModel):
+    first_name: str = Field(min_length=1, description="Teacher's first name")
+    last_name: str = Field(min_length=1, description="Teacher's last name")
+    middle_name: Optional[str] = Field(default=None, description="Optional middle name")
+    email: Optional[EmailStr] = Field(default=None)
+    suffix: Optional[str] = Field(default=None, description="Optional suffix (e.g. Jr., III)")
+    account_id: Optional[str] = Field(default=None,
+                                      description="Account ID (e.g. TCH-2026-0001). Auto-generated if omitted.")
+    password: Optional[str] = Field(default=None, description="Initial account password.")
+    role: UserRole = UserRole.TEACHER
+    status: UserStatus = Field(default=UserStatus.ACTIVE, description="Account status")
+    personal_details: Optional[PersonalDetailsInput] = Field(default=None, description="Optional personal details")
+    contact_details: Optional[ContactDetailsInput] = Field(default=None, description="Optional contact details")
+
+
+    @staticmethod
+    def depends(first_name: str = Field(min_length=1, description="Teacher's first name"),
+    last_name: str = Field(min_length=1, description="Teacher's last name"),
+    middle_name: Optional[str] = Field(default=None, description="Optional middle name"),
+    email: Optional[EmailStr] = Field(default=None),
+    suffix: Optional[str] = Field(default=None, description="Optional suffix (e.g. Jr., III)"),
+    account_id: Optional[str] = Field(default=None,
+                                      description="Account ID (e.g. TCH-2026-0001). Auto-generated if omitted."),
+    password: Optional[str] = Field(default=None, description="Initial account password."),
+    role: UserRole = UserRole.TEACHER,
+    status: UserStatus = Field(default=UserStatus.ACTIVE, description="Account status"),
+    personal_details: Optional[PersonalDetailsInput] = Field(default=None, description="Optional personal details"),
+    contact_details: Optional[ContactDetailsInput] = Field(default=None, description="Optional contact details")):
+        return CreateAdmin(first_name=first_name,
+                           last_name=last_name,
+                           middle_name=middle_name,
+                           email=email, suffix=suffix,
+                           account_id=account_id,
+                           password=password, role=role,
+                           status=status,
+                           personal_details=personal_details,
+                           contact_details=contact_details)
+
 
 
 class ProfileUrl(BaseModel):
@@ -406,7 +550,6 @@ class UserRead(BaseModel):
 
 class UserReadLessData(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     user_id: str | None = None
     account_id: str | None = None
     firebase_uid: str | None = None
@@ -466,3 +609,14 @@ class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1, description="Current password of the user")
     new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
     confirm_password: Optional[str] = Field(default=None, description="Confirmation of new password")
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: EmailStr = Field(..., description="The new email address for the account")
+
+    @field_validator("new_email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value

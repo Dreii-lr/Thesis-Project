@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertCircle,
   ArrowRight,
   BookOpen,
   Check,
@@ -15,9 +16,13 @@ import {
 } from "lucide-react";
 import Modal from "@/src/components/ui/Modal";
 import {
+  deleteModuleDocument,
+  deleteMaterialById,
   getMaterials,
   DocumentServiceError,
   parseModuleDocument,
+  checkActiveProcessingDocument,
+  type ActiveProcessingStatus,
   type MaterialItem,
   type StructuresProcessedLessons,
 } from "@/src/lib/document-processor-api";
@@ -28,10 +33,16 @@ export default function IlaUploadModal({
   category,
   onClose,
   onUploaded,
+  onDeleted,
 }: {
   category: UserCategoryItem;
   onClose: () => void;
   onUploaded: (result: { filename: string; isExisting: boolean }) => void;
+  onDeleted?: (deleted: {
+    documentId?: string;
+    materialId?: string;
+    filename: string;
+  }) => void;
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
@@ -42,9 +53,15 @@ export default function IlaUploadModal({
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [materialId, setMaterialId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState("");
   const [uploadUncertain, setUploadUncertain] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [activeProcessing, setActiveProcessing] =
+    useState<ActiveProcessingStatus | null>(null);
+  const [checkingActive, setCheckingActive] = useState(true);
+  const [progressMessage, setProgressMessage] = useState("");
   const controller = useRef<AbortController | null>(null);
   const reviewLock = useRef(false);
 
@@ -57,8 +74,47 @@ export default function IlaUploadModal({
     [],
   );
 
+  useEffect(() => {
+    let mounted = true;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const MAX_LOCK_POLL_ATTEMPTS = 6; // Max 1 minute (6 * 10s)
+
+    async function checkStatus() {
+      if (!mounted) return;
+      try {
+        const active = await checkActiveProcessingDocument();
+        if (!mounted) return;
+
+        if (active.is_processing) {
+          setActiveProcessing(active);
+          // Only continue polling if another document is active and within limit
+          attempts++;
+          if (attempts < MAX_LOCK_POLL_ATTEMPTS) {
+            timerId = setTimeout(checkStatus, 10000);
+          }
+        } else {
+          // Backend is completely free: clear lock and STOP polling immediately
+          setActiveProcessing(null);
+        }
+      } catch {
+        // Non-blocking: stop polling on error
+      } finally {
+        if (mounted) setCheckingActive(false);
+      }
+    }
+
+    // Single initial check on mount
+    void checkStatus();
+
+    return () => {
+      mounted = false;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, []);
+
   function choose(candidate?: File) {
-    if (!candidate || busy) return;
+    if (!candidate || busy || activeProcessing?.is_processing) return;
     const issue = validateIlaFile(candidate);
     setError(issue || "");
     if (issue) return;
@@ -69,22 +125,94 @@ export default function IlaUploadModal({
     setParsed(null);
     setMaterials([]);
     setMaterialId("");
-    setPreview(false);
+    setPreview(true);
     setUploadUncertain(false);
   }
 
+  function resetLocalFileSelection() {
+    setFile(null);
+    setFileUrl("");
+    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+    objectUrl.current = "";
+    setParsed(null);
+    setMaterials([]);
+    setMaterialId("");
+    setPreview(false);
+    setError("");
+    setUploadUncertain(false);
+    setShowDeleteConfirm(false);
+  }
+
+  async function handleDeleteUploadedDocument() {
+    if (isDeleting || busy) return;
+    const currentSelected = materials.find((item) => item.id === materialId);
+    const docId = parsed?.document_id || currentSelected?.document_id;
+    const matId = materialId || parsed?.materials_id || currentSelected?.id;
+
+    if (!docId && !matId) {
+      resetLocalFileSelection();
+      return;
+    }
+
+    setIsDeleting(true);
+    setError("");
+    try {
+      if (docId) {
+        await deleteModuleDocument(docId);
+      } else if (matId) {
+        await deleteMaterialById(matId);
+      }
+
+      onDeleted?.({
+        documentId: docId,
+        materialId: matId,
+        filename: parsed?.filename || file?.name || "Uploaded document",
+      });
+
+      resetLocalFileSelection();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to delete uploaded document.",
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   async function review() {
-    if (!file || busy || uploadUncertain || reviewLock.current) return;
+    if (
+      !file ||
+      busy ||
+      uploadUncertain ||
+      reviewLock.current ||
+      activeProcessing?.is_processing
+    )
+      return;
     reviewLock.current = true;
     setPreview(true);
     setBusy(true);
     setError("");
+    setProgressMessage("Uploading and preparing document...");
     const abort = new AbortController();
     controller.current = abort;
     let uploadConfirmed = Boolean(parsed);
     try {
       const result =
-        parsed || (await parseModuleDocument(file, { signal: abort.signal }));
+        parsed ||
+        (await parseModuleDocument(file, {
+          signal: abort.signal,
+          onProgress: ({ message }) => {
+            if (message) {
+              setProgressMessage(message);
+            } else {
+              setProgressMessage(
+                "Processing document and extracting curriculum topics. Please wait a moment...",
+              );
+            }
+          },
+        }));
       setParsed(result);
       uploadConfirmed = true;
       if (!parsed)
@@ -126,6 +254,7 @@ export default function IlaUploadModal({
       }
     } finally {
       reviewLock.current = false;
+      setProgressMessage("");
       if (!abort.signal.aborted) setBusy(false);
     }
   }
@@ -137,7 +266,11 @@ export default function IlaUploadModal({
   const goal = selected?.main_learning_goal || parsed?.main_learning_goal;
 
   return (
-    <Modal title="Upload an ALS ILA document" onClose={onClose} pending={busy}>
+    <Modal
+      title="Upload an ALS ILA document"
+      onClose={onClose}
+      pending={busy || isDeleting}
+    >
       <p className="-mt-2 mb-5 text-sm leading-6 text-slate-500">
         {category.name} · Review your source document, then prepare a lesson
         draft.
@@ -159,25 +292,58 @@ export default function IlaUploadModal({
           </li>
         ))}
       </ol>
+      {activeProcessing?.is_processing && (
+        <div
+          role="alert"
+          className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 shadow-sm"
+        >
+          <AlertCircle size={18} className="mt-0.5 shrink-0 text-amber-600" />
+          <div className="space-y-1">
+            <p className="font-semibold text-amber-950">
+              Another document is currently being processed
+            </p>
+            <p className="leading-relaxed">
+              Another document (
+              <strong className="font-medium text-amber-950">
+                {activeProcessing.filename || "an uploaded document"}
+              </strong>
+              ) is currently being processed. To prevent system conflicts, you cannot upload another document
+              until it finishes. This will automatically unlock once completed.
+            </p>
+          </div>
+        </div>
+      )}
       {!file ? (
         <button
           type="button"
-          onClick={() => input.current?.click()}
+          disabled={Boolean(activeProcessing?.is_processing)}
+          onClick={() => {
+            if (!activeProcessing?.is_processing) {
+              input.current?.click();
+            }
+          }}
           onDragOver={(event) => {
             event.preventDefault();
-            setDragging(true);
+            if (!activeProcessing?.is_processing) setDragging(true);
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={(event) => {
             event.preventDefault();
             setDragging(false);
+            if (activeProcessing?.is_processing) return;
             if (event.dataTransfer.files.length !== 1) {
               setError("Upload one ILA document at a time.");
               return;
             }
             choose(event.dataTransfer.files[0]);
           }}
-          className={`flex w-full flex-col items-center rounded-2xl border-2 border-dashed p-9 text-center transition ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-slate-50 hover:border-blue-400"}`}
+          className={`flex w-full flex-col items-center rounded-2xl border-2 border-dashed p-9 text-center transition ${
+            activeProcessing?.is_processing
+              ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60"
+              : dragging
+                ? "border-blue-500 bg-blue-50"
+                : "border-slate-200 bg-slate-50 hover:border-blue-400"
+          }`}
         >
           <span className="mb-4 rounded-2xl bg-white p-4 text-blue-600 shadow-sm">
             <UploadCloud size={28} />
@@ -208,16 +374,13 @@ export default function IlaUploadModal({
           </div>
           <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
             <button
-              disabled={busy || uploadUncertain}
-              onClick={review}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-2 text-blue-700 disabled:opacity-50"
+              type="button"
+              disabled={busy}
+              onClick={() => setPreview((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-2 text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
             >
-              {busy ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Eye size={14} />
-              )}
-              {busy ? "Extracting curriculum…" : "Preview & review"}
+              <Eye size={14} />
+              {preview ? "Hide preview" : "Show preview"}
             </button>
             <a
               href={fileUrl}
@@ -228,27 +391,40 @@ export default function IlaUploadModal({
               Download
             </a>
             <button
-              disabled={busy}
+              disabled={busy || isDeleting}
               onClick={() => {
-                setFile(null);
-                setFileUrl("");
-                URL.revokeObjectURL(objectUrl.current);
-                objectUrl.current = "";
-                setParsed(null);
-                setPreview(false);
-                setError("");
-                setUploadUncertain(false);
+                if (parsed) {
+                  setShowDeleteConfirm(true);
+                } else {
+                  resetLocalFileSelection();
+                }
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-rose-600 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
             >
-              <Trash2 size={14} />
-              Remove
+              {isDeleting ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+              {parsed ? "Delete document" : "Remove"}
             </button>
           </div>
+          {busy && (
+            <div
+              role="status"
+              className="mt-3 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/80 p-3 text-xs text-blue-800"
+            >
+              <Loader2 size={15} className="shrink-0 animate-spin text-blue-600" />
+              <p className="font-medium">
+                {progressMessage ||
+                  "Processing document and extracting curriculum topics. Please wait a moment..."}
+              </p>
+            </div>
+          )}
           {parsed && (
             <p className="mt-3 text-xs text-slate-500">
-              The uploaded document is saved in your library. Removing it here
-              only clears this selection.
+              This document is saved in your library. Deleting it will permanently
+              remove it from storage and your database.
             </p>
           )}
         </div>
@@ -393,11 +569,16 @@ export default function IlaUploadModal({
         </button>
         {!parsed ? (
           <button
-            disabled={!file || busy || uploadUncertain}
+            disabled={
+              !file ||
+              busy ||
+              uploadUncertain ||
+              Boolean(activeProcessing?.is_processing)
+            }
             onClick={review}
             className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
           >
-            Review document
+            {busy ? "Processing…" : "Process & review document"}
           </button>
         ) : (
           <button
@@ -420,6 +601,49 @@ export default function IlaUploadModal({
           </button>
         )}
       </div>
+      {showDeleteConfirm && (
+        <Modal
+          title="Delete uploaded document?"
+          onClose={() => !isDeleting && setShowDeleteConfirm(false)}
+        >
+          <p className="text-sm text-slate-600">
+            This will permanently delete{" "}
+            <strong className="font-semibold text-slate-800">
+              {file?.name || "this document"}
+            </strong>
+            , its extracted curriculum modules, and its stored file in cloud
+            storage.
+          </p>
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => setShowDeleteConfirm(false)}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => void handleDeleteUploadedDocument()}
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Deleting…</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 size={14} />
+                  <span>Delete permanently</span>
+                </>
+              )}
+            </button>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }

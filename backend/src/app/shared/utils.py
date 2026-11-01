@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from starlette.responses import JSONResponse
 from typing_extensions import Any
 
@@ -21,14 +23,11 @@ class SharedUtils:
         if not isinstance(data, str):
             raise DomainUnprocessableEntity("Invalid type of data. It must be string only.")
 
-        #split the text
-        split_text = data.lower().split(" ")
-        process_data = []
-        for split in split_text:
-            cleaned_data = split[0].capitalize() + split[1:]
-            process_data.append(cleaned_data)
+        words = data.strip().split()
+        if not words:
+            return ""
 
-        return " ".join(process_data)
+        return " ".join(word.capitalize() for word in words)
 
     @staticmethod
     def to_json_dict(val: Any) -> dict | None:
@@ -51,3 +50,15 @@ class SharedUtils:
             elif isinstance(item, dict):
                 res.append(item)
         return res
+
+    @staticmethod
+    def generate_account_id(role: str = "STUDENT", next_value: int = 1) -> str:
+        role_str = getattr(role, "value", str(role)).upper()
+        current_year = str(datetime.now().year)
+        if role_str == "TEACHER":
+            return f"TCH-{current_year}-{next_value:04d}"
+        elif role_str == "ADMIN":
+            return f"ADM-{current_year}-{next_value:04d}"
+        else:
+            prefix = f"{current_year[0:1]}{current_year[2:]}"
+            return f"{prefix}-{next_value:05d}"

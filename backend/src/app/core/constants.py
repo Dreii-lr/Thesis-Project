@@ -88,6 +88,9 @@ class Constants(BaseSettings):
         description="Root folder name for organized assets in Cloudinary",
     )
 
+    #secret key
+    SECRET_KEY_TO_CREATE_ADMIN : str
+
     # ── Firebase ──────────────────────────────────────────────────
     FIREBASE_TYPE: str
     FIREBASE_PROJECT_ID: str

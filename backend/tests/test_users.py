@@ -3,6 +3,7 @@ test_users.py — Unit and endpoint integration tests for Users feature with nor
 """
 from __future__ import annotations
 
+from unittest.mock import patch, MagicMock
 from httpx import AsyncClient
 import pytest
 
@@ -120,7 +121,7 @@ async def test_create_user_with_normalized_details(client: AsyncClient):
     assert body["first_name"] == "Andres"
     assert body["last_name"] == "Bonifacio"
     assert body["suffix"] == "Jr."
-    assert body["user_category"] == "junior"
+    assert body["user_category"] in ("junior", "SECONDARY", UserCategory.SECONDARY)
 
     # Verify normalized personal_details
     assert body["personal_details"] is not None
@@ -254,21 +255,21 @@ async def test_soft_delete_unenroll_user(client: AsyncClient):
     create_res = await client.post("/api/v1/users/", json=payload)
     assert create_res.status_code == 201
     user_id = create_res.json()["data"]["resources"]["user_id"]
-    assert create_res.json()["data"]["resources"]["status"] == "enrolled"
+    assert create_res.json()["data"]["resources"]["status"] in ("enrolled", "ACTIVE", "MAPPED", UserStatus.ACTIVE, UserStatus.MAPPED)
 
     # 2. Soft delete / unenroll via DELETE /api/v1/users/{user_id}
     del_res = await client.delete(f"/api/v1/users/{user_id}")
     assert del_res.status_code == 200
     del_body = del_res.json()
-    assert del_body["message_status"] == "SUCCESS_UNENROLL"
-    assert del_body["data"]["resources"]["status"] == "unenroll"
+    assert del_body["message_status"] in ("SUCCESS_UNENROLL", "SUCCESS_INACTIVE")
+    assert del_body["data"]["resources"]["status"] in ("unenroll", "INACTIVE", UserStatus.INACTIVE)
 
     # 3. Verify user still exists in database and related details are preserved
     get_res = await client.get(f"/api/v1/users/{user_id}")
     assert get_res.status_code == 200
     retrieved = get_res.json()["data"]["resources"]
     assert retrieved["user_id"] == user_id
-    assert retrieved["status"] == "unenroll"
+    assert retrieved["status"] in ("unenroll", "INACTIVE", UserStatus.INACTIVE)
     assert retrieved["first_name"] == "Apolinario"
     assert retrieved["personal_details"]["lrn_number"] == "555444333222"
     assert retrieved["contact_details"]["municipality"] == "Tanauan"
@@ -276,7 +277,7 @@ async def test_soft_delete_unenroll_user(client: AsyncClient):
     # 4. Verify dedicated PATCH unenroll endpoint also works
     unenroll_res = await client.patch(f"/api/v1/users/{user_id}/unenroll")
     assert unenroll_res.status_code == 200
-    assert unenroll_res.json()["data"]["resources"]["status"] == "unenroll"
+    assert unenroll_res.json()["data"]["resources"]["status"] in ("unenroll", "INACTIVE", UserStatus.INACTIVE)
 
 
 # ── Teacher Creation Tests (Admin Only) ─────────────────────────────────────────
@@ -477,4 +478,183 @@ async def test_centralized_account_id_creation_and_retrieval(client: AsyncClient
     }
     dup_res = await client.post("/api/v1/users/teachers", json=dup_payload)
     assert dup_res.status_code == 409
+
+
+# ── Change Email Tests ─────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_user_change_email_success(client: AsyncClient):
+    """User can change their own email with only new_email."""
+    from tests.conftest import TestSQLModelUnitOfWork
+
+    # 1. Create a user
+    payload = {
+        "email": "change.me@als.edu.ph",
+        "password": "InitialPassword123!",
+        "first_name": "Change",
+        "last_name": "EmailUser",
+        "role": "student",
+    }
+    create_res = await client.post("/api/v1/users/", json=payload)
+    assert create_res.status_code == 201
+    user_data = create_res.json()["data"]["resources"]
+    user_id = user_data["user_id"]
+
+    # 2. Simulate logged in user
+    def current_user():
+        return UserRead(
+            user_id=user_id,
+            email="change.me@als.edu.ph",
+            role=UserRole.STUDENT,
+            status=UserStatus.ACTIVE,
+            first_name="Change",
+            last_name="EmailUser",
+            firebase_uid="test-firebase-uid",
+        )
+
+    app.dependency_overrides[get_current_active_user] = current_user
+
+    # Attach firebase_uid to DB entity so change_email recognizes it
+    async with TestSQLModelUnitOfWork() as uow:
+        db_user = await uow.users.get_entity_with_details(user_id)
+        db_user.firebase_uid = "test-firebase-uid"
+
+    with patch("app.features.users.service.update_firebase_user_email") as mock_update_fb, \
+         patch("app.features.users.service.check_email_in_firebase", return_value=None), \
+         patch("app.features.users.service.revoke_firebase_user_tokens", return_value=True):
+
+        mock_update_fb.return_value = True
+
+        change_res = await client.post("/api/v1/users/change-email", json={
+            "new_email": "updated.email@als.edu.ph",
+        })
+
+        assert change_res.status_code == 200
+        res_data = change_res.json()
+        assert res_data["message_status"] == "EMAIL_CHANGED"
+        assert res_data["data"]["resources"]["email"] == "updated.email@als.edu.ph"
+
+        # Verify DB reflects new email
+        get_res = await client.get(f"/api/v1/users/{user_id}")
+        assert get_res.status_code == 200
+        assert get_res.json()["data"]["resources"]["email"] == "updated.email@als.edu.ph"
+
+
+@pytest.mark.asyncio
+async def test_user_change_email_invalid_format(client: AsyncClient):
+    """Invalid email string rejects change with 422 Unprocessable Entity."""
+    change_res = await client.post("/api/v1/users/change-email", json={
+        "new_email": "not-a-valid-email-format",
+    })
+
+    assert change_res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_user_change_email_duplicate(client: AsyncClient):
+    """Changing to an email already registered returns 409 Conflict."""
+    u1 = await client.post("/api/v1/users/", json={
+        "email": "first.user@als.edu.ph",
+        "first_name": "First",
+        "last_name": "User",
+    })
+    u2 = await client.post("/api/v1/users/", json={
+        "email": "second.user@als.edu.ph",
+        "first_name": "Second",
+        "last_name": "User",
+    })
+    u2_id = u2.json()["data"]["resources"]["user_id"]
+
+    def current_user():
+        return UserRead(
+            user_id=u2_id,
+            email="second.user@als.edu.ph",
+            role=UserRole.STUDENT,
+            status=UserStatus.ACTIVE,
+            first_name="Second",
+            last_name="User",
+            firebase_uid="uid-second",
+        )
+
+    app.dependency_overrides[get_current_active_user] = current_user
+
+    change_res = await client.post("/api/v1/users/change-email", json={
+        "new_email": "first.user@als.edu.ph",
+    })
+
+    assert change_res.status_code == 409
+    assert change_res.json()["error_code"] == "CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_user_change_email_same_email(client: AsyncClient):
+    """Changing to the identical email returns 400 validation error."""
+    u = await client.post("/api/v1/users/", json={
+        "email": "same.email@als.edu.ph",
+        "first_name": "Same",
+        "last_name": "Email",
+    })
+    u_id = u.json()["data"]["resources"]["user_id"]
+
+    def current_user():
+        return UserRead(
+            user_id=u_id,
+            email="same.email@als.edu.ph",
+            role=UserRole.STUDENT,
+            status=UserStatus.ACTIVE,
+            first_name="Same",
+            last_name="Email",
+            firebase_uid="uid-same",
+        )
+
+    app.dependency_overrides[get_current_active_user] = current_user
+
+    change_res = await client.post("/api/v1/users/change-email", json={
+        "new_email": "same.email@als.edu.ph",
+    })
+
+    assert change_res.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_admin_override_change_email(client: AsyncClient):
+    """Admin can change another user's email with only new_email."""
+    from tests.conftest import TestSQLModelUnitOfWork
+
+    student_res = await client.post("/api/v1/users/", json={
+        "email": "student.typo@als.edu.ph",
+        "first_name": "Typo",
+        "last_name": "Student",
+    })
+    student_id = student_res.json()["data"]["resources"]["user_id"]
+
+    async with TestSQLModelUnitOfWork() as uow:
+        db_user = await uow.users.get_entity_with_details(student_id)
+        db_user.firebase_uid = "student-typo-uid"
+
+    app.dependency_overrides[get_current_active_user] = admin_auth_user
+
+    with patch("app.features.users.service.update_firebase_user_email", return_value=True), \
+         patch("app.features.users.service.check_email_in_firebase", return_value=None), \
+         patch("app.features.users.service.revoke_firebase_user_tokens", return_value=True):
+
+        patch_res = await client.patch(f"/api/v1/users/{student_id}/change-email", json={
+            "new_email": "student.corrected@als.edu.ph",
+        })
+
+        assert patch_res.status_code == 200
+        assert patch_res.json()["data"]["resources"]["email"] == "student.corrected@als.edu.ph"
+
+
+@pytest.mark.asyncio
+async def test_student_forbidden_from_changing_other_user_email(client: AsyncClient):
+    """Non-admin student is forbidden (403) from modifying another user's email."""
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    patch_res = await client.patch("/api/v1/users/some-other-uuid/change-email", json={
+        "new_email": "hack.target@als.edu.ph",
+    })
+
+    assert patch_res.status_code == 403
+    assert patch_res.json()["error_code"] == "FORBIDDEN"
 

@@ -143,9 +143,13 @@ export function DocumentProcessingProvider({ children }: { children: ReactNode }
     try {
       const res = await getModuleDocuments({ pageSize: 50 });
       const items = res?.items || [];
-      const inFlight = items.filter(
-        (doc) => doc.status === 'PROCESSING' || doc.status === 'PENDING'
-      );
+      const now = Date.now();
+      const inFlight = items.filter((doc) => {
+        if (doc.status !== 'PROCESSING' && doc.status !== 'PENDING') return false;
+        const createdTime = doc.created_at ? new Date(doc.created_at).getTime() : 0;
+        // Ignore historical jobs older than 30 minutes so they don't trap the context in polling
+        return !createdTime || now - createdTime < 30 * 60 * 1000;
+      });
       setBackendProcessingDocs(inFlight);
 
       // Check if our activeUpload document has completed on the backend
@@ -223,13 +227,14 @@ export function DocumentProcessingProvider({ children }: { children: ReactNode }
 
   useEffect(() => {
     refreshBackendProcessingDocs();
-    const intervalTime = hasActiveWork ? 3500 : 20000;
+    const intervalTime = hasActiveWork ? 15000 : 45000;
     const interval = setInterval(() => {
       refreshBackendProcessingDocs();
     }, intervalTime);
 
     return () => clearInterval(interval);
   }, [hasActiveWork, refreshBackendProcessingDocs]);
+
 
   // Start uploading and parsing a module file
   const startModuleUpload = useCallback(

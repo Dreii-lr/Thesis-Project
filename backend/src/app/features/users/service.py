@@ -13,19 +13,21 @@ import uuid
 
 from fastapi.encoders import jsonable_encoder
 
+from app.core.constants import constants
 from app.core.exceptions import (
     DomainException,
     DomainAuthenticationUnavailableException,
     DomainEntityAlreadyExistsException,
     DomainEntityNotFoundException,
     DomainInvalidCredentialsException,
-    DomainValidationDomainException, DomainUnprocessableEntity,
+    DomainValidationDomainException, DomainUnprocessableEntity, ForbiddenException, DomainUnauthorizedDomainException,
 )
 from app.core.cloudinary import cloudinary_service
 from app.core.firebase import (
     create_firebase_new_user,
     check_email_in_firebase,
     update_firebase_user_password,
+    update_firebase_user_email,
     revoke_firebase_user_tokens,
     sign_in_with_password, delete_firebase_user,
 )
@@ -41,13 +43,14 @@ from app.features.users.models import (
     utc_now,
 )
 from app.features.users.schemas import (
+    ChangeEmailRequest,
     ChangePasswordRequest,
     TeacherCreate,
     UserRead,
-    UserUpdate, MapStudent,
+    UserUpdate, MapStudent, CreateAdmin,
 )
-from app.features.users.utils import UsersUtils
 from app.features.locations.service import LocationService
+from app.shared import retry_on_transient
 from app.shared.schema import AdditionalData, SuccessfulResponseSchema
 from app.shared.utils import SharedUtils
 
@@ -62,6 +65,7 @@ async def _delete_profile_image(public_id: str) -> None:
 class UserService:
 
     @staticmethod
+    @retry_on_transient
     async def map_student(uow: AbstractUnitOfWork, data: MapStudent) -> SuccessfulResponseSchema:
         try:
             if not data.email or not data.personal_details or not data.personal_details.lrn_number:
@@ -77,6 +81,8 @@ class UserService:
             if user_data:
                 raise DomainEntityAlreadyExistsException("This student is already exists.")
 
+            #TODO check if the firstname and lastname is already exist
+
             next_value = await uow.sequence_id_generator.get_next_value()
             if not next_value:
                 await uow.sequence_id_generator.add()
@@ -84,7 +90,7 @@ class UserService:
             else:
                 await uow.sequence_id_generator.update()
                 next_value += 1
-            account_id = data.account_id or UsersUtils.generate_account_id(UserRole.STUDENT, next_value)
+            account_id = data.account_id or SharedUtils.generate_account_id(UserRole.STUDENT, next_value)
 
             if not data.email:
                 raise DomainUnprocessableEntity("Please enter an email. Email is required.")
@@ -117,6 +123,7 @@ class UserService:
                     civil_status=data.personal_details.civil_status,
                     religion=data.personal_details.religion,
                     learning_modalities=data.personal_details.learning_modalities,
+                    place_of_birth=data.personal_details.place_of_birth,
                 )
             else:
                 user.personal_details = None
@@ -341,6 +348,7 @@ class UserService:
         return SuccessfulResponseSchema(message_status="Ok",message="Successfully created user account.")
 
     @staticmethod
+    @retry_on_transient
     async def create_teacher_account(uow: AbstractUnitOfWork, data: TeacherCreate) -> SuccessfulResponseSchema:
         # 1. Resolve and ensure account_id is filled
         raw_id = (data.account_id or "").strip()
@@ -354,7 +362,7 @@ class UserService:
             else:
                 await uow.sequence_id_generator.update()
                 next_value += 1
-            account_id = UsersUtils.generate_account_id(UserRole.TEACHER, next_value)
+            account_id = SharedUtils.generate_account_id(UserRole.TEACHER, next_value)
 
         # Check if account_id already exists in database
         existing_teacher = await uow.users.get_by_account_id(account_id)
@@ -362,7 +370,7 @@ class UserService:
             raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
 
         # 2. Synthetic email credentials: only account_id is credentials and password
-        email_for_firebase = f"{account_id}@gmail.com"
+        email_for_firebase = data.email
 
         # Check if existing in Firebase
         existing = check_email_in_firebase(email_for_firebase)
@@ -392,6 +400,7 @@ class UserService:
         user = User(
             user_id=str(uuid.uuid4()),
             account_id=account_id,
+            email=email_for_firebase,
             first_name=data.first_name,
             last_name=data.last_name,
             middle_name=data.middle_name,
@@ -448,9 +457,8 @@ class UserService:
             data=AdditionalData(resources=response_data),
         )
 
-
-
     @staticmethod
+    @retry_on_transient
     async def get_user_by_id(uow: AbstractUnitOfWork, user_id: str) -> SuccessfulResponseSchema:
         user = await uow.users.get_by_id_with_details(user_id)
         if not user:
@@ -464,6 +472,7 @@ class UserService:
         )
 
     @staticmethod
+    @retry_on_transient
     async def list_users(
         uow: AbstractUnitOfWork,
         offset: int = 0,
@@ -480,6 +489,7 @@ class UserService:
         )
 
     @staticmethod
+    @retry_on_transient
     async def update_user(
         uow: AbstractUnitOfWork,
         user_id: str,
@@ -578,6 +588,7 @@ class UserService:
         )
 
     @staticmethod
+    @retry_on_transient
     async def soft_delete_user(uow: AbstractUnitOfWork, user_id: str) -> SuccessfulResponseSchema:
         user = await uow.users.get_entity_with_details(user_id)
         if not user:
@@ -593,13 +604,15 @@ class UserService:
         )
 
     @staticmethod
+    @retry_on_transient
     async def delete_user(uow: AbstractUnitOfWork, user_id: str) -> SuccessfulResponseSchema:
         return await UserService.soft_delete_user(uow, user_id)
 
     @staticmethod
+    @retry_on_transient
     async def change_password(
         uow: AbstractUnitOfWork,
-        user_id: str,
+        user_id: str | None,
         data: ChangePasswordRequest,
     ) -> SuccessfulResponseSchema:
         """
@@ -661,9 +674,88 @@ class UserService:
         )
 
     @staticmethod
+    @retry_on_transient
+    async def change_email(
+        uow: AbstractUnitOfWork,
+        user_id: str | None,
+        data: ChangeEmailRequest,
+    ) -> SuccessfulResponseSchema:
+        """
+        Changes user email address synchronously across Firebase Auth and PostgreSQL.
+        - Validates new email format and ensures it differs from the current email.
+        - Verifies that new email is not already taken in PostgreSQL or Firebase.
+        - If self-service (or non-admin actor), verifies current password with Firebase.
+        - Updates Firebase Authentication email first (Cloud-First).
+        - Triggers compensating rollback on Firebase if DB write fails.
+        - Updates PostgreSQL database user.email.
+        - Revokes refresh tokens on Firebase after commit.
+        """
+        new_email = str(data.new_email).strip().lower()
+
+        user = await uow.users.get_entity_with_details(user_id)
+        if not user:
+            raise DomainEntityNotFoundException(f"User '{user_id}' not found.")
+
+        old_email = (user.email or "").strip().lower()
+        if old_email == new_email:
+            raise DomainValidationDomainException("New email cannot be the same as your current email.")
+
+        # Check local database for duplicate email
+        existing_in_db = await uow.users.get_by_email(new_email)
+        if existing_in_db and existing_in_db.user_id != user.user_id:
+            raise DomainEntityAlreadyExistsException("This email is already registered to another account.")
+
+        # Check Firebase Auth for duplicate email
+        existing_in_fb = check_email_in_firebase(new_email)
+        if existing_in_fb and existing_in_fb.uid != user.firebase_uid:
+            raise DomainEntityAlreadyExistsException("This email is already registered to another account.")
+
+        firebase_uid = user.firebase_uid
+        if not firebase_uid:
+            raise DomainException("User does not have an associated cloud authentication account.", error_code="FIREBASE_ACCOUNT_MISSING")
+
+        try:
+            update_firebase_user_email(firebase_uid, new_email)
+        except Exception as exc:
+            logger.error("Firebase email update failed (%s).", type(exc).__name__)
+            if isinstance(exc, (DomainEntityAlreadyExistsException, DomainException)):
+                raise
+            raise DomainException(
+                "Failed to update cloud authentication email.", error_code="FIREBASE_SYNC_ERROR"
+            ) from exc
+
+        # Register compensating rollback in case database commit fails
+        if old_email:
+            uow.on_rollback(partial(
+                run_in_threadpool, update_firebase_user_email, firebase_uid, old_email
+            ))
+
+        user.email = new_email
+        user.updated_at = utc_now()
+
+        async def revoke_sessions() -> None:
+            try:
+                if not await run_in_threadpool(revoke_firebase_user_tokens, firebase_uid):
+                    logger.warning("Session revocation was not confirmed for uid: %s", firebase_uid)
+            except Exception as exc:
+                logger.warning("Failed to revoke Firebase tokens after email change: %s", exc)
+
+        uow.after_commit(revoke_sessions)
+
+        # Re-fetch updated user representation
+        updated_user = await uow.users.get_by_id_with_details(user_id)
+        return SuccessfulResponseSchema(
+            message="Email updated successfully. Please sign in with your new email.",
+            message_status="EMAIL_CHANGED",
+            status_code=200,
+            data=AdditionalData(resources=jsonable_encoder(updated_user)),
+        )
+
+    @staticmethod
+    @retry_on_transient
     async def update_profile_picture(
         uow: AbstractUnitOfWork,
-        user_id: str,
+        user_id: str | None,
         file_bytes: bytes,
         filename: str,
     ) -> SuccessfulResponseSchema:
@@ -703,13 +795,15 @@ class UserService:
         )
 
     @staticmethod
+    @retry_on_transient
     async def delete_profile_picture(
         uow: AbstractUnitOfWork,
-        user_id: str,
+        user_id: str | None,
     ) -> SuccessfulResponseSchema:
         """
         Dedicated removal operation for user profile picture.
         """
+
         user = await uow.users.get_entity_with_details(user_id)
         if not user:
             raise DomainEntityNotFoundException(f"User '{user_id}' not found.")
@@ -731,5 +825,121 @@ class UserService:
             status_code=200,
             data=AdditionalData(resources=jsonable_encoder(updated_user)),
         )
+
+
+    @staticmethod
+    @retry_on_transient
+    async def create_admin(secret_key : str,uow: AbstractUnitOfWork, data: CreateAdmin) -> SuccessfulResponseSchema:
+        try:
+            # check if the secret key is not match on the environment
+            if secret_key != constants.SECRET_KEY_TO_CREATE_ADMIN:
+                raise DomainUnauthorizedDomainException("You are not authorize to perform this.")
+
+            # 1. Resolve and ensure account_id is filled
+            raw_id = (data.account_id or "").strip()
+            if raw_id:
+                account_id = raw_id
+            else:
+                next_value = await uow.sequence_id_generator.get_next_value()
+                if not next_value:
+                    await uow.sequence_id_generator.add()
+                    next_value = 1
+                else:
+                    await uow.sequence_id_generator.update()
+                    next_value += 1
+                account_id = SharedUtils.generate_account_id(UserRole.ADMIN, next_value)
+
+            # Check if account_id already exists in database
+            existing_teacher = await uow.users.get_by_account_id(account_id)
+            if existing_teacher:
+                raise DomainEntityAlreadyExistsException(f"This Admin account with ID '{account_id}' already exists.")
+
+            # 2. Synthetic email credentials: only account_id is credentials and password
+            email_for_firebase = data.email
+
+            # Check if existing in Firebase
+            existing = check_email_in_firebase(email_for_firebase)
+            if existing:
+                raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+
+            # 3. Determine raw password
+            raw_password = data.password
+            if not raw_password:
+                if data.personal_details and data.personal_details.birth_date:
+                    bdate = data.personal_details.birth_date
+                    if isinstance(bdate, date):
+                        raw_password = bdate.strftime("%Y%m%d")
+                    else:
+                        raw_password = str(bdate).replace("-", "")
+                else:
+                    raw_password = "Password123!"
+
+            hashed_password = hash_password(raw_password)
+
+            # 4. Insert user into Firebase
+            firebase_new_user = create_firebase_new_user(email_for_firebase, raw_password)
+            firebase_uid = firebase_new_user.uid
+            uow.on_rollback(partial(run_in_threadpool, delete_firebase_user, firebase_uid))
+
+            # 5. Insert teacher into existing users table
+            user = User(
+                user_id=str(uuid.uuid4()),
+                account_id=account_id,
+                first_name=data.first_name,
+                last_name=data.last_name,
+                middle_name=data.middle_name,
+                suffix=data.suffix,
+                role=UserRole.ADMIN,
+                password=hashed_password,
+                firebase_uid=firebase_uid,
+                user_category=data.user_category,
+                status=UserStatus.ACTIVE,
+                created_at=utc_now(),
+            )
+
+            # Attach optional personal/contact details if provided
+            if data.personal_details:
+                pd_bdate = data.personal_details.birth_date
+                if isinstance(pd_bdate, str) and pd_bdate:
+                    try:
+                        pd_bdate = date.fromisoformat(pd_bdate[:10])
+                    except Exception:
+                        pd_bdate = None
+                user.personal_details = PersonalDetails(
+                    personal_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    account_id=account_id,
+                    gender=data.personal_details.gender,
+                    birth_date=pd_bdate if isinstance(pd_bdate, date) else None,
+                    nationality=data.personal_details.nationality or "Filipino",
+                    civil_status=data.personal_details.civil_status,
+                    religion=data.personal_details.religion,
+                )
+
+            if data.contact_details:
+                user.contact_details = ContactDetails(
+                    contact_details_id=str(uuid.uuid4()),
+                    user_id=user.user_id,
+                    street_building_no=data.contact_details.street_building_no,
+                    municipality=data.contact_details.municipality,
+                    province=data.contact_details.province,
+                    contact_no=data.contact_details.contact_no,
+                )
+
+            await uow.users.create(user)
+
+            read_user = await uow.users.get_by_id_with_details(user.user_id)
+            if not read_user:
+                read_user = UserRead.model_validate(user)
+                del read_user.password
+            response_data = jsonable_encoder(read_user)
+
+            return SuccessfulResponseSchema(
+                message="Successfully created admin account.",
+                message_status="Ok",
+                data=AdditionalData(resources=response_data),
+            )
+        except Exception as e:
+            raise e
 
 

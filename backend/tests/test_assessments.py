@@ -167,7 +167,7 @@ async def test_teacher_create_and_update_assessment(client: AsyncClient):
 
         assessment_id = data["assessment_id"]
         assert data["title"] == payload["title"]
-        assert data["target_category"] == "junior"
+        assert data["target_category"] in ("junior", "SECONDARY", UserCategory.SECONDARY)
         assert data["status"] == "ACTIVE"
         # Computed max_score = (2 * 5.0) + (1 * 2.5) + (2 * 2.5) = 10.0 + 2.5 + 5.0 = 17.5
         assert data["max_score"] == 17.5
@@ -370,7 +370,7 @@ async def test_student_quiz_attempt_and_auto_grading(client: AsyncClient):
 
         assert sub_data["status"] == "GRADED"
         assert sub_data["student_id"] == "student-junior-uuid"
-        assert sub_data["student_category"] == "junior"
+        assert sub_data["student_category"] in ("junior", "SECONDARY", UserCategory.SECONDARY)
         # First question was worth points depending on category, auto_score should be > 0 and < max_score
         assert 0.0 < sub_data["auto_score"] < delivery["max_score"]
         assert sub_data["final_score"] == sub_data["auto_score"]

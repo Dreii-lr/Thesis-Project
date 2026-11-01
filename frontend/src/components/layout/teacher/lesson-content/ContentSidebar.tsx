@@ -10,6 +10,8 @@ import {
   Edit2,
   Check,
   X,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 import { LessonFolder } from '@/src/data/mockModules';
 import { useState } from 'react';
@@ -22,6 +24,8 @@ interface ContentSidebarProps {
   onSelectLesson?: (lessonId: string) => void;
   onRenameLesson?: (lessonId: string, newTitle: string) => void;
   onRenameFile?: (lessonId: string, fileId: string, newTitle: string) => void;
+  onDeleteLesson?: (lessonId: string) => void;
+  onAddTopic?: (title: string) => void;
   readOnly?: boolean;
   onToggleCollapse?: () => void;
 }
@@ -34,12 +38,17 @@ export default function ContentSidebar({
   onSelectLesson,
   onRenameLesson,
   onRenameFile,
+  onDeleteLesson,
+  onAddTopic,
   readOnly = false,
   onToggleCollapse,
 }: ContentSidebarProps) {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>(
     lessons.reduce((acc, lesson) => ({ ...acc, [lesson.id]: true }), {})
   );
+
+  const [isAddingTopic, setIsAddingTopic] = useState(false);
+  const [newTopicTitle, setNewTopicTitle] = useState('');
 
   // Track which folder or file is currently being renamed in the sidebar
   const [editingItem, setEditingItem] = useState<{
@@ -100,6 +109,15 @@ export default function ContentSidebar({
     } else if (e.key === 'Escape') {
       handleCancelRename(e);
     }
+  };
+
+  const handleSaveNewTopic = () => {
+    const trimmed = newTopicTitle.trim();
+    if (trimmed && onAddTopic) {
+      onAddTopic(trimmed);
+    }
+    setIsAddingTopic(false);
+    setNewTopicTitle('');
   };
 
   return (
@@ -196,15 +214,32 @@ export default function ContentSidebar({
                     )}
                   </button>
 
-                  {!readOnly && onRenameLesson && (
-                    <button
-                      type="button"
-                      onClick={(e) => startEditingLesson(e, lesson)}
-                      className="ml-1 hidden shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 group-hover:inline-flex"
-                      title="Rename lesson title"
-                    >
-                      <Edit2 size={12} />
-                    </button>
+                  {!readOnly && (
+                    <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:inline-flex">
+                      {onRenameLesson && (
+                        <button
+                          type="button"
+                          onClick={(e) => startEditingLesson(e, lesson)}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          title="Rename topic"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                      )}
+                      {onDeleteLesson && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteLesson(lesson.id);
+                          }}
+                          className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="Delete topic"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -315,6 +350,62 @@ export default function ContentSidebar({
             </div>
           );
         })}
+
+        {!readOnly && onAddTopic && (
+          <div className="pt-2">
+            {isAddingTopic ? (
+              <div className="flex items-center gap-1 rounded-lg bg-white px-2 py-1.5 ring-1 ring-blue-500">
+                <FolderOpen size={15} className="shrink-0 text-blue-500" />
+                <input
+                  type="text"
+                  value={newTopicTitle}
+                  onChange={(e) => setNewTopicTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveNewTopic();
+                    else if (e.key === 'Escape') {
+                      setIsAddingTopic(false);
+                      setNewTopicTitle('');
+                    }
+                  }}
+                  placeholder="Topic title..."
+                  autoFocus
+                  className="min-w-0 flex-1 bg-transparent text-[12px] font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveNewTopic}
+                  className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                  title="Add topic"
+                >
+                  <Check size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingTopic(false);
+                    setNewTopicTitle('');
+                  }}
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  title="Cancel"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingTopic(true);
+                  setNewTopicTitle('');
+                }}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-200 py-1.5 text-[11px] font-semibold text-slate-500 transition-colors hover:border-blue-300 hover:bg-blue-50/50 hover:text-blue-700"
+              >
+                <Plus size={13} />
+                <span>Add Topic</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   );

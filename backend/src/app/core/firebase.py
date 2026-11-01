@@ -14,7 +14,12 @@ from firebase_admin import exceptions as firebase_exceptions
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from app.core.exceptions import DomainAuthenticationUnavailableException, DomainRecoveryRateLimitException, DomainUnauthorizedDomainException
+from app.core.exceptions import (
+    DomainAuthenticationUnavailableException,
+    DomainEntityAlreadyExistsException,
+    DomainRecoveryRateLimitException,
+    DomainUnauthorizedDomainException,
+)
 from starlette.concurrency import run_in_threadpool
 
 from app.core.constants import constants, FIREBASE_CONFIG, IDENTITY_TOOLKIT_BASE, SECURE_TOKEN_BASE
@@ -181,7 +186,6 @@ async def sign_in_with_password(email: str, password: str) -> dict | None:
                 raise DomainAuthenticationUnavailableException()
         return data
     except Exception as e:
-        print(str(e))
         raise e
 
 
@@ -191,14 +195,14 @@ async def send_password_reset_email(firebase_uid: str) -> None:
     unavailable_message = "Unable to send the recovery email right now. Please try again later."
     try:
         firebase_user = await run_in_threadpool(auth.get_user, firebase_uid, app=_require_firebase())
-        if firebase_user.disabled or not firebase_user.student_id:
+        if firebase_user.disabled or not firebase_user.email:
             return
         url = f"{IDENTITY_TOOLKIT_BASE}/accounts:sendOobCode?key={constants.FIREBASE_API_KEY}"
         # Sending email is not idempotent: do not retry an ambiguous timeout and
         # send multiple reset links. Firebase handles codes and email delivery.
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(url, json={
-                "requestType": "PASSWORD_RESET", "email": firebase_user.student_id,
+                "requestType": "PASSWORD_RESET", "email": firebase_user.email,
             })
         data = response.json()
         if response.is_success and isinstance(data, dict):
@@ -258,6 +262,22 @@ def update_firebase_user_password(firebase_uid: str, password: str) -> bool:
         return True
     except Exception as exc:
         logger.error(f"Failed to update Firebase password for uid {firebase_uid}: {exc}")
+        raise exc
+
+
+def update_firebase_user_email(firebase_uid: str, new_email: str) -> bool:
+    """
+    Updates a user's email in Firebase Authentication using Admin SDK.
+    """
+    _require_firebase()
+    try:
+        auth.update_user(firebase_uid, email=new_email)
+        logger.info(f"Firebase email updated successfully for uid: {firebase_uid}")
+        return True
+    except auth.EmailAlreadyExistsError as exc:
+        raise DomainEntityAlreadyExistsException("This email is already in use by another account.") from exc
+    except Exception as exc:
+        logger.error(f"Failed to update Firebase email for uid {firebase_uid}: {exc}")
         raise exc
 
 

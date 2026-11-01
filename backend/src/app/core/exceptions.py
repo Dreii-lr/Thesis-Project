@@ -17,10 +17,13 @@ Architecture:
 """
 from __future__ import annotations
 
+import logging
 from typing import Type
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 
 # 
@@ -223,7 +226,7 @@ async def app_exception_handler(request: Request, exc: CustomHTTPException) -> J
     return await custom_http_exception_handler(request, exc)
 
 
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     error_code = getattr(exc, "error_code", "HTTP_ERROR")
     return JSONResponse(
         status_code=exc.status_code,
@@ -231,7 +234,8 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     )
 
 
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled server error processing %s %s: %s", request.method, request.url.path, exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
