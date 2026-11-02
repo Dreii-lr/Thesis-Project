@@ -1,13 +1,24 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, FileCheck, FileUp, Loader2, UploadCloud, X } from 'lucide-react';
 import Modal from '@/src/components/ui/Modal';
-import { REQUIREMENTS, createStudentSubmission, validateRequirementFile, type RequirementId, type RequirementItem, type RequirementRecord } from '@/src/lib/requirements';
+import { REQUIREMENTS, STANDARD_MAX_FILE_SIZE_MB, STANDARD_ALLOWED_EXTENSIONS, mapSubmissionToRecord, validateRequirementFile, type RequirementId, type RequirementItem, type RequirementRecord } from '@/src/lib/requirements';
+import { submitStudentRequirementApi, getStudentUploadAttemptsApi, type DailyUploadAttemptSummary } from '@/src/lib/requirements-api';
 import { FilePreview, RequirementError, buttonClass, fieldClass, primaryClass } from './RequirementShared';
-import { saveRequirement } from './useRequirements';
+import { notifyRequirementsUpdated } from './useRequirements';
 
 export interface RequirementLearner { ownerId: string; learnerName: string; email: string; program: string }
+
+export function isAiDocument(docType?: string, reqCode?: string): boolean {
+  const code = (reqCode || '').toLowerCase();
+  const dt = (docType || '').toLowerCase();
+  if (code.includes('psa') || code.includes('police') || code.includes('id') || code.includes('identity')) return true;
+  return [
+    'valid id', 'government id', 'philsys', 'passport', 'driver', 'license', 'umid',
+    'sss', 'postal id', 'voter', 'prc', 'student id', 'id card', 'psa', 'birth', 'police', 'clearance',
+  ].some(kw => dt.includes(kw));
+}
 
 export default function RequirementUpload({
   requirement,
@@ -22,7 +33,7 @@ export default function RequirementUpload({
   learner: RequirementLearner;
   previous?: RequirementRecord;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (notice?: string) => void;
 }) {
   const req = requirement || REQUIREMENTS.find(item => item.id === requirementId) || {
     id: requirementId || 'rpl',
@@ -32,12 +43,10 @@ export default function RequirementUpload({
     accepted_document_types: ['Official Document'],
     description: '',
     guidance: '',
-    allowed_extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
-    max_file_size_mb: 10,
   };
   const activeTypes = req.types?.length ? req.types : req.accepted_document_types?.length ? req.accepted_document_types : ['Official Document'];
-  const allowedExts = req.allowed_extensions?.length ? req.allowed_extensions : ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
-  const maxMb = req.max_file_size_mb || 10;
+  const allowedExts = STANDARD_ALLOWED_EXTENSIONS;
+  const maxMb = STANDARD_MAX_FILE_SIZE_MB;
   const acceptAttr = allowedExts.map(e => `.${e.toLowerCase().replace(/^\./, '')}`).join(',');
   const resolvedId = req.id || req.code || requirementId || 'rpl';
 
@@ -47,8 +56,23 @@ export default function RequirementUpload({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [attempts, setAttempts] = useState<DailyUploadAttemptSummary | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const lock = useRef(false);
+
+  const isAi = isAiDocument(type, resolvedId);
+
+  useEffect(() => {
+    let active = true;
+    if (isAi) {
+      void getStudentUploadAttemptsApi()
+        .then(res => {
+          if (active) setAttempts(res);
+        })
+        .catch(() => {});
+    }
+    return () => { active = false; };
+  }, [isAi]);
 
   function choose(selected?: File) {
     if (!selected || busy) return;
@@ -65,23 +89,41 @@ export default function RequirementUpload({
 
   async function submit() {
     if (!file || lock.current) return;
+    if (isAi && attempts && attempts.remaining <= 0) {
+      setError('You have reached the maximum limit of 3 upload attempts for today on your Valid ID. Please try again tomorrow to avoid API rate limits.');
+      return;
+    }
     const issue = validateRequirementFile(file, maxMb, allowedExts);
     if (issue) { setError(issue); return; }
     lock.current = true; setBusy(true); setError('');
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const result = createStudentSubmission(type, remarks);
-      const at = new Date().toISOString();
-      const record: RequirementRecord = {
-        ...learner, id: previous?.id || `${learner.ownerId}:${resolvedId}`, requirementId: resolvedId,
-        ...result, updatedAt: at,
-        versions: [{ id: crypto.randomUUID(), at, type, fileName: file.name, fileSize: file.size, mime: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'), scenario: 'submission', ...result }, ...(previous?.versions || [])],
-        events: [{ id: crypto.randomUUID(), at, actor: learner.learnerName, message: previous ? `Replacement document (${type}) submitted for review.` : `Document (${type}) submitted for review.` }, ...(previous?.events || [])],
-      };
-      await saveRequirement(record, file, previous?.updatedAt || null);
-      onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Submission could not be saved. Please try again.'); }
-    finally { lock.current = false; setBusy(false); }
+      const formData = new FormData();
+      formData.append('requirement_code', resolvedId);
+      formData.append('document_type', type);
+      formData.append('file', file);
+      if (remarks.trim()) {
+        formData.append('student_remarks', remarks.trim());
+      }
+      formData.append('is_conditional', 'false');
+      formData.append('requested_assistance', 'false');
+
+      const submission = await submitStudentRequirementApi(formData);
+      notifyRequirementsUpdated();
+
+      const isVerified = submission.status === 'verified' || submission.status === 'auto_verified';
+      const successNotice = isVerified
+        ? (submission.teacher_feedback || 'Your document was verified successfully by AI!')
+        : 'Your document was successfully submitted for teacher review.';
+
+      onSaved(successNotice);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Submission could not be saved. Please try again.');
+      if (isAi) {
+        void getStudentUploadAttemptsApi().then(res => setAttempts(res)).catch(() => {});
+      }
+    } finally {
+      lock.current = false; setBusy(false);
+    }
   }
 
   const formatSize = (bytes: number) => {
@@ -107,6 +149,26 @@ export default function RequirementUpload({
         <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3.5 text-xs leading-5 text-slate-600">
           <strong className="font-semibold text-blue-900">Document Guidelines: </strong>
           {req.guidance}
+        </div>
+      )}
+
+      {isAi && (
+        <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl p-3.5 text-xs leading-5 ${
+          attempts && attempts.remaining === 0
+            ? 'border border-amber-200 bg-amber-50/90 text-amber-900'
+            : 'border border-blue-100 bg-blue-50/60 text-blue-900'
+        }`}>
+          <div>
+            <strong className="font-semibold">AI Verification Daily Limit: </strong>
+            <span>3 attempts per day for Valid ID & identity documents.</span>
+          </div>
+          {attempts && (
+            <span className={`inline-flex shrink-0 self-start sm:self-auto rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+              attempts.remaining === 0 ? 'bg-amber-200 text-amber-950' : 'bg-blue-100 text-blue-900'
+            }`}>
+              {attempts.remaining} / {attempts.max_daily_attempts} remaining today
+            </span>
+          )}
         </div>
       )}
 
@@ -201,9 +263,14 @@ export default function RequirementUpload({
 
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
         <button type="button" onClick={onClose} disabled={busy} className={buttonClass}>Cancel</button>
-        <button type="button" disabled={!file || busy} onClick={submit} className={primaryClass}>
+        <button
+          type="button"
+          disabled={!file || busy || (isAi && attempts !== null && attempts.remaining <= 0)}
+          onClick={submit}
+          className={primaryClass}
+        >
           {busy ? <Loader2 size={15} className="animate-spin" /> : <FileUp size={15} />}
-          {busy ? 'Submitting document…' : previous ? 'Submit replacement' : 'Submit requirement'}
+          {busy ? 'Uploading & verifying document…' : previous ? 'Submit replacement' : 'Submit requirement'}
           {!busy && <ArrowRight size={14} />}
         </button>
       </div>
@@ -222,7 +289,7 @@ export function AssistanceRequest({
   requirement?: RequirementItem;
   previous?: RequirementRecord;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (notice?: string) => void;
 }) {
   const resolvedId = requirement?.id || requirement?.code || 'proof_of_education';
   const reqTitle = requirement?.title || 'school records';
@@ -240,44 +307,18 @@ export function AssistanceRequest({
     setBusy(true);
     setError('');
     try {
-      const at = new Date().toISOString();
       const message = `${reason}${note.trim() ? ` ${note.trim()}` : ''}`;
-      await saveRequirement(
-        {
-          ...learner,
-          id: previous?.id || `${learner.ownerId}:${resolvedId}`,
-          requirementId: resolvedId,
-          status: 'review',
-          note: message,
-          updatedAt: at,
-          versions: [
-            {
-              id: crypto.randomUUID(),
-              at,
-              type: `${reqTitle} assistance`,
-              fileName: '',
-              fileSize: 0,
-              mime: '',
-              status: 'review',
-              note: message,
-              scenario: 'assistance',
-            },
-            ...(previous?.versions || []),
-          ],
-          events: [
-            {
-              id: crypto.randomUUID(),
-              at,
-              actor: learner.learnerName,
-              message: `Requested assistance: ${message}`,
-            },
-            ...(previous?.events || []),
-          ],
-        },
-        undefined,
-        previous?.updatedAt || null
-      );
-      onSaved();
+      const formData = new FormData();
+      formData.append('requirement_code', resolvedId);
+      formData.append('document_type', `${reqTitle} assistance`);
+      formData.append('student_remarks', message);
+      formData.append('is_conditional', 'false');
+      formData.append('requested_assistance', 'true');
+
+      const submission = await submitStudentRequirementApi(formData);
+      notifyRequirementsUpdated();
+
+      onSaved('Your assistance request has been sent to your teacher.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Your request could not be saved.');
     } finally {

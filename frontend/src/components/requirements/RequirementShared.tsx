@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { AlertCircle, BadgeCheck, Check, Clock3, FileCheck2, FileText, Fingerprint, GraduationCap, Info, Loader2, ShieldCheck } from 'lucide-react';
 import { REQUIREMENTS, STATUS_LABELS, formatRequirementDate, type RequirementId, type RequirementRecord, type RequirementStatus, type RequirementVersion } from '@/src/lib/requirements';
-import { requirementFile } from './useRequirements';
 
 export const buttonClass = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50';
 export const primaryClass = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50';
@@ -47,26 +46,48 @@ export function RequirementStats({ items }: { items: { label: string; value: num
 
 export function FilePreview({ version, localFile, sample = false }: { version?: RequirementVersion; localFile?: File; sample?: boolean }) {
   const [result, setResult] = useState<{ key: string; url: string; error: string } | null>(null);
-  const key = localFile ? `${localFile.name}:${localFile.lastModified}:${localFile.size}` : version?.id || '';
+  const key = localFile ? `${localFile.name}:${localFile.lastModified}:${localFile.size}` : version?.fileUrl || '';
   useEffect(() => {
     if (!key || sample) return;
-    let active = true;
-    let objectUrl = '';
-    void (localFile ? Promise.resolve(localFile) : requirementFile(key)).then(file => {
-      if (!active) return;
-      if (!file) { setResult({ key, url: '', error: 'No document file is attached to this record.' }); return; }
-      objectUrl = URL.createObjectURL(file);
+    if (localFile) {
+      const objectUrl = URL.createObjectURL(localFile);
       setResult({ key, url: objectUrl, error: '' });
-    }).catch(() => { if (active) setResult({ key, url: '', error: 'This file could not be opened.' }); });
-    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [key, localFile, sample]);
+      return () => { URL.revokeObjectURL(objectUrl); };
+    }
+    if (version?.fileUrl) {
+      setResult({ key, url: version.fileUrl, error: '' });
+      return;
+    }
+    setResult({ key, url: '', error: 'No document file is attached to this record.' });
+  }, [key, localFile, sample, version?.fileUrl]);
   const mime = localFile?.type || version?.mime;
   if (sample || !key) return <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center"><FileText size={30} strokeWidth={1.3} className="text-slate-300" /><p className="mt-3 text-xs text-slate-500">No document file is attached to this record.</p></div>;
   if (result?.key !== key) return <p role="status" className="flex items-center justify-center gap-2 p-8 text-xs text-slate-500"><Loader2 size={16} className="animate-spin" />Opening document preview…</p>;
   if (result.error) return <RequirementError message={result.error} />;
   return <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
     {mime?.startsWith('image/') ? <div className="flex max-h-80 justify-center overflow-auto p-3"><Image unoptimized src={result.url} width={900} height={700} alt="Selected requirement document" className="h-auto max-h-72 w-auto max-w-full object-contain rounded-lg shadow-sm" /></div> : <iframe title="Requirement PDF preview" src={result.url} className="h-72 w-full bg-white" />}
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2"><p className="min-w-0 truncate text-[11px] font-medium text-slate-600">{localFile?.name || version?.fileName}</p><a href={result.url} download={localFile?.name || version?.fileName} className="text-xs font-semibold text-blue-600 hover:text-blue-700 underline underline-offset-2">Download file</a></div>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2">
+      <p className="min-w-0 truncate text-[11px] font-medium text-slate-600">{localFile?.name || version?.fileName}</p>
+      <div className="flex items-center gap-3">
+        {result.url && !localFile && (
+          <a
+            href={result.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-semibold text-slate-600 hover:text-slate-800 underline underline-offset-2"
+          >
+            Open in new tab
+          </a>
+        )}
+        <a
+          href={result.url ? (localFile ? result.url : result.url.includes('?') ? `${result.url}&download=true` : `${result.url}?download=true`) : '#'}
+          download={localFile?.name || version?.fileName}
+          className="text-xs font-semibold text-blue-600 hover:text-blue-700 underline underline-offset-2"
+        >
+          Download file
+        </a>
+      </div>
+    </div>
   </div>;
 }
 

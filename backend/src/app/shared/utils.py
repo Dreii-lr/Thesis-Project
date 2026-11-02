@@ -1,10 +1,67 @@
 from datetime import datetime
+from pathlib import Path
+from typing import Optional, Set
 
+from fastapi import UploadFile
 from starlette.responses import JSONResponse
 from typing_extensions import Any
 
-from app.core.exceptions import DomainUnprocessableEntity
+from app.core.exceptions import DomainUnprocessableEntity, DomainValidationDomainException
 from app.shared.schema import SuccessfulResponseSchema
+
+MAX_DOCUMENT_FILE_SIZE_MB: int = 10
+MAX_DOCUMENT_FILE_SIZE_BYTES: int = MAX_DOCUMENT_FILE_SIZE_MB * 1024 * 1024  # 10 MB
+
+ALLOWED_DOCUMENT_EXTENSIONS: Set[str] = {"pdf", "jpg", "jpeg", "png", "webp"}
+ALLOWED_DOCUMENT_CONTENT_TYPES: Set[str] = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/jpg",
+}
+
+
+def validate_document_file(
+    file: UploadFile,
+    file_bytes: Optional[bytes] = None,
+    max_size_mb: int = MAX_DOCUMENT_FILE_SIZE_MB,
+    allowed_extensions: Optional[Set[str]] = None,
+) -> None:
+    """
+    Validates uploaded student documents/requirements:
+    1. Checks for presence of filename.
+    2. Validates filename extension against allowed_extensions (defaults to pdf, jpg, jpeg, png, webp).
+    3. Validates content_type against ALLOWED_DOCUMENT_CONTENT_TYPES.
+    4. Validates file size (using file_bytes length or file.size) does not exceed max_size_mb (default 10 MB).
+    Raises DomainValidationDomainException on validation failure.
+    """
+    if not file or not file.filename:
+        raise DomainValidationDomainException("A document file is required.")
+
+    valid_extensions = allowed_extensions or ALLOWED_DOCUMENT_EXTENSIONS
+    suffix = Path(file.filename).suffix.lower().lstrip(".")
+    if not suffix or suffix not in valid_extensions:
+        formatted = ", ".join(sorted(valid_extensions)).upper()
+        raise DomainValidationDomainException(f"Unsupported file format '.{suffix}'. Allowed formats: {formatted}.")
+
+    if file.content_type:
+        content_type = file.content_type.lower()
+        if content_type not in ALLOWED_DOCUMENT_CONTENT_TYPES:
+            raise DomainValidationDomainException(f"Unsupported document MIME type '{content_type}'.")
+
+    max_bytes = max_size_mb * 1024 * 1024
+    if file_bytes is not None:
+        size = len(file_bytes)
+        if size > max_bytes:
+            raise DomainValidationDomainException(
+                f"Document file size ({size / (1024 * 1024):.1f} MB) exceeds maximum allowed limit of {max_size_mb} MB."
+            )
+    elif getattr(file, "size", None) is not None and file.size is not None:
+        if file.size > max_bytes:
+            raise DomainValidationDomainException(
+                f"Document file size ({file.size / (1024 * 1024):.1f} MB) exceeds maximum allowed limit of {max_size_mb} MB."
+            )
 
 
 class SharedUtils:
@@ -62,3 +119,5 @@ class SharedUtils:
         else:
             prefix = f"{current_year[0:1]}{current_year[2:]}"
             return f"{prefix}-{next_value:05d}"
+
+    validate_document_file = staticmethod(validate_document_file)

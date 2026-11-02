@@ -1,34 +1,84 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowRight, Check, FileCheck2, FlaskConical, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Trash2, Users } from 'lucide-react';
-import { useOptionalAuth } from '@/src/context/AuthContext';
+import {
+  AlertCircle,
+  ArrowRight,
+  BookOpen,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  ExternalLink,
+  FileCheck2,
+  FileText,
+  GraduationCap,
+  RefreshCw,
+  School,
+  Search,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
 import StudentPageHeader, { studentHeaderActionClass } from '@/src/components/layout/student/StudentPageHeader';
 import Modal from '@/src/components/ui/Modal';
-import { DEFAULT_REQUIREMENTS, REQUIREMENTS, STATUS_LABELS, formatRequirementDate, isSatisfied, reviewRequirement, type RequirementRecord, type RequirementStatus, type ReviewerRole } from '@/src/lib/requirements';
-import { getDefaultRequirements, getPublicRequirements, type RequirementItem } from '@/src/lib/requirements-api';
-import { DemoNotice, RequirementError, RequirementIcon, RequirementStats, StatusBadge, SubmissionDetails, buttonClass, fieldClass, primaryClass } from './RequirementShared';
-import { clearSampleRequirements, saveRequirement, useRequirements } from './useRequirements';
+import {
+  DEFAULT_REQUIREMENTS,
+  REQUIREMENTS,
+  STANDARD_ALS_PROGRAMS,
+  STATUS_LABELS,
+  formatRequirementDate,
+  groupSubmissionsByLearner,
+  isSatisfied,
+  type LearnerRequirementSummary,
+  type OverallLearnerStatus,
+  type RequirementRecord,
+  type RequirementStatus,
+  type ReviewerRole,
+} from '@/src/lib/requirements';
+import {
+  getDefaultRequirements,
+  getPublicRequirements,
+  reviewStudentSubmissionApi,
+  type RequirementItem,
+} from '@/src/lib/requirements-api';
+import { fetchStudentsFromApi } from '@/src/lib/students-api';
+import {
+  DemoNotice,
+  RequirementError,
+  RequirementIcon,
+  StatusBadge,
+  SubmissionDetails,
+  buttonClass,
+  fieldClass,
+  primaryClass,
+} from './RequirementShared';
+import { useRequirements, notifyRequirementsUpdated } from './useRequirements';
 import AdminRequirementsCatalog from './AdminRequirementsCatalog';
 
 export default function StaffRequirements({ role }: { role: ReviewerRole }) {
   const params = useSearchParams();
   const requestedLearner = params.get('learner') || '';
-  const { records, loading, error, reload } = useRequirements();
-  const [search, setSearch] = useState(requestedLearner);
-  const [status, setStatus] = useState('all');
-  const [program, setProgram] = useState('all');
-  const [type, setType] = useState('all');
-  const [catalog, setCatalog] = useState<RequirementItem[]>(DEFAULT_REQUIREMENTS);
-  const [tab, setTab] = useState<'catalog' | 'queue' | 'guide'>(role === 'admin' ? 'catalog' : 'queue');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [notice, setNotice] = useState('');
-  const [actionError, setActionError] = useState('');
-  const [pending, setPending] = useState(false);
-  const actionLock = useRef(false);
 
+  const { records, loading: recordsLoading, error: recordsError, reload: reloadRecords } = useRequirements(role);
+  const [catalog, setCatalog] = useState<RequirementItem[]>(DEFAULT_REQUIREMENTS);
+  const [enrolledStudents, setEnrolledStudents] = useState<
+    Array<{ id: string; name: string; program: string; accountId?: string }>
+  >([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+
+  // Program selection: strictly ONE program at a time (NO "All programs")
+  const [activeProgram, setActiveProgram] = useState<string>('SECONDARY');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'review' | 'action' | 'complete'>('all');
+  const [search, setSearch] = useState(requestedLearner);
+  const [tab, setTab] = useState<'catalog' | 'queue' | 'guide'>(role === 'admin' ? 'catalog' : 'queue');
+  const [selectedRecord, setSelectedRecord] = useState<RequirementRecord | null>(null);
+  const [expandedStudentIds, setExpandedStudentIds] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState('');
+
+  // 1. Fetch requirements catalog
   useEffect(() => {
     let active = true;
     getDefaultRequirements()
@@ -43,117 +93,928 @@ export default function StaffRequirements({ role }: { role: ReviewerRole }) {
     };
   }, []);
 
-  const selected = records.find(record => record.id === selectedId);
-  const reviews = records.filter(record => record.status === 'review');
-  const visible = records.filter(record => (status === 'all' || record.status === status) && (program === 'all' || record.program === program) && (type === 'all' || record.requirementId === type) && `${record.learnerName} ${record.email} ${record.versions[0]?.fileName || ''}`.toLowerCase().includes(search.trim().toLowerCase()));
-  const programs = Array.from(new Set(records.map(record => record.program))).sort();
-  async function samples(remove = false) {
-    if (actionLock.current) return;
-    actionLock.current = true; setPending(true); setActionError('');
+  // 2. Fetch enrolled students from API
+  const loadStudents = async () => {
+    setStudentsLoading(true);
     try {
-      if (remove) { await clearSampleRequirements(records); setNotice('Illustrative samples removed. Learner submissions were preserved.'); }
-      else {
-        const at = new Date().toISOString();
-        const samples: { key: string; name: string; program: string; requirementId: RequirementRecord['requirementId']; status: RequirementStatus; type: string; note: string }[] = [
-          { key: 'ana-birth', name: 'Ana Santos', program: 'ELEMENTARY', requirementId: 'birth', status: 'auto_verified', type: 'Local Civil Registrar Birth Certificate', note: 'Illustrative automatic result: accepted alternative, readable birth date, and matching learner name.' },
-          { key: 'miguel-school', name: 'Miguel Reyes', program: 'SECONDARY', requirementId: 'school', status: 'review', type: 'School-record assistance', note: 'I cannot obtain my previous school records. Please help me find an alternative.' },
-          { key: 'lea-id', name: 'Lea Cruz', program: 'BLP', requirementId: 'identity', status: 'correction', type: 'Barangay Clearance', note: 'Illustrative correction: the lower part is cut off. Please upload the complete document.' },
-          { key: 'paolo-school', name: 'Paolo Ramos', program: 'SECONDARY', requirementId: 'school', status: 'review', type: 'Form 138 / Report Card', note: 'Illustrative review: the learner name needs comparison with the profile.' },
-        ];
-        for (const item of samples) {
-          const id = `sample:${item.key}`;
-          if (records.some(record => record.id === id)) continue;
-          const assistance = item.type === 'School-record assistance';
-          await saveRequirement({ id, ownerId: id, learnerName: item.name, email: `${item.key}@example.invalid`, program: item.program, requirementId: item.requirementId, status: item.status, note: item.note, updatedAt: at, sample: true,
-            versions: [{ id: crypto.randomUUID(), at, type: item.type, fileName: assistance ? '' : 'Illustrative sample.pdf', fileSize: 0, mime: 'application/pdf', status: item.status, note: item.note, scenario: assistance ? 'assistance' : item.status === 'auto_verified' ? 'pass' : item.status === 'review' ? 'review' : 'correction' }],
-            events: [{ id: crypto.randomUUID(), at, actor: 'Sample data', message: item.note }] });
-        }
-        setNotice('Illustrative submissions loaded. Open a sample to try the review flow.');
+      const data = await fetchStudentsFromApi(0, 100);
+      if (Array.isArray(data)) {
+        setEnrolledStudents(
+          data.map(s => ({
+            id: String(s.id || s.personal_details?.user_id || ''),
+            name: s.full_name || [s.first_name, s.last_name].filter(Boolean).join(' ') || 'Learner',
+            program: String(s.user_category || 'SECONDARY').toUpperCase(),
+            accountId: s.account_id || s.personal_details?.lrn_number || '',
+          }))
+        );
       }
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'The sample records could not be updated.'); }
-    finally { actionLock.current = false; setPending(false); }
-  }
-    const tabItems = role === 'admin'
-      ? [
-          { id: 'catalog' as const, label: 'Requirements Catalog' },
-          { id: 'queue' as const, label: `Submissions (${reviews.length})` },
-          { id: 'guide' as const, label: 'Acceptance Guide' },
-        ]
-      : [
-          { id: 'queue' as const, label: `Submissions (${reviews.length})` },
-          { id: 'guide' as const, label: 'Acceptance Guide' },
-        ];
+    } catch {
+      // Gracefully fall back to submissions-derived learners
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
 
-    return <div className="mx-auto w-full max-w-[1440px] space-y-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-    <StudentPageHeader eyebrow={role === 'admin' ? 'Learner management · Master Catalog & Verification' : 'Learner management · Document support'} title={role === 'admin' ? 'Requirements & verification' : 'Student requirements'} description={role === 'admin' ? 'Manage master requirements catalog and keep learner records moving. Resolve exceptions, review outcomes, and make clear decisions.' : 'Help learners complete their records. Follow submitted documents, resolve questions, and send exceptions for an admin decision.'} actions={<button type="button" className={studentHeaderActionClass} onClick={reload} disabled={loading}><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /><span className="ml-2">Refresh records</span></button>}>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs text-blue-100"><span className="flex items-center gap-2"><ShieldCheck size={16} />Dynamic master requirements catalog</span><span className="flex items-center gap-2"><Users size={16} />Staff handle exceptions and assistance</span></div>
-    </StudentPageHeader>
-    <DemoNotice />
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
-        {tabItems.map(item => (
+  useEffect(() => {
+    loadStudents();
+  }, []);
+
+  const refreshAll = async () => {
+    await Promise.all([reloadRecords(), loadStudents()]);
+  };
+
+  const isBusy = recordsLoading || studentsLoading;
+
+  // 3. Group submissions by learner against the catalog & enrolled roster
+  const allLearners = useMemo(() => {
+    return groupSubmissionsByLearner(records, catalog, enrolledStudents);
+  }, [records, catalog, enrolledStudents]);
+
+  // 4. Derive available programs list strictly without "All programs"
+  const programOptions = useMemo(() => {
+    const detected = new Set(STANDARD_ALS_PROGRAMS.map(p => p.id));
+    const extraPrograms: Array<{ id: string; label: string; shortLabel: string }> = [];
+
+    for (const l of allLearners) {
+      const p = l.program ? l.program.toUpperCase() : 'SECONDARY';
+      if (!detected.has(p as 'BLP' | 'ELEMENTARY' | 'SECONDARY')) {
+        detected.add(p as 'BLP' | 'ELEMENTARY' | 'SECONDARY');
+        extraPrograms.push({ id: p, label: p, shortLabel: p });
+      }
+    }
+    return [...STANDARD_ALS_PROGRAMS, ...extraPrograms];
+  }, [allLearners]);
+
+  // Ensure activeProgram is valid
+  useEffect(() => {
+    if (programOptions.length > 0 && !programOptions.some(p => p.id === activeProgram)) {
+      setActiveProgram(programOptions[0].id);
+    }
+  }, [programOptions, activeProgram]);
+
+  // 5. Learners strictly belonging to the currently active program
+  const currentProgramLearners = useMemo(() => {
+    return allLearners.filter(l => l.program === activeProgram);
+  }, [allLearners, activeProgram]);
+
+  // Program-level counts
+  const programStats = useMemo(() => {
+    const total = currentProgramLearners.length;
+    const review = currentProgramLearners.filter(l => l.overallStatus === 'review').length;
+    const action = currentProgramLearners.filter(l => l.overallStatus === 'correction' || l.overallStatus === 'missing').length;
+    const complete = currentProgramLearners.filter(l => l.overallStatus === 'complete').length;
+    return { total, review, action, complete };
+  }, [currentProgramLearners]);
+
+  // 6. Filter by status & search within the active program
+  const visibleLearners = useMemo(() => {
+    return currentProgramLearners.filter(l => {
+      // Status filter
+      if (statusFilter === 'review' && l.overallStatus !== 'review') return false;
+      if (statusFilter === 'action' && l.overallStatus !== 'correction' && l.overallStatus !== 'missing') return false;
+      if (statusFilter === 'complete' && l.overallStatus !== 'complete') return false;
+
+      // Search query
+      if (search.trim()) {
+        const query = search.trim().toLowerCase();
+        const matchesName = l.studentName.toLowerCase().includes(query);
+        const matchesId = l.accountId.toLowerCase().includes(query);
+        const matchesDoc = Object.values(l.submissions).some(s =>
+          (s.versions[0]?.fileName || '').toLowerCase().includes(query)
+        );
+        if (!matchesName && !matchesId && !matchesDoc) return false;
+      }
+      return true;
+    });
+  }, [currentProgramLearners, statusFilter, search]);
+
+  const toggleExpand = (studentId: string) => {
+    setExpandedStudentIds(prev => {
+      const next = new Set(prev);
+      if (next.has(studentId)) next.delete(studentId);
+      else next.add(studentId);
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    setExpandedStudentIds(new Set(visibleLearners.map(l => l.studentId)));
+  };
+
+  const collapseAll = () => {
+    setExpandedStudentIds(new Set());
+  };
+
+  const tabItems = role === 'admin'
+    ? [
+        { id: 'catalog' as const, label: 'Requirements Catalog' },
+        { id: 'queue' as const, label: `Learner Roster (${currentProgramLearners.length})` },
+        { id: 'guide' as const, label: 'Acceptance Guide' },
+      ]
+    : [
+        { id: 'queue' as const, label: `Learner Roster (${currentProgramLearners.length})` },
+        { id: 'guide' as const, label: 'Acceptance Guide' },
+      ];
+
+  const currentProgramMeta = programOptions.find(p => p.id === activeProgram) || {
+    id: activeProgram,
+    label: activeProgram,
+    shortLabel: activeProgram,
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      {/* Header */}
+      <StudentPageHeader
+        eyebrow={role === 'admin' ? 'Learner Management · Master Catalog & Verification' : 'Learner Management · Document Support'}
+        title={role === 'admin' ? 'Requirements & Verification' : 'Student Requirements'}
+        description={
+          role === 'admin'
+            ? 'Manage master requirements catalog and keep learner records moving. Review outcomes and record verification decisions.'
+            : 'Track learner requirements by program. Inspect submitted documents, assist with exceptions, and record verification reviews.'
+        }
+        actions={
           <button
-            key={item.id}
             type="button"
-            aria-pressed={tab === item.id}
-            onClick={() => setTab(item.id)}
-            className={`rounded-lg px-4 py-2.5 text-xs font-semibold ${
-              tab === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-400 hover:text-slate-700'
-            }`}
+            className={studentHeaderActionClass}
+            onClick={refreshAll}
+            disabled={isBusy}
           >
-            {item.label}
+            <RefreshCw size={15} className={isBusy ? 'animate-spin' : ''} />
+            <span className="ml-2">Refresh Roster</span>
           </button>
-        ))}
-      </div>
-      {tab === 'queue' && (
-        <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={pending || loading || Boolean(error)} onClick={() => samples()} className={buttonClass}>
-            <FlaskConical size={14} />Load sample submissions
-          </button>
-          {records.some(record => record.sample) && (
-            <button type="button" disabled={pending} onClick={() => samples(true)} className={buttonClass}>
-              <Trash2 size={13} />Remove samples
+        }
+      >
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs text-blue-100">
+          <span className="flex items-center gap-2">
+            <ShieldCheck size={16} />
+            PostgreSQL Single Source of Truth
+          </span>
+          <span className="flex items-center gap-2">
+            <Users size={16} />
+            Students Partitioned Strictly by Program
+          </span>
+        </div>
+      </StudentPageHeader>
+
+      <DemoNotice />
+
+      {/* Main Tabs (Catalog vs Queue vs Guide) */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-xs">
+          {tabItems.map(item => (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={tab === item.id}
+              onClick={() => setTab(item.id)}
+              className={`rounded-lg px-4 py-2 text-xs font-semibold transition ${
+                tab === item.id ? 'bg-blue-50 text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {item.label}
             </button>
+          ))}
+        </div>
+      </div>
+
+      {tab === 'catalog' && role === 'admin' ? (
+        <AdminRequirementsCatalog />
+      ) : tab === 'guide' ? (
+        <AcceptanceGuide role={role} />
+      ) : (
+        <div className="space-y-6">
+          {notice && (
+            <div role="status" className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-medium text-emerald-800 shadow-xs">
+              <Check size={16} className="text-emerald-600 shrink-0" />
+              <span>{notice}</span>
+              <button
+                type="button"
+                className="ml-auto rounded-lg px-2 py-1 text-emerald-700 hover:bg-emerald-100 font-semibold"
+                onClick={() => setNotice('')}
+              >
+                Dismiss
+              </button>
+            </div>
           )}
+
+          {recordsError && <RequirementError message={recordsError} />}
+
+          {/* Program Segmented Switcher (NO "All Programs" Option) */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-800">Learning Program</h2>
+                <p className="text-xs text-slate-500">Select an ALS program to inspect its enrolled learners. Students are strictly partitioned without mixing.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+              {programOptions.map(prog => {
+                const count = allLearners.filter(l => l.program === prog.id).length;
+                const reviewCount = allLearners.filter(l => l.program === prog.id && l.overallStatus === 'review').length;
+                const isActive = activeProgram === prog.id;
+
+                const Icon = prog.id === 'BLP' ? GraduationCap : prog.id === 'ELEMENTARY' ? BookOpen : School;
+
+                return (
+                  <button
+                    key={prog.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveProgram(prog.id);
+                      setStatusFilter('all');
+                    }}
+                    className={`flex items-center justify-between rounded-2xl border p-4 text-left transition ${
+                      isActive
+                        ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${
+                        isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        <Icon size={20} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className={`text-xs font-semibold truncate ${isActive ? 'text-blue-900' : 'text-slate-800'}`}>
+                          {prog.label}
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {count} {count === 1 ? 'Learner' : 'Learners'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {reviewCount > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800" title={`${reviewCount} need review`}>
+                          <Clock size={11} />
+                          {reviewCount}
+                        </span>
+                      )}
+                      <span className={`size-2 rounded-full ${isActive ? 'bg-blue-600' : 'bg-transparent'}`} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Program Health & Metric Chips */}
+          <section className="grid gap-3 sm:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className={`rounded-2xl border p-4 text-left transition ${
+                statusFilter === 'all'
+                  ? 'border-blue-400 bg-blue-50/40 ring-2 ring-blue-400/20'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <p className="text-[11px] font-medium text-slate-500">Total in {currentProgramMeta.shortLabel}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">{isBusy ? '—' : programStats.total}</p>
+              <p className="mt-1 text-[10px] text-slate-400">Enrolled learners in this track</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter('review')}
+              className={`rounded-2xl border p-4 text-left transition ${
+                statusFilter === 'review'
+                  ? 'border-amber-400 bg-amber-50/50 ring-2 ring-amber-400/20'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-medium text-amber-800">Awaiting Teacher Review</p>
+                {programStats.review > 0 && <span className="size-2 rounded-full bg-amber-500" />}
+              </div>
+              <p className="mt-1 text-2xl font-bold text-amber-900">{isBusy ? '—' : programStats.review}</p>
+              <p className="mt-1 text-[10px] text-amber-700/80">Submitted documents needing action</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter('action')}
+              className={`rounded-2xl border p-4 text-left transition ${
+                statusFilter === 'action'
+                  ? 'border-rose-400 bg-rose-50/50 ring-2 ring-rose-400/20'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <p className="text-[11px] font-medium text-rose-800">Action Needed</p>
+              <p className="mt-1 text-2xl font-bold text-rose-900">{isBusy ? '—' : programStats.action}</p>
+              <p className="mt-1 text-[10px] text-rose-700/80">Corrections requested or missing files</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter('complete')}
+              className={`rounded-2xl border p-4 text-left transition ${
+                statusFilter === 'complete'
+                  ? 'border-emerald-400 bg-emerald-50/50 ring-2 ring-emerald-400/20'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <p className="text-[11px] font-medium text-emerald-800">Fully Verified</p>
+              <p className="mt-1 text-2xl font-bold text-emerald-900">{isBusy ? '—' : programStats.complete}</p>
+              <p className="mt-1 text-[10px] text-emerald-700/80">All requirements satisfied</p>
+            </button>
+          </section>
+
+          {/* Student Roster Section (Students First) */}
+          <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4 sm:px-6">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  {currentProgramMeta.label} Roster
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Showing {visibleLearners.length} of {currentProgramLearners.length} learners
+                  {statusFilter !== 'all' ? ` (filtered by ${statusFilter})` : ''}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={expandAll}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Expand All
+                </button>
+                <button
+                  type="button"
+                  onClick={collapseAll}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Collapse All
+                </button>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="grid gap-3 border-b border-slate-100 bg-slate-50/50 p-4 sm:grid-cols-[1fr_auto]">
+              <div className="relative">
+                <Search size={14} className="pointer-events-none absolute left-3.5 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder={`Search ${currentProgramMeta.shortLabel} learners by name, LRN, or file…`}
+                  className={`${fieldClass} !mt-0 pl-9`}
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(['all', 'review', 'action', 'complete'] as const).map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setStatusFilter(f)}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                      statusFilter === f
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {f === 'all' ? 'All' : f === 'review' ? 'Awaiting Review' : f === 'action' ? 'Action Needed' : 'Verified'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Students List */}
+            {isBusy ? (
+              <div className="p-16 text-center text-xs text-slate-400">
+                <RefreshCw size={24} className="animate-spin mx-auto mb-3 text-blue-500" />
+                Loading {currentProgramMeta.shortLabel} learner records…
+              </div>
+            ) : visibleLearners.length === 0 ? (
+              <div className="flex flex-col items-center px-6 py-16 text-center">
+                <span className="rounded-2xl bg-slate-100 p-4 text-slate-400">
+                  <FileCheck2 size={32} strokeWidth={1.5} />
+                </span>
+                <h4 className="mt-4 text-sm font-semibold text-slate-800">
+                  {search ? 'No matching learners found' : `No learners enrolled in ${currentProgramMeta.label}`}
+                </h4>
+                <p className="mt-1.5 max-w-sm text-xs leading-5 text-slate-400">
+                  {search
+                    ? 'Try clearing the search query or changing the status filter.'
+                    : 'Learners enrolled under this track in the database will appear here automatically.'}
+                </p>
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      setStatusFilter('all');
+                    }}
+                    className={`${buttonClass} mt-4`}
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {visibleLearners.map(learner => {
+                  const isExpanded = expandedStudentIds.has(learner.studentId);
+                  const initials = learner.studentName
+                    .split(' ')
+                    .map(n => n[0])
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .join('')
+                    .toUpperCase() || 'L';
+
+                  const percentage = Math.round((learner.satisfiedCount / (learner.totalRequired || 1)) * 100);
+
+                  return (
+                    <article key={learner.studentId} className="transition bg-white hover:bg-slate-50/30">
+                      {/* Learner Card Header Row */}
+                      <div
+                        className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5 cursor-pointer select-none"
+                        onClick={() => toggleExpand(learner.studentId)}
+                      >
+                        {/* Student Name & Identifiers */}
+                        <div className="flex items-center gap-3.5 min-w-0 flex-1 basis-64">
+                          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-blue-100/70 text-blue-700 font-bold text-sm">
+                            {initials}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-sm font-semibold text-slate-900 truncate">
+                                {learner.studentName}
+                              </h4>
+                              {learner.accountId && (
+                                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-mono font-medium text-slate-600">
+                                  {learner.accountId}
+                                </span>
+                              )}
+                              <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                {currentProgramMeta.shortLabel}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1">
+                              {learner.latestUpdate
+                                ? `Last submission ${formatRequirementDate(learner.latestUpdate)}`
+                                : 'No submissions yet'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Progress Meter & Status Pill */}
+                        <div className="flex items-center gap-4 ml-auto">
+                          <div className="hidden sm:flex flex-col items-end">
+                            <span className="text-xs font-semibold text-slate-700">
+                              {learner.satisfiedCount} / {learner.totalRequired} Verified
+                            </span>
+                            <div className="w-28 h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1.5">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  percentage === 100 ? 'bg-emerald-500' : 'bg-blue-600'
+                                }`}
+                                style={{ width: `${Math.min(100, percentage)}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <LearnerStatusBadge
+                            status={learner.overallStatus}
+                            waitingCount={learner.waitingCount}
+                          />
+
+                          <button
+                            type="button"
+                            className="flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+                            aria-label={isExpanded ? 'Collapse requirements' : 'Expand requirements'}
+                          >
+                            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Mini Requirement Pills Strip (Always visible for quick glance) */}
+                      <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3.5 sm:px-5">
+                        {catalog.map(item => {
+                          const reqCode = (item.id || item.code || '').toLowerCase();
+                          const sub = learner.submissions[reqCode];
+                          return (
+                            <MiniRequirementPill
+                              key={item.id}
+                              title={item.title}
+                              submission={sub}
+                            />
+                          );
+                        })}
+                      </div>
+
+                      {/* Expanded Checklist & Dossier Section */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 bg-slate-50/70 p-4 sm:p-6 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <h5 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                              Requirements Checklist for {learner.studentName}
+                            </h5>
+                            <span className="text-xs text-slate-400">
+                              {learner.satisfiedCount} of {catalog.length} requirements satisfied
+                            </span>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                            {catalog.map(item => {
+                              const reqCode = (item.id || item.code || '').toLowerCase();
+                              const sub = learner.submissions[reqCode];
+                              const isGood = sub && isSatisfied(sub.status);
+                              const isUnderReview = sub && sub.status === 'review';
+                              const isCorrection = sub && sub.status === 'correction';
+
+                              const latestVersion = sub?.versions[0];
+
+                              return (
+                                <div
+                                  key={item.id}
+                                  className={`rounded-2xl border p-4 transition bg-white flex flex-col justify-between ${
+                                    isGood
+                                      ? 'border-emerald-200 shadow-xs'
+                                      : isUnderReview
+                                      ? 'border-amber-300 ring-2 ring-amber-400/20 shadow-xs'
+                                      : isCorrection
+                                      ? 'border-rose-200'
+                                      : 'border-slate-200/90'
+                                  }`}
+                                >
+                                  <div>
+                                    {/* Item Header */}
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
+                                          isGood
+                                            ? 'bg-emerald-50 text-emerald-600'
+                                            : isUnderReview
+                                            ? 'bg-amber-50 text-amber-600'
+                                            : isCorrection
+                                            ? 'bg-rose-50 text-rose-600'
+                                            : 'bg-slate-100 text-slate-500'
+                                        }`}>
+                                          <RequirementIcon id={item.id} size={16} />
+                                        </span>
+                                        <div>
+                                          <p className="text-xs font-semibold text-slate-900 leading-tight">
+                                            {item.title}
+                                          </p>
+                                          <p className="text-[10px] text-slate-400 line-clamp-1">
+                                            {item.description}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Status Badge */}
+                                    <div className="mt-3">
+                                      <StatusBadge status={sub?.status} />
+                                    </div>
+
+                                    {/* Submitted Document Details */}
+                                    {sub && latestVersion ? (
+                                      <div className="mt-3 space-y-1.5 rounded-xl bg-slate-50 p-2.5 text-[11px] text-slate-600">
+                                        <p className="font-semibold text-slate-800 truncate" title={latestVersion.fileName}>
+                                          📄 {latestVersion.fileName}
+                                        </p>
+                                        <p className="text-[10px] text-slate-400">
+                                          Submitted on {formatRequirementDate(sub.updatedAt)}
+                                        </p>
+                                        {latestVersion.fileUrl && (
+                                          <div className="flex items-center gap-3 pt-1">
+                                            <a
+                                              href={latestVersion.fileUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                                            >
+                                              <ExternalLink size={12} />
+                                              Preview Document
+                                            </a>
+                                            <a
+                                              href={latestVersion.fileUrl.includes('?') ? `${latestVersion.fileUrl}&download=true` : `${latestVersion.fileUrl}?download=true`}
+                                              download={latestVersion.fileName}
+                                              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:underline"
+                                            >
+                                              Download
+                                            </a>
+                                          </div>
+                                        )}
+                                        {sub.note && (
+                                          <p className="text-[10px] text-slate-500 border-t border-slate-200/60 pt-1.5 mt-1 line-clamp-2">
+                                            <span className="font-semibold">Note:</span> {sub.note}
+                                          </p>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="mt-3 rounded-xl bg-slate-50/80 p-2.5 text-[11px] text-slate-400 text-center">
+                                        No document uploaded yet
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Review Action Button */}
+                                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end">
+                                    {sub ? (
+                                      <button
+                                        type="button"
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          setSelectedRecord(sub);
+                                        }}
+                                        className={`${
+                                          isUnderReview
+                                            ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                                            : buttonClass
+                                        } !min-h-8 px-3 py-1.5 text-[11px] font-semibold rounded-lg`}
+                                      >
+                                        {role === 'admin'
+                                          ? 'Review & Decide'
+                                          : isUnderReview
+                                          ? 'Review Document'
+                                          : 'Update Decision'}
+                                      </button>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 italic">
+                                        Awaiting Student
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
       )}
-    </div>
 
-    {tab === 'catalog' && role === 'admin' ? (
-      <AdminRequirementsCatalog />
-    ) : (
-      <>
-        {notice && <p role="status" className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800"><Check size={15} />{notice}<button type="button" className="ml-auto px-2 font-semibold" onClick={() => setNotice('')}>Dismiss</button></p>}
-        {(error || actionError) && <RequirementError message={error || actionError} />}
-        <RequirementStats items={[{ label: 'Needs staff review', value: loading || error ? '—' : reviews.length, detail: 'Uncertain details and school-record assistance' }, { label: 'Automatically verified', value: loading || error ? '—' : records.filter(record => record.status === 'auto_verified').length, detail: 'Simulated successful document checks' }, { label: 'Learners with submissions', value: loading || error ? '—' : new Set(records.map(record => record.ownerId)).size, detail: 'Records saved in this browser demonstration' }]} />
-        {tab === 'guide' ? <AcceptanceGuide role={role} /> : <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-800">Document submissions</h2><p className="mt-1 text-[11px] text-slate-400">{visible.length} matching records · latest submission per requirement</p></div><button type="button" onClick={() => { setStatus('review'); setSearch(''); setProgram('all'); setType('all'); }} className={buttonClass}><SlidersHorizontal size={14} />Review queue · {reviews.length}</button></div>
-          <div className="grid gap-3 border-b border-slate-100 bg-slate-50/40 p-4 sm:grid-cols-2 xl:grid-cols-4"><label className="text-[11px] font-semibold text-slate-500">Search learners<div className="relative"><Search size={14} className="pointer-events-none absolute left-3 top-5 text-slate-400" /><input className={`${fieldClass} pl-9`} value={search} onChange={event => setSearch(event.target.value)} placeholder="Name, email, or filename" /></div></label><label className="text-[11px] font-semibold text-slate-500">Status<select className={fieldClass} value={status} onChange={event => setStatus(event.target.value)}><option value="all">All statuses</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="text-[11px] font-semibold text-slate-500">Program<select className={fieldClass} value={program} onChange={event => setProgram(event.target.value)}><option value="all">All programs</option>{programs.map(value => <option key={value}>{value}</option>)}</select></label><label className="text-[11px] font-semibold text-slate-500">Requirement<select className={fieldClass} value={type} onChange={event => setType(event.target.value)}><option value="all">All requirements</option>{catalog.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label></div>
-          {loading ? <p role="status" className="p-12 text-center text-xs text-slate-400">Loading submitted requirements…</p> : error ? <div className="p-8 text-center"><p className="mb-3 text-xs text-slate-500">Reconnect to browser storage to restore the review queue.</p><button type="button" className={buttonClass} onClick={reload}>Retry loading</button></div> : visible.length ? <div className="space-y-3 p-4 sm:p-5">{visible.map(record => <article key={record.id} className="rounded-xl border border-slate-200/80 p-4 transition hover:border-blue-200 sm:p-5"><div className="flex flex-wrap items-start gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><RequirementIcon id={record.requirementId} size={20} /></span><div className="min-w-0 flex-1 basis-40"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-slate-800">{record.learnerName}</h3>{record.sample && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-400">SAMPLE</span>}</div><p className="mt-1 break-all text-[11px] text-slate-400">{record.email} · {record.program}</p></div><StatusBadge status={record.status} /></div><div className="mt-3 flex flex-col items-stretch gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-end sm:justify-between"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-slate-600">{catalog.find(item => item.id === record.requirementId)?.title || REQUIREMENTS.find(item => item.id === record.requirementId)?.title || record.requirementId}</p><p className="mt-1 line-clamp-2 text-xs leading-6 text-slate-400">{record.note}</p><p className="mt-1 text-[10px] text-slate-400">Updated {formatRequirementDate(record.updatedAt)} · {record.versions.length} submission{record.versions.length === 1 ? '' : 's'}</p></div><button type="button" className={buttonClass} onClick={() => setSelectedId(record.id)}>{role === 'admin' ? 'Review & decide' : 'Open submission'}<ArrowRight size={13} /></button></div></article>)}</div> : <div className="flex flex-col items-center px-6 py-14 text-center"><span className="rounded-2xl bg-blue-50 p-4 text-blue-500"><FileCheck2 size={30} strokeWidth={1.4} /></span><h3 className="mt-4 text-sm font-semibold text-slate-800">{records.length ? 'No submissions match these filters' : 'Your requirements workspace is ready'}</h3><p className="mt-2 max-w-sm text-xs leading-6 text-slate-400">{records.length ? 'Try another status, program, or learner name.' : 'Student demo uploads appear here when saved in this browser. You can also load illustrative samples to explore the review flow.'}</p>{records.length > 0 && <button type="button" onClick={() => { setSearch(''); setStatus('all'); setProgram('all'); setType('all'); }} className={`${buttonClass} mt-4`}>Clear filters</button>}</div>}
-        </section>}
-      </>
-    )}
-    {selected && <ReviewDialog key={`${selected.id}:${selected.updatedAt}`} record={selected} role={role} onClose={() => setSelectedId(null)} onSaved={() => { setSelectedId(null); setNotice('Review decision saved. The student checklist in this browser will show the update.'); }} />}
-  </div>;
+      {/* Review Dialog */}
+      {selectedRecord && (
+        <ReviewDialog
+          key={`${selectedRecord.id}:${selectedRecord.updatedAt}`}
+          record={selectedRecord}
+          role={role}
+          onClose={() => setSelectedRecord(null)}
+          onSaved={() => {
+            setSelectedRecord(null);
+            setNotice('Review decision saved successfully. The submission status has been updated in the database.');
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
-function ReviewDialog({ record, role, onClose, onSaved }: { record: RequirementRecord; role: ReviewerRole; onClose: () => void; onSaved: () => void }) {
-  const auth = useOptionalAuth();
-  const [note, setNote] = useState('');
-  const [decision, setDecision] = useState<'verify' | 'exempt' | 'correct' | 'forward'>(role === 'admin' ? record.versions[0]?.fileName ? 'verify' : 'exempt' : 'forward');
+function LearnerStatusBadge({
+  status,
+  waitingCount,
+}: {
+  status: OverallLearnerStatus;
+  waitingCount: number;
+}) {
+  if (status === 'complete') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+        <CheckCircle2 size={13} className="text-emerald-600" />
+        Complete
+      </span>
+    );
+  }
+  if (status === 'review') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+        <Clock size={13} className="text-amber-600" />
+        {waitingCount} Awaiting Review
+      </span>
+    );
+  }
+  if (status === 'correction') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-800">
+        <AlertCircle size={13} className="text-rose-600" />
+        Correction Needed
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+      <FileText size={13} className="text-slate-400" />
+      Missing Docs
+    </span>
+  );
+}
+
+function MiniRequirementPill({
+  title,
+  submission,
+}: {
+  title: string;
+  submission?: RequirementRecord;
+}) {
+  const isGood = submission && isSatisfied(submission.status);
+  const isReview = submission && submission.status === 'review';
+  const isCorrection = submission && submission.status === 'correction';
+
+  const shortTitle = title.split('(')[0].trim();
+
+  let colorClass = 'border-slate-200 bg-slate-50 text-slate-500';
+  let symbol = '○';
+
+  if (isGood) {
+    colorClass = 'border-emerald-200 bg-emerald-50 text-emerald-700 font-medium';
+    symbol = '✓';
+  } else if (isReview) {
+    colorClass = 'border-amber-300 bg-amber-50 text-amber-800 font-semibold';
+    symbol = '⏳';
+  } else if (isCorrection) {
+    colorClass = 'border-rose-200 bg-rose-50 text-rose-700 font-medium';
+    symbol = '!';
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] ${colorClass}`}
+      title={`${title}: ${submission ? STATUS_LABELS[submission.status] || submission.status : 'Not submitted'}`}
+    >
+      <span className="font-mono text-[9px]">{symbol}</span>
+      <span className="truncate max-w-[130px]">{shortTitle}</span>
+    </span>
+  );
+}
+
+function ReviewDialog({
+  record,
+  role,
+  onClose,
+  onSaved,
+}: {
+  record: RequirementRecord;
+  role: ReviewerRole;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // Determine initial decision based on existing record.status and files
+  const getInitialDecision = (status: RequirementStatus): 'verify' | 'exempt' | 'correct' | 'review' => {
+    if (status === 'verified' || status === 'auto_verified') return 'verify';
+    if (status === 'exempted') return 'exempt';
+    if (status === 'correction') return 'correct';
+    return record.versions[0]?.fileName ? 'verify' : 'review';
+  };
+
+  const [note, setNote] = useState(record.note || '');
+  const [decision, setDecision] = useState<'verify' | 'exempt' | 'correct' | 'review'>(
+    getInitialDecision(record.status)
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const lock = useRef(false);
+
+  const isExistingReview = Boolean(record.status && record.status !== 'review');
+
   async function save() {
     if (lock.current) return;
-    lock.current = true; setBusy(true); setError('');
+    lock.current = true;
+    setBusy(true);
+    setError('');
     try {
-      const actor = `${auth?.user?.full_name || auth?.user?.email || role} (${role})`;
-      await saveRequirement(reviewRequirement(record, role, decision, note, actor), undefined, record.updatedAt);
+      const backendStatus =
+        decision === 'verify'
+          ? 'verified'
+          : decision === 'exempt'
+          ? 'exempted'
+          : decision === 'correct'
+          ? 'correction'
+          : 'review';
+
+      const trimmedNote = note.trim();
+      const feedback =
+        trimmedNote ||
+        (decision === 'verify'
+          ? 'Document verified and accepted.'
+          : decision === 'exempt'
+          ? 'Exemption granted.'
+          : decision === 'correct'
+          ? 'Please review requirement guidelines and upload a corrected document.'
+          : 'Document is under review.');
+
+      await reviewStudentSubmissionApi(record.id, {
+        status: backendStatus,
+        teacher_feedback: feedback,
+      });
+      notifyRequirementsUpdated();
       onSaved();
-    } catch (err) { setError(err instanceof Error ? err.message : 'This decision could not be saved.'); }
-    finally { lock.current = false; setBusy(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'This decision could not be saved.');
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   }
-  return <Modal title={`${record.learnerName} · Requirement review`} onClose={onClose} pending={busy}><div className="space-y-5"><p className="break-all text-xs text-slate-400">{record.email} · {record.program}{record.sample ? ' · Illustrative sample' : ''}</p><SubmissionDetails record={record} /><div className="space-y-4 border-t border-slate-100 pt-5"><h3 className="text-sm font-semibold text-slate-800">{role === 'admin' ? 'Admin decision' : 'Teacher review'}</h3>{role === 'teacher' && <p className="text-xs leading-6 text-slate-500">Help the learner correct their submission, or send the case for an admin decision. Final manual verification and exemptions belong to admins.</p>}<label className="block text-xs font-semibold text-slate-600">Next action<select disabled={busy} className={fieldClass} value={decision} onChange={event => setDecision(event.target.value as typeof decision)}>{role === 'admin' ? <><option value="verify" disabled={!record.versions[0]?.fileName}>Verify document</option>{record.requirementId === 'school' && <option value="exempt">Approve school-record exemption</option>}</> : <option value="forward">Forward to admin</option>}<option value="correct">Request correction / reopen for correction</option></select></label><label className="block text-xs font-semibold text-slate-600">Reason or feedback <span className="font-normal text-slate-400">(required · visible to student)</span><textarea disabled={busy} className={fieldClass} rows={3} value={note} maxLength={1000} onChange={event => setNote(event.target.value)} placeholder="Explain the decision and any next steps for the learner." /></label>{error && <RequirementError message={error} />}<div className="flex justify-end gap-2"><button type="button" onClick={onClose} disabled={busy} className={buttonClass}>Close</button><button type="button" onClick={save} disabled={busy || !note.trim()} className={primaryClass}>{busy ? 'Saving…' : 'Save demo decision'}</button></div></div></div></Modal>;
+
+  return (
+    <Modal title={`${record.learnerName} · Requirement Review`} onClose={onClose} pending={busy}>
+      <div className="space-y-5">
+        <p className="break-all text-xs text-slate-400">
+          {record.email} · {record.program}
+          {record.sample ? ' · Illustrative sample' : ''}
+        </p>
+
+        <SubmissionDetails record={record} />
+
+        <div className="space-y-4 border-t border-slate-100 pt-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800">
+              {role === 'admin' ? 'Admin Decision' : 'Teacher Review & Decision'}
+            </h3>
+            {record.status && (
+              <span className="text-[11px] text-slate-400 font-medium">
+                Current: <span className="font-semibold text-slate-700">{STATUS_LABELS[record.status] || record.status}</span>
+              </span>
+            )}
+          </div>
+          <p className="text-xs leading-5 text-slate-500">
+            {role === 'admin'
+              ? 'Approve, verify, or request adjustments on the student submission.'
+              : 'Review submitted documents, mark as verified, request corrections, or route for administrative oversight.'}
+          </p>
+
+          <label className="block text-xs font-semibold text-slate-600">
+            Next action
+            <select
+              disabled={busy}
+              className={fieldClass}
+              value={decision}
+              onChange={event => setDecision(event.target.value as typeof decision)}
+            >
+              <option value="verify">
+                Verify document
+              </option>
+              <option value="correct">
+                Request correction / reopen for correction
+              </option>
+              <option value="review">
+                Keep under review {role === 'teacher' ? '/ Forward to admin' : ''}
+              </option>
+              <option value="exempt">
+                Approve exemption
+              </option>
+            </select>
+          </label>
+
+          <label className="block text-xs font-semibold text-slate-600">
+            Reason or feedback{' '}
+            <span className="font-normal text-slate-400">
+              ({decision === 'correct' ? 'recommended' : 'optional'} · visible to student)
+            </span>
+            <textarea
+              disabled={busy}
+              className={fieldClass}
+              rows={3}
+              value={note}
+              maxLength={1000}
+              onChange={event => setNote(event.target.value)}
+              placeholder={
+                decision === 'correct'
+                  ? 'Explain what needs correction (e.g., blurry image, missing signatures, incomplete details)...'
+                  : 'Explain the decision or notes for the learner (optional)...'
+              }
+            />
+          </label>
+
+          {error && <RequirementError message={error} />}
+
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} disabled={busy} className={buttonClass}>
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy}
+              className={primaryClass}
+            >
+              {busy ? 'Saving…' : isExistingReview ? 'Update decision' : 'Save decision'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function AcceptanceGuide({ role }: { role: ReviewerRole }) {
@@ -203,7 +1064,7 @@ function AcceptanceGuide({ role }: { role: ReviewerRole }) {
 }
 
 export function LearnerRequirementsSummary({ email, role }: { email: string; role: ReviewerRole }) {
-  const { records, loading, error } = useRequirements();
+  const { records, loading, error } = useRequirements(role);
   const [catalog, setCatalog] = useState<RequirementItem[]>([]);
 
   useEffect(() => {
@@ -227,7 +1088,7 @@ export function LearnerRequirementsSummary({ email, role }: { email: string; rol
         <div>
           <h2 className="text-base font-semibold text-slate-800">Enrollment requirements</h2>
           <p className="mt-1 text-xs text-slate-400">
-            {loading ? 'Loading…' : `${own.filter(record => isSatisfied(record.status)).length} of ${catalog.length} satisfied in this browser demo`}
+            {loading ? 'Loading…' : `${own.filter(record => isSatisfied(record.status)).length} of ${catalog.length} verified`}
           </p>
         </div>
         <Link href={`/${role}/requirements?learner=${encodeURIComponent(email)}`} className={buttonClass}>

@@ -13,12 +13,17 @@ from sqlmodel import SQLModel
 from app.core.unit_of_work import SQLModelUnitOfWork, get_uow
 from app.main import app
 
-# In-memory SQLite async engine for tests
+from sqlalchemy.pool import StaticPool
+import app.features.requirements.service as req_service
+from unittest.mock import patch
+
+# In-memory SQLite async engine for tests (StaticPool ensures isolated sessions share in-memory state)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 test_engine = create_async_engine(
     TEST_DATABASE_URL,
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
     future=True,
 )
 
@@ -28,6 +33,13 @@ test_async_session_factory = async_sessionmaker(
     expire_on_commit=False,
     autoflush=False,
 )
+
+
+@pytest_asyncio.fixture(autouse=True)
+def override_session_factory():
+    with patch.object(req_service, "async_session_factory", test_async_session_factory):
+        yield
+
 
 
 class TestSQLModelUnitOfWork(SQLModelUnitOfWork):

@@ -291,7 +291,11 @@ export async function authenticatedRequest<T>(
   options: RequestInit = {},
   expectResources = true
 ): Promise<T> {
-  const response = await authenticatedFetch(path, options);
+  const headers = new Headers(options.headers || {});
+  if (options.body && typeof options.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const response = await authenticatedFetch(path, { ...options, headers });
   if (!response.ok) {
     throw new SessionError(
       await extractErrorMessage(response, 'Unable to load or save data. Please try again.'),

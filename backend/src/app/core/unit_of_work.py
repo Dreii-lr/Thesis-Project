@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from app.features.attendance.repository import AttendanceRepository
     from app.features.auth.repository import SessionRepository
     from app.features.flashcards.repository import FlashcardRepository
-    from app.features.requirements.repository import RequirementRepository
+    from app.features.requirements.repository import RequirementRepository, StudentRequirementRepository
     from app.features.subjects.repository import SubjectRepository
     from app.features.user_categories.repository import UserCategoryRepository
     from app.features.users.repository import UserRepository
@@ -63,6 +63,8 @@ class AbstractUnitOfWork(ABC):
     subjects: "SubjectRepository"
     flashcards: "FlashcardRepository"
     requirements: "RequirementRepository"
+    student_requirements: "StudentRequirementRepository"
+
 
     def __init__(self) -> None:
         self._rollback_actions: list[TransactionAction] = []
@@ -176,7 +178,7 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
         from app.features.attendance.repository import AttendanceRepository
         from app.features.auth.repository import SessionRepository
         from app.features.flashcards.repository import FlashcardRepository
-        from app.features.requirements.repository import RequirementRepository
+        from app.features.requirements.repository import RequirementRepository, StudentRequirementRepository
         from app.features.subjects.repository import SubjectRepository
         from app.features.user_categories.repository import UserCategoryRepository
         from app.features.users.repository import UserRepository
@@ -190,6 +192,8 @@ class SQLModelUnitOfWork(AbstractUnitOfWork):
         self.subjects = SubjectRepository(self._session)
         self.flashcards = FlashcardRepository(self._session)
         self.requirements = RequirementRepository(self._session)
+        self.student_requirements = StudentRequirementRepository(self._session)
+
 
     async def commit(self) -> None:
         await self._session.commit()

@@ -62,21 +62,40 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
   };
 
   const isBusy = loading || catalogLoading;
-  const own = records.filter(record => record.ownerId === learner.ownerId);
+  const own = records.filter(record => String(record.ownerId) === String(learner.ownerId));
   const [uploadId, setUploadId] = useState<RequirementId | null>(null);
   const [viewId, setViewId] = useState<RequirementId | null>(null);
   const [assistanceReq, setAssistanceReq] = useState<RequirementItem | null>(null);
   const [notice, setNotice] = useState('');
   const [filter, setFilter] = useState<'all' | 'action' | 'satisfied'>('all');
-  const getRecord = (id: RequirementId) => own.find(record => record.requirementId === id);
+  const getRecord = (id: RequirementId | string) => {
+    const target = id.toLowerCase();
+    return own.find(record =>
+      record.requirementId.toLowerCase() === target ||
+      record.id.toLowerCase() === target
+    );
+  };
   const totalCount = requirementsList.length || 1;
   const satisfied = own.filter(record => isSatisfied(record.status)).length;
   const waiting = own.filter(record => record.status === 'review').length;
-  const action = requirementsList.filter(item => !getRecord(item.id) || getRecord(item.id)?.status === 'correction').length;
-  const visible = requirementsList.filter(item => filter === 'all' || (filter === 'satisfied' ? isSatisfied(getRecord(item.id)?.status) : !getRecord(item.id) || getRecord(item.id)?.status === 'correction'));
+  const action = requirementsList.filter(item => {
+    const rec = getRecord(item.id || item.code);
+    return !rec || rec.status === 'correction';
+  }).length;
+  const visible = requirementsList.filter(item => {
+    const rec = getRecord(item.id || item.code);
+    if (filter === 'all') return true;
+    if (filter === 'satisfied') return isSatisfied(rec?.status);
+    return !rec || rec.status === 'correction';
+  });
   const viewing = viewId ? getRecord(viewId) : undefined;
   const selectedUpload = requirementsList.find(item => item.id === uploadId || item.code === uploadId);
-  function saved() { setUploadId(null); setAssistanceReq(null); setNotice('Your document was successfully submitted for teacher review.'); }
+  function saved(customNotice?: string) {
+    setUploadId(null);
+    setAssistanceReq(null);
+    setNotice(customNotice || 'Your document was successfully submitted for teacher review.');
+    refreshAll();
+  }
   return <div className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
     <StudentPageHeader eyebrow="Student records · Enrollment documents" title="My requirements" description="A clear path to a complete learner record. Submit your documents, follow their progress, and get help when you need it." actions={<button type="button" className={studentHeaderActionClass} disabled={isBusy} onClick={refreshAll}><RefreshCw size={15} className={isBusy ? 'animate-spin' : ''} /><span className="ml-2">Refresh</span></button>}>
       <div className="flex flex-wrap items-center gap-5">
@@ -135,13 +154,11 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
         ) : (
           <div className="space-y-4 p-4 sm:p-5">
             {visible.map(item => {
-              const record = getRecord(item.id);
+              const record = getRecord(item.id || item.code);
               const isUnderReview = record?.status === 'review';
               const isCorrection = record?.status === 'correction';
               const isGood = isSatisfied(record?.status);
               const itemTypes = (item.types && item.types.length > 0) ? item.types : (item.accepted_document_types || []);
-              const allowedExts = (item.allowed_extensions && item.allowed_extensions.length > 0) ? item.allowed_extensions : ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
-              const maxMb = item.max_file_size_mb || 10;
 
               return (
                 <article key={item.id} className={`rounded-2xl border p-4 sm:p-5 transition ${isCorrection ? 'border-rose-200 bg-rose-50/20' : isUnderReview ? 'border-amber-200/80 bg-amber-50/15' : isGood ? 'border-emerald-200/80 bg-emerald-50/10' : 'border-slate-200/80 bg-white'}`}>
@@ -186,7 +203,7 @@ function LearnerRequirements({ learner }: { learner: RequirementLearner }) {
                         Need help with {item.title}?
                       </button>
                     ) : (
-                      <span className="text-[11px] text-slate-400">{allowedExts.map(e => e.toUpperCase()).join(', ')} · Up to {maxMb} MB</span>
+                      <span className="text-[11px] text-slate-400">PDF, JPG, PNG, WebP · Up to 10 MB</span>
                     )}
 
                     <div className="ml-auto flex flex-wrap gap-2">

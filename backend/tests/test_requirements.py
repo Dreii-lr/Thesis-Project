@@ -264,8 +264,6 @@ async def test_admin_create_and_duplicate_conflict(client: AsyncClient):
         "is_required": False,
         "is_conditional": False,
         "allow_assistance": False,
-        "max_file_size_mb": 15,
-        "allowed_extensions": ["pdf", "jpg", "png"],
         "order_index": 7,
     }
 
@@ -273,7 +271,7 @@ async def test_admin_create_and_duplicate_conflict(client: AsyncClient):
     assert create_res.status_code == 201
     created_data = create_res.json()["data"]["resources"]
     assert created_data["code"] == "health_certificate"
-    assert created_data["max_file_size_mb"] == 15
+    assert created_data["max_file_size_mb"] == 10
     assert created_data["id"] == "health_certificate"
 
     # Duplicate code rejection
@@ -305,11 +303,10 @@ async def test_admin_update_and_reorder(client: AsyncClient):
     patch_res = await client.patch(f"/api/v1/requirements/{req1_id}", json={
         "title": "Updated First Req",
         "guidance": "Updated guidance notes",
-        "max_file_size_mb": 20,
     })
     assert patch_res.status_code == 200
     assert patch_res.json()["data"]["resources"]["title"] == "Updated First Req"
-    assert patch_res.json()["data"]["resources"]["max_file_size_mb"] == 20
+    assert patch_res.json()["data"]["resources"]["guidance"] == "Updated guidance notes"
 
     # 2. Bulk reorder (swap order)
     reorder_res = await client.patch("/api/v1/requirements/reorder", json={
@@ -397,3 +394,423 @@ async def test_admin_stats_and_rbac_guards(client: AsyncClient):
         "title": "Unauth",
     })
     assert unauth_create.status_code == 401
+
+
+def test_validate_document_file_util():
+    """Unit test for validate_document_file in SharedUtils: format and 10 MB size limits."""
+    from io import BytesIO
+    from fastapi import UploadFile
+    from app.shared.utils import validate_document_file, MAX_DOCUMENT_FILE_SIZE_BYTES
+    from app.core.exceptions import DomainValidationDomainException
+
+    # 1. Valid PDF file passes
+    valid_pdf = UploadFile(filename="rpl_form.pdf", file=BytesIO(b"%PDF-1.4 test content"))
+    valid_pdf.headers = {"content-type": "application/pdf"}
+    validate_document_file(valid_pdf, file_bytes=b"%PDF-1.4 test content")
+
+    # 2. Valid image file passes
+    valid_img = UploadFile(filename="clearance.jpg", file=BytesIO(b"\xff\xd8\xff test image"))
+    valid_img.headers = {"content-type": "image/jpeg"}
+    validate_document_file(valid_img, file_bytes=b"\xff\xd8\xff test image")
+
+    # 3. Disallowed extension raises DomainValidationDomainException
+    invalid_ext = UploadFile(filename="script.exe", file=BytesIO(b"malicious"))
+    invalid_ext.headers = {"content-type": "application/x-msdownload"}
+    with pytest.raises(DomainValidationDomainException) as exc:
+        validate_document_file(invalid_ext)
+    assert "Unsupported file format" in str(exc.value)
+
+    # 4. File exceeding 10 MB raises DomainValidationDomainException
+    large_bytes = b"0" * (MAX_DOCUMENT_FILE_SIZE_BYTES + 1024)
+    large_file = UploadFile(filename="large.pdf", file=BytesIO(large_bytes))
+    large_file.headers = {"content-type": "application/pdf"}
+    with pytest.raises(DomainValidationDomainException) as exc:
+        validate_document_file(large_file, file_bytes=large_bytes)
+    assert "exceeds maximum allowed limit of 10 MB" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_student_submit_requirement_and_get_my_submissions(client: AsyncClient):
+    """Student submits a document requirement; verified in /submissions/me."""
+    await seed_test_database(client)
+
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    files = {
+        "file": ("rpl_form1.pdf", b"%PDF-1.4 student rpl submission", "application/pdf"),
+    }
+    data = {
+        "requirement_code": "rpl",
+        "document_type": "RPL Form 1 (Life Experiences)",
+        "student_remarks": "Completed RPL Form 1 for review.",
+        "is_conditional": "false",
+        "requested_assistance": "false",
+    }
+
+    sub_res = await client.post("/api/v1/requirements/submissions", data=data, files=files)
+    assert sub_res.status_code == 201
+    created_sub = sub_res.json()["data"]["resources"]
+    assert created_sub["requirement_code"] == "rpl"
+    assert created_sub["document_type"] == "RPL Form 1 (Life Experiences)"
+    assert created_sub["status"] == "review"
+    assert created_sub["file_name"] == "rpl_form1.pdf"
+    assert created_sub["student_remarks"] == "Completed RPL Form 1 for review."
+    sub_id = created_sub["submission_id"]
+
+    # Student queries their personal submissions
+    me_res = await client.get("/api/v1/requirements/submissions/me")
+    assert me_res.status_code == 200
+    my_subs = me_res.json()["data"]["resources"]["submissions"]
+    assert len(my_subs) == 1
+    assert my_subs[0]["submission_id"] == sub_id
+    assert my_subs[0]["requirement_code"] == "rpl"
+
+
+@pytest.mark.asyncio
+async def test_student_resubmit_updates_existing_and_archives_version(client: AsyncClient):
+    """Student re-submitting an existing requirement updates the record and archives previous file."""
+    await seed_test_database(client)
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    # First submission
+    files1 = {"file": ("v1.pdf", b"%PDF-1.4 v1", "application/pdf")}
+    data1 = {
+        "requirement_code": "af1",
+        "document_type": "ALS Form 1 (Learner Profile)",
+        "student_remarks": "Version 1",
+    }
+    res1 = await client.post("/api/v1/requirements/submissions", data=data1, files=files1)
+    assert res1.status_code == 201
+    sub_id1 = res1.json()["data"]["resources"]["submission_id"]
+
+    # Second submission (resubmission)
+    files2 = {"file": ("v2.pdf", b"%PDF-1.4 v2 updated", "application/pdf")}
+    data2 = {
+        "requirement_code": "af1",
+        "document_type": "ALS Form 1 (Learner Profile)",
+        "student_remarks": "Version 2 updated",
+    }
+    res2 = await client.post("/api/v1/requirements/submissions", data=data2, files=files2)
+    assert res2.status_code == 200
+    sub2 = res2.json()["data"]["resources"]
+    assert sub2["submission_id"] == sub_id1
+    assert sub2["file_name"] == "v2.pdf"
+    assert sub2["student_remarks"] == "Version 2 updated"
+    assert len(sub2["versions_payload"]) == 1
+    assert sub2["versions_payload"][0]["file_name"] == "v1.pdf"
+
+
+@pytest.mark.asyncio
+async def test_teacher_list_submissions_and_review(client: AsyncClient):
+    """Teacher lists student submissions and reviews one to 'verified' with feedback."""
+    await seed_test_database(client)
+
+    # 1. Student submits requirement
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+    files = {"file": ("birth_cert.jpg", b"\xff\xd8\xff test image", "image/jpeg")}
+    data = {
+        "requirement_code": "psa_police_clearance",
+        "document_type": "PSA Birth Certificate",
+        "student_remarks": "Official PSA copy",
+    }
+    sub_res = await client.post("/api/v1/requirements/submissions", data=data, files=files)
+    assert sub_res.status_code == 201
+    submission_id = sub_res.json()["data"]["resources"]["submission_id"]
+
+    # 2. Teacher queries submissions
+    app.dependency_overrides[get_current_active_user] = teacher_auth_user
+    list_res = await client.get("/api/v1/requirements/submissions")
+    assert list_res.status_code == 200
+    subs_list = list_res.json()["data"]["resources"]["submissions"]
+    assert any(s["submission_id"] == submission_id for s in subs_list)
+
+    # 3. Teacher reviews submission
+    review_payload = {
+        "status": "verified",
+        "teacher_feedback": "Document verified and clear.",
+    }
+    review_res = await client.patch(
+        f"/api/v1/requirements/submissions/{submission_id}/review",
+        json=review_payload,
+    )
+    assert review_res.status_code == 200
+    rev_data = review_res.json()["data"]["resources"]
+    assert rev_data["status"] == "verified"
+    assert rev_data["teacher_feedback"] == "Document verified and clear."
+    assert rev_data["reviewed_by"] == teacher_auth_user().user_id
+
+
+@pytest.mark.asyncio
+async def test_student_rbac_guards_on_submissions(client: AsyncClient):
+    """Students cannot query teacher-level submission lists or review submissions."""
+    await seed_test_database(client)
+
+    # Student attempts to list all submissions -> 403
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+    res = await client.get("/api/v1/requirements/submissions")
+    assert res.status_code == 403
+
+    # Student attempts to review a submission -> 403
+    review_res = await client.patch(
+        "/api/v1/requirements/submissions/fake-submission-id/review",
+        json={"status": "verified"},
+    )
+    assert review_res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_student_delete_own_submission(client: AsyncClient):
+    """Student can delete their own requirement submission."""
+    await seed_test_database(client)
+
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+    data = {
+        "requirement_code": "flt",
+        "document_type": "FLT Pre-Test Answer Sheet",
+        "student_remarks": "Temporary submission",
+    }
+    create_res = await client.post("/api/v1/requirements/submissions", data=data)
+    assert create_res.status_code == 201
+    submission_id = create_res.json()["data"]["resources"]["submission_id"]
+
+    # Delete
+    del_res = await client.delete(f"/api/v1/requirements/submissions/{submission_id}")
+    assert del_res.status_code == 200
+
+    # Ensure removed from /me
+    me_res = await client.get("/api/v1/requirements/submissions/me")
+    assert len(me_res.json()["data"]["resources"]["submissions"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_student_submit_pre_uploaded_r2_requirement(client: AsyncClient):
+    """Student submits a requirement using pre-uploaded R2 metadata from document-processing-ms."""
+    await seed_test_database(client)
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    data = {
+        "requirement_code": "psa_police_clearance",
+        "document_type": "PSA Birth Certificate",
+        "file_url": "https://pub-r2.als-curriculum.dev/requirements/Student_User/abc123_psa_birth_cert.pdf",
+        "file_name": "psa_birth_cert.pdf",
+        "file_size_bytes": "2048576",
+        "mime_type": "application/pdf",
+        "storage_key": "requirements/Student_User/abc123_psa_birth_cert.pdf",
+        "student_remarks": "Uploaded directly to Cloudflare R2",
+    }
+    create_res = await client.post("/api/v1/requirements/submissions", data=data)
+    assert create_res.status_code == 201
+    resources = create_res.json()["data"]["resources"]
+    assert resources["requirement_code"] == "psa_police_clearance"
+    assert resources["document_type"] == "PSA Birth Certificate"
+    assert resources["status"] == "review"
+    assert resources["file_url"] == "https://pub-r2.als-curriculum.dev/requirements/Student_User/abc123_psa_birth_cert.pdf"
+    assert resources["storage_key"] == "requirements/Student_User/abc123_psa_birth_cert.pdf"
+    assert resources["file_name"] == "psa_birth_cert.pdf"
+    assert resources["file_size_bytes"] == 2048576
+
+
+@pytest.mark.asyncio
+async def test_student_submit_file_ai_auto_verified(client: AsyncClient):
+    """Student submits a file that is auto-verified by AI via document-processing-ms."""
+    from unittest.mock import AsyncMock, patch
+
+    await seed_test_database(client)
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = {
+        "file_url": "https://pub-r2.als-curriculum.dev/requirements/Student_Learner/xyz_psa.pdf",
+        "file_name": "sample_psa.pdf",
+        "file_size_bytes": 102400,
+        "mime_type": "application/pdf",
+        "storage_key": "requirements/Student_Learner/xyz_psa.pdf",
+        "folder_name": "Student_Learner",
+        "verification": {
+            "is_auto_verified": True,
+            "suggested_status": "verified",
+            "confidence_score": 0.95,
+            "first_name_match": True,
+            "last_name_match": True,
+            "verification_notes": "All identity fields verified.",
+        },
+    }
+
+    with patch("httpx.AsyncClient.post", return_value=mock_resp) as mock_post:
+        files = {"file": ("sample_psa.pdf", b"%PDF-1.4 mock content", "application/pdf")}
+        data = {
+            "requirement_code": "psa_police_clearance",
+            "document_type": "PSA Birth Certificate",
+            "student_remarks": "Submitted for automated check",
+        }
+        res = await client.post("/api/v1/requirements/submissions", files=files, data=data)
+        assert res.status_code == 201
+        res_data = res.json()["data"]["resources"]
+        assert res_data["status"] == "verified"
+        assert "Auto-verified by AI" in res_data["teacher_feedback"]
+        assert res_data["file_url"] == "https://pub-r2.als-curriculum.dev/requirements/Student_Learner/xyz_psa.pdf"
+        assert res_data["storage_key"] == "requirements/Student_Learner/xyz_psa.pdf"
+
+
+@pytest.mark.asyncio
+async def test_student_direct_upload_requirement_endpoint(client: AsyncClient):
+    """Student uploads a file to the dedicated /upload endpoint and receives R2 metadata + AI verification."""
+    from unittest.mock import AsyncMock, patch
+
+    await seed_test_database(client)
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = {
+        "file_url": "https://pub-r2.als-curriculum.dev/requirements/Student_Learner/upload_psa.pdf",
+        "file_name": "psa_cert.pdf",
+        "file_size_bytes": 51200,
+        "mime_type": "application/pdf",
+        "storage_key": "requirements/Student_Learner/upload_psa.pdf",
+        "folder_name": "Student_Learner",
+        "verification": {
+            "is_auto_verified": True,
+            "suggested_status": "verified",
+            "confidence_score": 0.98,
+            "first_name_match": True,
+            "last_name_match": True,
+            "verification_notes": "Identity confirmed via Gemini Vision.",
+        },
+    }
+
+    with patch("httpx.AsyncClient.post", return_value=mock_resp):
+        files = {"file": ("psa_cert.pdf", b"%PDF-1.4 sample content", "application/pdf")}
+        data = {"document_type": "PSA Birth Certificate"}
+        res = await client.post("/api/v1/requirements/upload", files=files, data=data)
+        assert res.status_code == 201
+        res_data = res.json()["data"]["resources"]
+        assert res_data["file_url"] == "https://pub-r2.als-curriculum.dev/requirements/Student_Learner/upload_psa.pdf"
+        assert res_data["storage_key"] == "requirements/Student_Learner/upload_psa.pdf"
+        assert res_data["verification"]["is_auto_verified"] is True
+        assert res_data["verification"]["confidence_score"] == 0.98
+
+
+@pytest.mark.asyncio
+async def test_student_submit_file_fails_when_doc_processor_fails(client: AsyncClient):
+    """When document-processing-ms returns an error (e.g. name mismatch or verification failure),
+    Thesis-Project returns the error, does NOT upload to storage, and does NOT insert into the database.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    await seed_test_database(client)
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 422
+    mock_resp.json.return_value = {
+        "detail": "Document verification failed: First name mismatch: profile has 'Juan', document has 'Maria'."
+    }
+    mock_resp.text = "Document verification failed: First name mismatch"
+
+    with patch("httpx.AsyncClient.post", return_value=mock_resp):
+        files = {"file": ("wrong_name_psa.pdf", b"%PDF-1.4 sample content", "application/pdf")}
+        data = {
+            "requirement_code": "psa_police_clearance",
+            "document_type": "PSA Birth Certificate",
+            "student_remarks": "Test fail submission",
+        }
+        res = await client.post("/api/v1/requirements/submissions", files=files, data=data)
+        assert res.status_code == 400
+        res_json = res.json()
+        assert res_json["success"] is False
+        assert "First name mismatch" in res_json["message"]
+
+        # Verify that NO submission was inserted into the database
+        get_res = await client.get("/api/v1/requirements/submissions/me")
+        assert get_res.status_code == 200
+        submissions = get_res.json()["data"]["resources"]["submissions"]
+        assert len([s for s in submissions if s["requirement_code"] == "psa_police_clearance"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_gemini_document_daily_upload_attempts_limit(client: AsyncClient):
+    """Student is restricted to 3 upload attempts per day on Valid ID / Gemini documents.
+    On the 4th attempt, the request is blocked before calling the microservice.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    await seed_test_database(client)
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 422
+    mock_resp.json.return_value = {
+        "detail": "Document verification failed: Blurry image or name mismatch."
+    }
+    mock_resp.text = "Document verification failed: Blurry image or name mismatch."
+
+    with patch("httpx.AsyncClient.post", return_value=mock_resp) as mock_post:
+        files = {"file": ("valid_id_photo.jpg", b"\xff\xd8\xff test image", "image/jpeg")}
+        data = {
+            "requirement_code": "psa_police_clearance",
+            "document_type": "Valid Government ID",
+            "student_remarks": "Submitting my valid ID",
+        }
+
+        # Attempt 1: Fails verification
+        res1 = await client.post("/api/v1/requirements/submissions", files=files, data=data)
+        assert res1.status_code == 400
+        assert "Attempt 1 of 3 used today" in res1.json()["message"]
+
+        # Attempt 2: Fails verification
+        res2 = await client.post("/api/v1/requirements/submissions", files=files, data=data)
+        assert res2.status_code == 400
+        assert "Attempt 2 of 3 used today" in res2.json()["message"]
+
+        # Attempt 3: Fails verification
+        res3 = await client.post("/api/v1/requirements/submissions", files=files, data=data)
+        assert res3.status_code == 400
+        assert "Attempt 3 of 3 used today" in res3.json()["message"]
+
+        assert mock_post.call_count == 3
+
+        # Check attempts endpoint
+        attempts_res = await client.get("/api/v1/requirements/submissions/attempts")
+        assert attempts_res.status_code == 200
+        attempts_data = attempts_res.json()["data"]["resources"]
+        assert attempts_data["used_today"] == 3
+        assert attempts_data["remaining"] == 0
+        assert attempts_data["can_upload"] is False
+
+        # Attempt 4: Blocked BEFORE calling microservice (Gemini API protected!)
+        res4 = await client.post("/api/v1/requirements/submissions", files=files, data=data)
+        assert res4.status_code == 400
+        assert "maximum limit of 3 upload attempts for today on your Valid ID" in res4.json()["message"]
+
+        # Assert mock_post was STILL called only 3 times (4th call never made!)
+        assert mock_post.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_non_gemini_documents_are_not_rate_limited(client: AsyncClient):
+    """Non-Gemini documents (e.g. RPL, Form 137, ALS forms) do NOT consume Gemini quota
+    and are not subject to the 3-attempt daily limit.
+    """
+    await seed_test_database(client)
+    app.dependency_overrides[get_current_active_user] = student_auth_user
+
+    files = {"file": ("rpl.pdf", b"%PDF-1.4 rpl content", "application/pdf")}
+    data = {
+        "requirement_code": "rpl",
+        "document_type": "RPL Form 1 (Life Experiences)",
+        "student_remarks": "RPL submission",
+    }
+
+    # Submit 4 times in a row — all should succeed
+    for i in range(4):
+        res = await client.post("/api/v1/requirements/submissions", files=files, data=data)
+        assert res.status_code in (200, 201)
+
+
+
+
+
+
+

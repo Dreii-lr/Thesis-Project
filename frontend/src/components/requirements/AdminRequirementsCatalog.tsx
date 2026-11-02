@@ -401,7 +401,7 @@ export default function AdminRequirementsCatalog() {
                           </span>
                         )}
                         <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
-                          Max {item.max_file_size_mb || 10} MB · {(item.allowed_extensions || ['pdf', 'jpg', 'png']).join(', ')}
+                          Max 10 MB · PDF, JPG, PNG, WebP
                         </span>
                       </div>
 
@@ -574,10 +574,6 @@ function RequirementFormModal({
   const [isRequired, setIsRequired] = useState(initial ? initial.is_required : true);
   const [isConditional, setIsConditional] = useState(initial ? initial.is_conditional : false);
   const [allowAssistance, setAllowAssistance] = useState(initial ? initial.allow_assistance : false);
-  const [maxFileSizeMb, setMaxFileSizeMb] = useState(initial?.max_file_size_mb || 10);
-  const [allowedExtensions, setAllowedExtensions] = useState<string>(
-    (initial?.allowed_extensions || ['pdf', 'jpg', 'jpeg', 'png', 'webp']).join(', ')
-  );
   const [sampleDocumentUrl, setSampleDocumentUrl] = useState(initial?.sample_document_url || '');
   const [orderIndex, setOrderIndex] = useState(initial?.order_index ?? totalExisting + 1);
   const [isActive, setIsActive] = useState(initial ? initial.is_active : true);
@@ -639,11 +635,6 @@ function RequirementFormModal({
       return;
     }
 
-    const exts = allowedExtensions
-      .split(',')
-      .map(s => s.trim().toLowerCase().replace(/^\./, ''))
-      .filter(Boolean);
-
     lock.current = true;
     setPending(true);
     setError('');
@@ -656,11 +647,9 @@ function RequirementFormModal({
           description: description.trim() || undefined,
           guidance: guidance.trim() || undefined,
           accepted_document_types: documentTypes,
-          allowed_extensions: exts.length ? exts : ['pdf', 'jpg', 'png'],
           is_required: isRequired,
           is_conditional: isConditional,
           allow_assistance: allowAssistance,
-          max_file_size_mb: Number(maxFileSizeMb) || 10,
           sample_document_url: sampleDocumentUrl.trim() || undefined,
           order_index: Number(orderIndex) || 1,
           is_active: isActive,
@@ -674,11 +663,9 @@ function RequirementFormModal({
           description: description.trim() || undefined,
           guidance: guidance.trim() || undefined,
           accepted_document_types: documentTypes,
-          allowed_extensions: exts.length ? exts : ['pdf', 'jpg', 'png'],
           is_required: isRequired,
           is_conditional: isConditional,
           allow_assistance: allowAssistance,
-          max_file_size_mb: Number(maxFileSizeMb) || 10,
           sample_document_url: sampleDocumentUrl.trim() || undefined,
           order_index: Number(orderIndex) || 1,
           is_active: isActive,
@@ -841,28 +828,10 @@ function RequirementFormModal({
           </label>
         </div>
 
-        {/* File limit settings */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <label className="text-xs font-semibold text-slate-700">Max File Size (MB)</label>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={maxFileSizeMb}
-              onChange={e => setMaxFileSizeMb(Number(e.target.value))}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-700">Allowed Extensions</label>
-            <input
-              type="text"
-              value={allowedExtensions}
-              onChange={e => setAllowedExtensions(e.target.value)}
-              placeholder="pdf, jpg, jpeg, png, webp"
-              className={inputClass}
-            />
+        {/* Upload Policy & Display Order */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+            <span className="font-semibold text-slate-800">Upload Policy:</span> Standardized to 10 MB maximum size. Accepted formats: PDF, JPG, PNG, WebP.
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-700">Display Order</label>

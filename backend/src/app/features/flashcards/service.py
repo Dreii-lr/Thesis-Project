@@ -22,7 +22,6 @@ from app.features.flashcards.schemas import (
     FlashcardAIGenerateResponse,
     FlashcardCardRead,
     FlashcardDeckCreatePayload,
-    FlashcardDeckListRead,
     FlashcardDeckRead,
     FlashcardDeckUpdatePayload,
 )
