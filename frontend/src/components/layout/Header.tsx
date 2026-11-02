@@ -37,6 +37,7 @@ export default function Header() {
         ["Calendar", "/teacher/calendar"],
         ["Assessment Task", "/teacher/assessment-tasks"],
         ["Submissions", "/teacher/submissions"],
+        ["Gradebook", "/teacher/grades"],
         ["Item Analysis", "/teacher/item-analysis"],
         ["My Profile", "/teacher/profile"],
       ];
@@ -49,6 +50,11 @@ export default function Header() {
       );
 
   const formatSegment = (segment: string) => {
+    if (pathname.startsWith("/teacher/grades")) {
+      if (segment === "grades") return "Gradebook";
+      if (segment === pathSegments[3]) return "Subject grades";
+      if (segment === "blp") return "BLP";
+    }
     return segment
       .split("-")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

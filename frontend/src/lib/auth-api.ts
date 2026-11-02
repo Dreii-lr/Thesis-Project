@@ -64,6 +64,7 @@ export async function loginAndFetchUser(
   password: string
 ): Promise<UserRead> {
   return mutateSession(async () => {
+    clearCurrentUserCache();
     const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -114,9 +115,12 @@ export class SessionError extends Error {
 let cachedCurrentUser: UserRead | null = null;
 let cachedUserTimestamp = 0;
 let currentUserInFlight: Promise<UserRead | null> | null = null;
+let currentUserGeneration = 0;
+let currentUserRequestSequence = 0;
 const USER_CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
 export function clearCurrentUserCache(): void {
+  currentUserGeneration += 1;
   cachedCurrentUser = null;
   cachedUserTimestamp = 0;
   currentUserInFlight = null;
@@ -209,12 +213,14 @@ export async function getCurrentUser(
     return currentUserInFlight;
   }
 
-  const fetchPromise = (async () => {
+  const generation = currentUserGeneration;
+  const requestSequence = ++currentUserRequestSequence;
+  const fetchPromise: Promise<UserRead | null> = (async () => {
     try {
       const meRes = await authenticatedFetch('/auth/me');
 
       if (!meRes.ok) {
-        clearCurrentUserCache();
+        if (generation === currentUserGeneration) clearCurrentUserCache();
         if (reportErrors) {
           throw new SessionError(
             await extractErrorMessage(meRes, 'Unable to verify your account. Please try again.'),
@@ -224,11 +230,14 @@ export async function getCurrentUser(
         return null;
       }
       const user: UserRead = await meRes.json();
+      if (generation !== currentUserGeneration) {
+        throw new SessionError('Your signed-in account changed. Reload this page before continuing.', 409);
+      }
       cachedCurrentUser = user;
       cachedUserTimestamp = Date.now();
       return user;
     } catch (error) {
-      clearCurrentUserCache();
+      if (generation === currentUserGeneration) clearCurrentUserCache();
       if (reportErrors) {
         if (error instanceof TypeError) {
           throw new Error('Unable to reach the server. Please check your connection and try again.');
@@ -237,7 +246,7 @@ export async function getCurrentUser(
       }
       return null;
     } finally {
-      currentUserInFlight = null;
+      if (requestSequence === currentUserRequestSequence) currentUserInFlight = null;
     }
   })();
 

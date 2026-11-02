@@ -1,23 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import {
   X,
   UserPlus,
+  Eye,
+  EyeOff,
   ShieldCheck,
   Check,
   Copy,
   ChevronDown,
   Phone,
-  Calendar,
   AlertCircle,
   Loader2,
 } from "lucide-react";
 import {
   createTeacherAccount,
+  TeacherRequestError,
   type TeacherCreatePayload,
 } from "@/src/lib/teachers-api";
 import type { UserRecord } from "@/src/lib/students-api";
+import { validateTeacherForm, type TeacherField, type TeacherFieldErrors } from "@/src/lib/teacher-validation";
 
 interface CreateTeacherModalProps {
   isOpen: boolean;
@@ -37,6 +40,11 @@ export default function CreateTeacherModal({
   const [suffix, setSuffix] = useState("");
   const [accountId, setAccountId] = useState("");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<TeacherFieldErrors>({});
+  const formRef = useRef<HTMLFormElement>(null);
+  const pending = useRef(false);
 
   // Optional contact/personal details
   const [contactNo, setContactNo] = useState("");
@@ -53,7 +61,7 @@ export default function CreateTeacherModal({
   // Success credentials dialog state
   const [createdTeacher, setCreatedTeacher] = useState<UserRecord | null>(null);
   const [resolvedPassword, setResolvedPassword] = useState("");
-  const [copiedField, setCopiedField] = useState<"id" | "pwd" | null>(null);
+  const [copiedField, setCopiedField] = useState<"id" | "pwd" | "email" | null>(null);
 
   if (!isOpen) return null;
 
@@ -64,6 +72,9 @@ export default function CreateTeacherModal({
     setSuffix("");
     setAccountId("");
     setPassword("");
+    setEmail("");
+    setShowPassword(false);
+    setFieldErrors({});
     setContactNo("");
     setBirthDate("");
     setGender("");
@@ -77,11 +88,12 @@ export default function CreateTeacherModal({
   };
 
   const handleClose = () => {
+    if (pending.current) return;
     handleResetForm();
     onClose();
   };
 
-  const handleCopy = async (text: string, field: "id" | "pwd") => {
+  const handleCopy = async (text: string, field: "id" | "pwd" | "email") => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
@@ -91,30 +103,51 @@ export default function CreateTeacherModal({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const clearFieldError = (field: TeacherField) => {
+    setFieldErrors(current => ({ ...current, [field]: undefined }));
+  };
+
+  const showFieldErrors = (errors: TeacherFieldErrors) => {
+    setFieldErrors(errors);
+    const field = Object.keys(errors)[0];
+    const control = formRef.current?.querySelector<HTMLElement>(`[data-field="${field}"]`);
+    const details = control?.closest("details");
+    if (details) details.open = true;
+    control?.focus();
+  };
+
+  const errorProps = (field: TeacherField) => ({
+    "data-field": field,
+    "aria-invalid": !!fieldErrors[field],
+    "aria-describedby": fieldErrors[field] ? `teacher-${field}-error` : undefined,
+  });
+
+  const fieldError = (field: TeacherField) => fieldErrors[field] ? (
+    <p id={`teacher-${field}-error`} role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600">{fieldErrors[field]}</p>
+  ) : null;
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (pending.current) return;
     setErrorMessage(null);
-
-    const trimmedFirst = firstName.trim();
-    const trimmedLast = lastName.trim();
-
-    if (!trimmedFirst || !trimmedLast) {
-      setErrorMessage("First Name and Last Name are required.");
+    const errors = validateTeacherForm({ firstName, lastName, email, accountId, password, birthDate, contactNo });
+    if (Object.keys(errors).length) {
+      showFieldErrors(errors);
       return;
     }
-
-    // Determine effective password to show upon success
-    const effectivePassword =
-      password.trim() ||
-      (birthDate ? birthDate.replace(/-/g, "") : "Password123!");
+    setFieldErrors({});
+    const trimmedFirst = firstName.trim();
+    const trimmedLast = lastName.trim();
+    const effectivePassword = password || (birthDate ? birthDate.replace(/-/g, "") : "Password123!");
 
     const payload: TeacherCreatePayload = {
+      email: email.trim().toLowerCase(),
       first_name: trimmedFirst,
       last_name: trimmedLast,
       middle_name: middleName.trim() || null,
       suffix: suffix.trim() || null,
       account_id: accountId.trim() || null,
-      password: password.trim() || null,
+      password: password || null,
       user_category: null, // ALS Teachers facilitate across all programs
       personal_details: {
         birth_date: birthDate || null,
@@ -129,6 +162,7 @@ export default function CreateTeacherModal({
       },
     };
 
+    pending.current = true;
     setIsSubmitting(true);
     try {
       const created = await createTeacherAccount(payload);
@@ -143,18 +177,20 @@ export default function CreateTeacherModal({
           ? err.message
           : "Failed to create teacher account. Please try again.";
       setErrorMessage(msg);
+      if (err instanceof TeacherRequestError) showFieldErrors(err.fields);
     } finally {
+      pending.current = false;
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm animate-in fade-in">
+    <div role="dialog" aria-modal="true" aria-label="Create teacher account" className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm animate-in fade-in">
       {/* ------------------------------------------------------------- */}
       {/* SUCCESS CREDENTIALS DIALOG                                    */}
       {/* ------------------------------------------------------------- */}
       {createdTeacher ? (
-        <div className="relative w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div className="relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
             <Check size={28} className="stroke-[2.5]" />
           </div>
@@ -164,7 +200,7 @@ export default function CreateTeacherModal({
               Teacher Account Created!
             </h3>
             <p className="mt-1 text-xs text-slate-500">
-              Official faculty login credentials have been generated and synced with authentication.
+              The teacher can now sign in using the account ID and initial password.
             </p>
           </div>
 
@@ -203,6 +239,15 @@ export default function CreateTeacherModal({
               </div>
             </div>
 
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2">
+              <span className="font-sans font-medium text-slate-500">Registered Email:</span>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate font-semibold text-slate-800">{createdTeacher.email}</span>
+                <button type="button" onClick={() => handleCopy(createdTeacher.email || "", "email")} title="Copy email" aria-label="Copy registered email" className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-200">
+                  {copiedField === "email" ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
             <div className="flex items-center justify-between">
               <span className="font-sans font-medium text-slate-500">
                 Initial Password:
@@ -243,9 +288,9 @@ export default function CreateTeacherModal({
         /* ------------------------------------------------------------- */
         /* CREATION FORM MODAL                                           */
         /* ------------------------------------------------------------- */
-        <div className="relative flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 py-5">
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 py-5">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#f7e5e2] bg-[#fcf5f4] text-[#a4473a]">
                 <UserPlus size={20} />
@@ -264,6 +309,7 @@ export default function CreateTeacherModal({
               type="button"
               onClick={handleClose}
               disabled={isSubmitting}
+              aria-label="Close teacher account form"
               className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
             >
               <X size={20} />
@@ -272,12 +318,15 @@ export default function CreateTeacherModal({
 
           {/* Body */}
           <form
+            id="teacher-account-form"
+            ref={formRef}
+            noValidate
             onSubmit={handleSubmit}
-            className="flex-1 space-y-6 overflow-y-auto p-6"
+            className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-6 [&_[aria-invalid=true]]:border-rose-400 [&_[aria-invalid=true]]:ring-rose-100"
           >
             {/* Error Message */}
             {errorMessage && (
-              <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+              <div role="alert" className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
                 <AlertCircle size={16} className="shrink-0 text-rose-600" />
                 <span>{errorMessage}</span>
               </div>
@@ -305,13 +354,15 @@ export default function CreateTeacherModal({
                   </label>
                   <input
                     id="teacher-firstName"
+                    {...errorProps("firstName")}
                     type="text"
                     required
                     value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
+                    onChange={(e) => { setFirstName(e.target.value); clearFieldError("firstName"); }}
                     placeholder="e.g. Maria"
                     className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-xs text-slate-800 outline-none transition focus:border-[#a4473a] focus:bg-white focus:ring-2 focus:ring-[#f7e5e2] sm:text-sm"
                   />
+                  {fieldError("firstName")}
                 </div>
 
                 <div>
@@ -323,13 +374,15 @@ export default function CreateTeacherModal({
                   </label>
                   <input
                     id="teacher-lastName"
+                    {...errorProps("lastName")}
                     type="text"
                     required
                     value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
+                    onChange={(e) => { setLastName(e.target.value); clearFieldError("lastName"); }}
                     placeholder="e.g. Santos"
                     className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-xs text-slate-800 outline-none transition focus:border-[#a4473a] focus:bg-white focus:ring-2 focus:ring-[#f7e5e2] sm:text-sm"
                   />
+                  {fieldError("lastName")}
                 </div>
 
                 <div>
@@ -378,6 +431,15 @@ export default function CreateTeacherModal({
                 2. Portal Access &amp; Credentials
               </h3>
 
+              <div>
+                <label htmlFor="teacher-email" className="mb-1 block text-xs font-semibold text-slate-700">Email Address <span className="text-rose-500">*</span></label>
+                <input id="teacher-email" type="email" autoComplete="email" required maxLength={254} value={email}
+                  onChange={e => { setEmail(e.target.value); clearFieldError("email"); }} {...errorProps("email")}
+                  placeholder="e.g. maria.santos@deped.gov.ph"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-xs text-slate-800 outline-none transition focus:border-[#a4473a] focus:bg-white focus:ring-2 focus:ring-[#f7e5e2] sm:text-sm" />
+                {fieldError("email")}
+                <p className="mt-1 text-[11px] text-slate-400">Use the teacher’s active email for account access and password recovery.</p>
+              </div>
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                 <div>
                   <label
@@ -388,12 +450,14 @@ export default function CreateTeacherModal({
                   </label>
                   <input
                     id="teacher-accountId"
+                    {...errorProps("accountId")}
                     type="text"
                     value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
+                    onChange={(e) => { setAccountId(e.target.value); clearFieldError("accountId"); }}
                     placeholder="Leave blank to auto-generate"
                     className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 font-mono text-xs text-slate-800 outline-none transition focus:border-[#a4473a] focus:bg-white focus:ring-2 focus:ring-[#f7e5e2] sm:text-sm"
                   />
+                  {fieldError("accountId")}
                   <p className="mt-1 text-[11px] text-slate-400">
                     Auto-assigned as{" "}
                     <span className="font-mono text-slate-600">
@@ -410,20 +474,28 @@ export default function CreateTeacherModal({
                   >
                     Initial Password
                   </label>
-                  <input
-                    id="teacher-password"
-                    type="text"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Leave blank for Password123!"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-xs text-slate-800 outline-none transition focus:border-[#a4473a] focus:bg-white focus:ring-2 focus:ring-[#f7e5e2] sm:text-sm"
-                  />
+                  <div className="relative">
+                    <input
+                      id="teacher-password"
+                      {...errorProps("password")}
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); clearFieldError("password"); }}
+                      placeholder="Leave blank to use the default password"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 pr-11 text-xs text-slate-800 outline-none transition focus:border-[#a4473a] focus:bg-white focus:ring-2 focus:ring-[#f7e5e2] sm:text-sm"
+                    />
+                    <button type="button" aria-label={showPassword ? "Hide initial password" : "Show initial password"} onClick={() => setShowPassword(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-[#a4473a]">
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {fieldError("password")}
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Default fallback is{" "}
+                    Leave blank to use the birth date (YYYYMMDD), or{" "}
                     <span className="font-mono text-slate-600">
                       Password123!
                     </span>{" "}
-                    or birthdate (YYYYMMDD).
+                    when no birth date is provided. Supplied passwords need at least 6 characters.
                   </p>
                 </div>
               </div>
@@ -454,12 +526,14 @@ export default function CreateTeacherModal({
                   </label>
                   <input
                     id="teacher-contactNo"
+                    {...errorProps("contactNo")}
                     type="tel"
                     value={contactNo}
-                    onChange={(e) => setContactNo(e.target.value)}
+                    onChange={(e) => { setContactNo(e.target.value); clearFieldError("contactNo"); }}
                     placeholder="e.g. 0917-123-4567"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#a4473a] sm:text-sm"
                   />
+                  {fieldError("contactNo")}
                 </div>
 
                 <div>
@@ -471,11 +545,13 @@ export default function CreateTeacherModal({
                   </label>
                   <input
                     id="teacher-birthDate"
+                    {...errorProps("birthDate")}
                     type="date"
                     value={birthDate}
-                    onChange={(e) => setBirthDate(e.target.value)}
+                    onChange={(e) => { setBirthDate(e.target.value); clearFieldError("birthDate"); }}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-800 outline-none focus:border-[#a4473a] sm:text-sm"
                   />
+                  {fieldError("birthDate")}
                 </div>
 
                 <div>
@@ -554,18 +630,16 @@ export default function CreateTeacherModal({
               </div>
             </details>
 
-            {/* Hidden submit trigger */}
-            <button type="submit" className="hidden" aria-hidden="true" />
           </form>
 
           {/* Footer */}
-          <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-6 py-4">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-6 py-4">
             <span className="flex items-center gap-1 text-[11px] text-slate-400">
               <ShieldCheck size={14} className="text-emerald-500" />
-              Cloud-First Auth Synced
+              Teacher ID login · Email for recovery
             </span>
 
-            <div className="flex items-center gap-3">
+            <div className="ml-auto flex items-center gap-3">
               <button
                 type="button"
                 onClick={handleClose}
@@ -575,8 +649,8 @@ export default function CreateTeacherModal({
                 Cancel
               </button>
               <button
-                type="button"
-                onClick={handleSubmit}
+                type="submit"
+                form="teacher-account-form"
                 disabled={isSubmitting}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#a4473a] px-5 py-2.5 text-xs font-bold text-white shadow-md hover:bg-[#8e3d33] transition active:scale-95 disabled:opacity-50 sm:text-sm"
               >

@@ -6,18 +6,19 @@ import {
   UserPlus,
   RefreshCw,
   Search,
-  CheckCircle2,
-  XCircle,
   Phone,
   MapPin,
-  Calendar,
   X,
   Mail,
-  Shield,
   Loader2,
   AlertCircle,
+  Eye,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import CreateTeacherModal from "@/src/components/admin/CreateTeacherModal";
+import RepairTeacherEmailModal from "@/src/components/admin/RepairTeacherEmailModal";
+import { getTeacherPage } from "@/src/lib/teacher-validation";
 import { fetchTeachersFromApi } from "@/src/lib/teachers-api";
 import type { UserRecord } from "@/src/lib/students-api";
 
@@ -33,6 +34,8 @@ export default function AdminTeachersPage() {
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [viewingTeacher, setViewingTeacher] = useState<UserRecord | null>(null);
+  const [repairingTeacher, setRepairingTeacher] = useState<UserRecord | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadTeachers = async () => {
     setIsLoading(true);
@@ -61,41 +64,15 @@ export default function AdminTeachersPage() {
 
   const handleTeacherCreated = (newTeacher: UserRecord) => {
     setTeachers((prev) => [newTeacher, ...prev]);
+    setCurrentPage(1);
   };
 
-  // Filter logic
-  const filteredTeachers = teachers.filter((teacher) => {
-    const fullName = [
-      teacher.first_name,
-      teacher.middle_name,
-      teacher.last_name,
-      teacher.suffix,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
+  const page = getTeacherPage(teachers, search, statusFilter, currentPage);
 
-    const accountId = (teacher.account_id || "").toLowerCase();
-    const contactNo = (teacher.contact_details?.contact_no || "").toLowerCase();
-    const municipality = (
-      teacher.contact_details?.municipality || ""
-    ).toLowerCase();
-
-    const query = search.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      fullName.includes(query) ||
-      accountId.includes(query) ||
-      contactNo.includes(query) ||
-      municipality.includes(query);
-
-    const matchesStatus =
-      statusFilter === "ALL" ||
-      (statusFilter === "ACTIVE" && teacher.status === "ACTIVE") ||
-      (statusFilter === "INACTIVE" && teacher.status !== "ACTIVE");
-
-    return matchesSearch && matchesStatus;
-  });
+  const handleTeacherRepaired = (updated: UserRecord) => {
+    setTeachers(current => current.map(teacher => teacher.user_id === updated.user_id ? updated : teacher));
+    setViewingTeacher(updated);
+  };
 
   const getInitials = (first?: string | null, last?: string | null) => {
     const f = (first || "").trim()[0] || "";
@@ -171,37 +148,41 @@ export default function AdminTeachersPage() {
         </div>
       )}
 
-      {/* Search & Filters */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative min-w-[260px] flex-1 sm:max-w-md">
-          <Search
-            size={16}
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-          />
-          <input
-            type="text"
-            placeholder="Search teacher by name, ID, or contact..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-xs sm:text-sm text-slate-800 outline-none transition focus:border-[#a4473a] focus:ring-2 focus:ring-[#f7e5e2]"
-          />
-        </div>
-
-        <select
-          value={statusFilter}
-          onChange={(e) =>
-            setStatusFilter(e.target.value as "ALL" | "ACTIVE" | "INACTIVE")
-          }
-          className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs sm:text-sm font-medium text-slate-700 outline-none transition focus:border-[#a4473a]"
-        >
-          <option value="ALL">All Statuses (Active &amp; Inactive)</option>
-          <option value="ACTIVE">Active Faculty Only</option>
-          <option value="INACTIVE">Inactive Faculty</option>
-        </select>
-      </div>
-
       {/* Table Container */}
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 p-5">
+          <div><h2 className="text-sm font-bold text-slate-900">All Teachers</h2><p className="mt-1 text-[11px] text-slate-400">{isLoading ? "Loading faculty roster..." : `${teachers.length} faculty records`}</p></div>
+          <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+            <div className="relative w-full min-w-0 sm:w-64 sm:min-w-[240px] sm:flex-1 sm:max-w-md">
+              <Search
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="text"
+                aria-label="Search teachers"
+                placeholder="Search teacher by name, ID, or contact..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-xs sm:text-sm text-slate-800 outline-none transition focus:border-[#a4473a] focus:ring-2 focus:ring-[#f7e5e2]"
+              />
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as "ALL" | "ACTIVE" | "INACTIVE");
+                setCurrentPage(1);
+              }}
+              aria-label="Filter teachers by status"
+              className="w-full max-w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 sm:w-auto text-xs sm:text-sm font-medium text-slate-700 outline-none transition focus:border-[#a4473a]"
+            >
+              <option value="ALL">All Statuses (Active &amp; Inactive)</option>
+              <option value="ACTIVE">Active Faculty Only</option>
+              <option value="INACTIVE">Inactive Faculty</option>
+            </select>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-xs sm:text-sm">
             <thead>
@@ -223,7 +204,7 @@ export default function AdminTeachersPage() {
                     </div>
                   </td>
                 </tr>
-              ) : filteredTeachers.length === 0 ? (
+              ) : page.total === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-16 text-center">
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 mb-3">
@@ -242,7 +223,7 @@ export default function AdminTeachersPage() {
                   </td>
                 </tr>
               ) : (
-                filteredTeachers.map((teacher) => {
+                page.rows.map((teacher) => {
                   const fullName = [
                     teacher.first_name,
                     teacher.middle_name,
@@ -260,7 +241,7 @@ export default function AdminTeachersPage() {
                       className="transition hover:bg-slate-50/50"
                     >
                       {/* Teacher Details */}
-                      <td className="px-5 py-4">
+                      <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#f7e5e2] bg-[#fcf5f4] text-xs font-bold text-[#a4473a]">
                             {getInitials(teacher.first_name, teacher.last_name)}
@@ -277,14 +258,14 @@ export default function AdminTeachersPage() {
                       </td>
 
                       {/* Account ID */}
-                      <td className="px-4 py-4 font-mono font-bold text-slate-800">
+                      <td className="px-4 py-3.5 font-mono font-bold text-slate-800">
                         <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
                           {teacher.account_id || "N/A"}
                         </span>
                       </td>
 
                       {/* Contact Info & Location */}
-                      <td className="px-4 py-4 text-xs">
+                      <td className="px-4 py-3.5 text-xs">
                         <p className="font-semibold text-slate-800">
                           {teacher.contact_details?.contact_no || "No phone"}
                         </p>
@@ -299,7 +280,7 @@ export default function AdminTeachersPage() {
                       </td>
 
                       {/* Status */}
-                      <td className="px-4 py-4">
+                      <td className="px-4 py-3.5">
                         {isActive ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -314,13 +295,15 @@ export default function AdminTeachersPage() {
                       </td>
 
                       {/* Actions */}
-                      <td className="px-5 py-4 text-right">
+                      <td className="px-5 py-3.5 text-right">
                         <button
                           type="button"
                           onClick={() => setViewingTeacher(teacher)}
-                          className="text-xs font-bold text-[#a4473a] hover:underline"
+                          title="View Profile"
+                          aria-label={`View profile for ${fullName || teacher.account_id || "teacher"}`}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition hover:bg-[#fcf5f4] hover:text-[#a4473a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a4473a]"
                         >
-                          View Profile
+                          <Eye size={17} />
                         </button>
                       </td>
                     </tr>
@@ -330,6 +313,18 @@ export default function AdminTeachersPage() {
             </tbody>
           </table>
         </div>
+        {!isLoading && !error && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
+            <p role="status" className="text-[11px] text-slate-400">Showing <span className="font-semibold text-slate-600">{page.start}–{page.end}</span> of <span className="font-semibold text-slate-600">{page.total}</span> teachers</p>
+            <nav aria-label="Teacher directory pagination" className="flex max-w-full flex-wrap items-center gap-1">
+              <button type="button" aria-label="Previous page" disabled={page.currentPage === 1} onClick={() => setCurrentPage(page.currentPage - 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"><ChevronLeft size={15} /></button>
+              {page.pages.map((number, index) => number === "ellipsis" ? <span key={`gap-${index}`} className="px-1.5 text-xs text-slate-400">…</span> : (
+                <button key={number} type="button" aria-label={`Page ${number}`} aria-current={number === page.currentPage ? "page" : undefined} onClick={() => setCurrentPage(number)} className={`h-8 min-w-8 rounded-lg px-2 text-xs font-semibold transition ${number === page.currentPage ? "bg-[#a4473a] text-white shadow-sm" : "text-slate-500 hover:bg-slate-100"}`}>{number}</button>
+              ))}
+              <button type="button" aria-label="Next page" disabled={page.currentPage === page.totalPages} onClick={() => setCurrentPage(page.currentPage + 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"><ChevronRight size={15} /></button>
+            </nav>
+          </div>
+        )}
       </div>
 
       {/* Create Teacher Modal */}
@@ -339,12 +334,14 @@ export default function AdminTeachersPage() {
         onTeacherCreated={handleTeacherCreated}
       />
 
+      {repairingTeacher && <RepairTeacherEmailModal key={repairingTeacher.user_id} teacher={repairingTeacher} onClose={() => setRepairingTeacher(null)} onRepaired={handleTeacherRepaired} />}
+
       {/* Teacher Profile Quick View Modal */}
-      {viewingTeacher && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+      {viewingTeacher && !repairingTeacher && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm animate-in fade-in">
+          <div role="dialog" aria-modal="true" aria-label="Teacher profile" className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
             {/* Header */}
-            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+            <div className="flex shrink-0 items-start justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#f7e5e2] bg-[#fcf5f4] text-sm font-bold text-[#a4473a]">
                   {getInitials(viewingTeacher.first_name, viewingTeacher.last_name)}
@@ -369,6 +366,7 @@ export default function AdminTeachersPage() {
               <button
                 type="button"
                 onClick={() => setViewingTeacher(null)}
+                aria-label="Close teacher profile"
                 className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
               >
                 <X size={20} />
@@ -376,7 +374,7 @@ export default function AdminTeachersPage() {
             </div>
 
             {/* Profile Content */}
-            <div className="mt-4 space-y-4 text-xs">
+            <div className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1 text-xs">
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500 font-medium">Status</span>
@@ -396,6 +394,15 @@ export default function AdminTeachersPage() {
                     {formatDate(viewingTeacher.created_at)}
                   </span>
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3.5">
+                <p className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"><Mail size={14} />Account Email</p>
+                {viewingTeacher.email ? <p className="break-all font-semibold text-slate-800">{viewingTeacher.email}</p> : (
+                  <div><p className="text-xs leading-5 text-slate-500">An email is needed to complete this teacher’s sign-in setup.</p>
+                    <button type="button" disabled={!viewingTeacher.user_id} onClick={() => setRepairingTeacher(viewingTeacher)} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#fcf5f4] px-3 py-2 text-xs font-semibold text-[#a4473a] hover:bg-[#f7e5e2] disabled:opacity-50"><Mail size={14} />Set Up Sign-in Email</button>
+                  </div>
+                )}
               </div>
 
               {/* Personal Info */}
@@ -469,7 +476,7 @@ export default function AdminTeachersPage() {
             </div>
 
             {/* Footer */}
-            <div className="mt-5 border-t border-slate-100 pt-3">
+            <div className="mt-5 shrink-0 border-t border-slate-100 pt-3">
               <button
                 type="button"
                 onClick={() => setViewingTeacher(null)}

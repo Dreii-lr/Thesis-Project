@@ -17,6 +17,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from app.core.exceptions import (
     DomainAuthenticationUnavailableException,
     DomainEntityAlreadyExistsException,
+    DomainEntityNotFoundException,
+    DomainValidationDomainException,
     DomainRecoveryRateLimitException,
     DomainUnauthorizedDomainException,
 )
@@ -99,11 +101,45 @@ def verify_firebase_id_token(id_token: str, check_revoked: bool = True) -> dict:
         logger.error("Firebase verification unavailable (%s).", type(exc).__name__)
         raise DomainAuthenticationUnavailableException() from exc
 
+def lookup_firebase_user_by_email(email: str):
+    """An unavailable provider must not be mistaken for an unused email."""
+    app = _require_firebase()
+    try:
+        return auth.get_user_by_email(email, app=app)
+    except auth.UserNotFoundError:
+        return None
+    except Exception as exc:
+        raise DomainAuthenticationUnavailableException() from exc
+
+
+def get_firebase_user(firebase_uid: str):
+    app = _require_firebase()
+    try:
+        return auth.get_user(firebase_uid, app=app)
+    except auth.UserNotFoundError as exc:
+        raise DomainEntityNotFoundException("The teacher's Firebase account no longer exists.") from exc
+    except Exception as exc:
+        raise DomainAuthenticationUnavailableException() from exc
+
+
+def restore_firebase_user_email(firebase_uid: str, email: str | None, email_verified: bool):
+    """Restore even a missing email if the database transaction fails."""
+    app = _require_firebase()
+    auth.update_user(firebase_uid, email=email if email else auth.DELETE_ATTRIBUTE,
+                     email_verified=email_verified, app=app)
+
+
 def create_firebase_new_user(email: str, password: str):
+    if not email or not email.strip():
+        raise DomainValidationDomainException("An email address is required to create a sign-in account.")
     _require_firebase()
     try:
         new_user = auth.create_user(email=email, password=password)
         return new_user
+    except auth.EmailAlreadyExistsError as exc:
+        raise DomainEntityAlreadyExistsException("This email is already registered to another account.") from exc
+    except ValueError as exc:
+        raise DomainValidationDomainException("Check the email and initial password requirements.") from exc
     except Exception as e:
         logger.error("Firebase account creation failed (%s).", type(e).__name__)
         raise DomainAuthenticationUnavailableException("Unable to create the sign-in account. Please try again.") from e
@@ -277,8 +313,8 @@ def update_firebase_user_email(firebase_uid: str, new_email: str) -> bool:
     except auth.EmailAlreadyExistsError as exc:
         raise DomainEntityAlreadyExistsException("This email is already in use by another account.") from exc
     except Exception as exc:
-        logger.error(f"Failed to update Firebase email for uid {firebase_uid}: {exc}")
-        raise exc
+        logger.error("Firebase email update failed (%s).", type(exc).__name__)
+        raise DomainAuthenticationUnavailableException() from exc
 
 
 def revoke_firebase_user_tokens(firebase_uid: str) -> bool:

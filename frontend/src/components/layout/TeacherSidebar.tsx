@@ -23,6 +23,7 @@ import {
   type UserCategoryItem,
 } from "@/src/lib/user-categories-api";
 import { listSubjects } from "@/src/lib/subjects-api";
+import GradebookNavigation from "@/src/components/grading/GradebookNavigation";
 
 export default function TeacherSidebar() {
   const { isExpanded } = useSidebar();
@@ -119,6 +120,7 @@ export default function TeacherSidebar() {
           href: "/teacher/assessment-tasks",
         },
         { name: "Submissions", icon: FileText, href: "/teacher/submissions" },
+        { name: "Gradebook", icon: GraduationCap, href: "/teacher/grades" },
         {
           name: "Analysis",
           icon: ChartNoAxesCombined,
@@ -192,6 +194,10 @@ export default function TeacherSidebar() {
             <div className="space-y-1">
               {section.items.map((item) => {
                 const isActive = isItemActive(item.href);
+
+                if (item.name === "Gradebook") {
+                  return <GradebookNavigation key={`${item.name}:${pathname}`} categories={categories} loading={loadingCategories} expanded={isExpanded} pathname={pathname} />;
+                }
 
                 if (
                   item.name === "Flashcards" ||

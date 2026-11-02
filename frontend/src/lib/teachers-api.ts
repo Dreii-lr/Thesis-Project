@@ -1,5 +1,6 @@
-import { authenticatedRequest } from "./auth-api";
+import { authenticatedFetch, authenticatedRequest, SessionError } from "./auth-api";
 import type { UserRecord } from "./students-api";
+import type { TeacherField, TeacherFieldErrors } from "./teacher-validation";
 
 export interface TeacherPersonalDetails {
   gender?: string | null;
@@ -17,6 +18,7 @@ export interface TeacherContactDetails {
 }
 
 export interface TeacherCreatePayload {
+  email: string;
   first_name: string;
   last_name: string;
   middle_name?: string | null;
@@ -35,14 +37,52 @@ export interface ListTeachersResponse {
   limit: number;
 }
 
-export async function createTeacherAccount(
-  payload: TeacherCreatePayload,
-): Promise<UserRecord> {
-  return await authenticatedRequest<UserRecord>("/users/create-teacher-account", {
+export class TeacherRequestError extends SessionError {
+  constructor(message: string, status: number, public fields: TeacherFieldErrors = {}) {
+    super(message, status);
+    this.name = "TeacherRequestError";
+  }
+}
+
+async function teacherMutation(path: string, payload: object): Promise<UserRecord> {
+  const response = await authenticatedFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const fields: TeacherFieldErrors = {};
+    const fieldNames: Record<string, TeacherField> = {
+      first_name: "firstName", last_name: "lastName", email: "email", account_id: "accountId",
+      password: "password", birth_date: "birthDate", contact_no: "contactNo",
+    };
+    if (Array.isArray(body?.detail)) {
+      for (const item of body.detail) {
+        const field = fieldNames[item.loc?.[item.loc.length - 1]];
+        if (field && typeof item.msg === "string") fields[field] = item.msg.replace(/^Value error, /, "");
+      }
+    }
+    const message = typeof body?.message === "string" ? body.message
+      : typeof body?.detail === "string" ? body.detail
+      : Object.values(fields)[0] || "Unable to save the teacher account. Please try again.";
+    if (response.status === 409) {
+      if (/email/i.test(message)) fields.email = message;
+      else if (/account|ID/.test(message)) fields.accountId = message;
+    }
+    throw new TeacherRequestError(message, response.status, fields);
+  }
+  const teacher = body?.data?.resources;
+  if (!teacher?.user_id) throw new Error("The account response could not be verified. Refresh the directory before trying again.");
+  return teacher as UserRecord;
+}
+
+export async function createTeacherAccount(payload: TeacherCreatePayload): Promise<UserRecord> {
+  return teacherMutation("/users/create-teacher-account", { ...payload, email: payload.email.trim().toLowerCase() });
+}
+
+export async function repairTeacherEmail(userId: string, email: string): Promise<UserRecord> {
+  return teacherMutation(`/users/teachers/${encodeURIComponent(userId)}/repair-email`, { email: email.trim().toLowerCase() });
 }
 
 export async function fetchTeachersFromApi(

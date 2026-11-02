@@ -12,6 +12,7 @@ from typing import Optional
 import uuid
 
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy.exc import IntegrityError
 
 from app.core.constants import constants
 from app.core.exceptions import (
@@ -25,6 +26,9 @@ from app.core.exceptions import (
 from app.core.cloudinary import cloudinary_service
 from app.core.firebase import (
     create_firebase_new_user,
+    lookup_firebase_user_by_email,
+    get_firebase_user,
+    restore_firebase_user_email,
     check_email_in_firebase,
     update_firebase_user_password,
     update_firebase_user_email,
@@ -46,6 +50,7 @@ from app.features.users.schemas import (
     ChangeEmailRequest,
     ChangePasswordRequest,
     TeacherCreate,
+    TeacherEmailInput,
     UserRead,
     UserUpdate, MapStudent, CreateAdmin,
 )
@@ -347,7 +352,6 @@ class UserService:
         await self.uow.users.update(user_id, to_update)
         return SuccessfulResponseSchema(message_status="Ok",message="Successfully created user account.")
 
-    @retry_on_transient
     async def create_teacher_account(self, data: TeacherCreate) -> SuccessfulResponseSchema:
         # 1. Resolve and ensure account_id is filled
         raw_id = (data.account_id or "").strip()
@@ -368,13 +372,15 @@ class UserService:
         if existing_teacher:
             raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
 
-        # 2. Synthetic email credentials: only account_id is credentials and password
-        email_for_firebase = data.email
+        # Use the same validated email for Firebase creation and later sign-in.
+        email_for_firebase = str(data.email).strip().lower()
+        if await self.uow.users.get_by_email(email_for_firebase):
+            raise DomainEntityAlreadyExistsException("This email is already registered to another account.")
 
         # Check if existing in Firebase
-        existing = check_email_in_firebase(email_for_firebase)
+        existing = await run_in_threadpool(lookup_firebase_user_by_email, email_for_firebase)
         if existing:
-            raise DomainEntityAlreadyExistsException(f"This teacher account with ID '{account_id}' already exists.")
+            raise DomainEntityAlreadyExistsException("This email is already registered to another account.")
 
         # 3. Determine raw password
         raw_password = data.password
@@ -388,10 +394,10 @@ class UserService:
             else:
                 raw_password = "Password123!"
 
-        hashed_password = hash_password(raw_password)
+        hashed_password = await run_in_threadpool(hash_password, raw_password)
 
         # 4. Insert user into Firebase
-        firebase_new_user = create_firebase_new_user(email_for_firebase, raw_password)
+        firebase_new_user = await run_in_threadpool(create_firebase_new_user, email_for_firebase, raw_password)
         firebase_uid = firebase_new_user.uid
         self.uow.on_rollback(partial(run_in_threadpool, delete_firebase_user, firebase_uid))
 
@@ -441,12 +447,15 @@ class UserService:
                 contact_no=data.contact_details.contact_no,
             )
 
-        await self.uow.users.create(user)
+        try:
+            await self.uow.users.create(user)
+        except IntegrityError as exc:
+            raise DomainEntityAlreadyExistsException("This teacher email or account ID is already registered.") from exc
 
         read_user = await self.uow.users.get_by_id_with_details(user.user_id)
         if not read_user:
             read_user = UserRead.model_validate(user)
-            del read_user.password
+        read_user.password = None
         response_data = jsonable_encoder(read_user)
 
         return SuccessfulResponseSchema(
@@ -454,6 +463,46 @@ class UserService:
             message_status="Ok",
             status_code=201,
             data=AdditionalData(resources=response_data),
+        )
+
+    async def repair_teacher_email(self, user_id: str, data: TeacherEmailInput) -> SuccessfulResponseSchema:
+        user = await self.uow.users.get_entity_by_id(user_id, for_update=True)
+        if not user or user.role != UserRole.TEACHER:
+            raise DomainEntityNotFoundException("Teacher account not found.")
+        if user.email:
+            raise DomainValidationDomainException("This teacher already has a registered email.")
+        if not user.firebase_uid:
+            raise DomainValidationDomainException("This teacher has no linked Firebase account to repair.")
+        email = str(data.email)
+        existing = await self.uow.users.get_by_email(email)
+        if existing and existing.user_id != user.user_id:
+            raise DomainEntityAlreadyExistsException("This email is already registered to another account.")
+        existing = await run_in_threadpool(lookup_firebase_user_by_email, email)
+        if existing and existing.uid != user.firebase_uid:
+            raise DomainEntityAlreadyExistsException("This email is already registered to another account.")
+        firebase_user = await run_in_threadpool(get_firebase_user, user.firebase_uid)
+        if firebase_user.disabled:
+            raise DomainValidationDomainException("The teacher's Firebase account is disabled.")
+        if firebase_user.email and firebase_user.email.lower() != email:
+            raise DomainValidationDomainException("The Firebase account already uses a different email. Check its registered email first.")
+
+        # Link the existing UID; keep its password and all teaching records.
+        if not firebase_user.email:
+            self.uow.on_rollback(partial(run_in_threadpool, restore_firebase_user_email,
+                                         user.firebase_uid, firebase_user.email, firebase_user.email_verified))
+            await run_in_threadpool(update_firebase_user_email, user.firebase_uid, email)
+        user.email = email
+        user.updated_at = utc_now()
+        try:
+            read_user = await self.uow.users.get_by_id_with_details(user.user_id)
+        except IntegrityError as exc:
+            raise DomainEntityAlreadyExistsException("This email is already registered to another account.") from exc
+        if not read_user:
+            read_user = UserRead.model_validate(user)
+        read_user.password = None
+        return SuccessfulResponseSchema(
+            message="Teacher sign-in email linked successfully. Use the teacher ID and existing password to sign in.",
+            data=AdditionalData(resources=jsonable_encoder(read_user)),
         )
 
     @retry_on_transient

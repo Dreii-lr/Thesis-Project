@@ -4,6 +4,7 @@ schemas.py — Pydantic DTOs for User operations including normalized profile de
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import re
 from enum import Enum
 from typing import Annotated, Any, List, Optional, Dict
 
@@ -448,13 +449,21 @@ class UserCreate(BaseModel):
                           family_details=family_details)
 
 
-class TeacherCreate(BaseModel):
+class TeacherEmailInput(BaseModel):
+    email: EmailStr = Field(description="Teacher's active email for sign-in and recovery.")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+
+class TeacherCreate(TeacherEmailInput):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     first_name: str = Field(min_length=1, description="Teacher's first name")
     last_name: str = Field(min_length=1, description="Teacher's last name")
     middle_name: Optional[str] = Field(default=None, description="Optional middle name")
-    email: Optional[EmailStr] = Field(default=None)
     suffix: Optional[str] = Field(default=None, description="Optional suffix (e.g. Jr., III)")
     account_id: Optional[str] = Field(default=None, description="Account ID (e.g. TCH-2026-0001). Auto-generated if omitted.")
     password: Optional[str] = Field(default=None, description="Initial account password.")
@@ -469,6 +478,29 @@ class TeacherCreate(BaseModel):
     def capitalize_first_letter(cls, value: str | None) -> str | None:
         if isinstance(value, str) and value:
             return SharedUtils.capitalized_first_letter(value)
+        return value
+
+    @field_validator("account_id", mode="before")
+    @classmethod
+    def validate_account_id(cls, value):
+        if value is None:
+            return None
+        value = value.strip() if isinstance(value, str) else value
+        if value == "":
+            return None
+        if not isinstance(value, str) or not re.fullmatch(r"TCH-[0-9]{4}-[0-9]{4,}", value):
+            raise ValueError("Use the teacher ID format TCH-YYYY-XXXX, or leave it blank.")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def validate_initial_password(cls, value):
+        if value is None or value == "":
+            return None
+        if not value.strip() or len(value) < 6:
+            raise ValueError("Use at least 6 characters for the initial password.")
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("The initial password must be at most 72 UTF-8 bytes.")
         return value
 
     @field_validator("role", mode="before")

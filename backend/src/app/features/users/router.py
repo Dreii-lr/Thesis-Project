@@ -19,6 +19,7 @@ from app.features.users.schemas import (
     ChangePasswordRequest,
     ListUserRead,
     TeacherCreate,
+    TeacherEmailInput,
     UserCreate,
     UserRead,
     UserUpdate, MapStudent, CreateAdmin,
@@ -48,11 +49,22 @@ async def create_teacher_account(
     """
     Create a new teacher user account.
     Restricted to ADMIN role only.
-    Credentials: account_id and password only.
+    Teachers sign in with account_id and password; a registered email is required.
     Ensures account_id is filled and role is TEACHER.
     """
     response = await service.create_teacher_account(data)
     return SharedUtils.SuccessfulResponse(response)
+
+
+@router.post("/teachers/{user_id}/repair-email", status_code=status.HTTP_200_OK)
+async def repair_teacher_email(
+        user_id: str,
+        data: TeacherEmailInput,
+        current_user: UserRead = Depends(require_admin),
+        service: UserService = Depends(get_user_service),
+) -> JSONResponse:
+    """Link a missing teacher email to the existing Firebase account; admins only."""
+    return SharedUtils.SuccessfulResponse(await service.repair_teacher_email(user_id, data))
 
 
 @router.post("/mapping", status_code=status.HTTP_201_CREATED)

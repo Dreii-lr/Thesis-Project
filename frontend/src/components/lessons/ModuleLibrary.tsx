@@ -59,7 +59,7 @@ import ModuleLibraryControls, {
 export interface ModuleActionNotice {
   title: string;
   message: string;
-  kind: "success" | "info";
+  kind: "success" | "info" | "error";
 }
 
 export default function ModuleLibrary({
@@ -890,13 +890,13 @@ export function ModuleNotice({
 }) {
   return (
     <div
-      role="status"
-      className="flex items-start gap-3 rounded-xl border border-blue-200/70 bg-blue-50/80 px-4 py-3.5"
+      role={notice.kind === "error" ? "alert" : "status"}
+      className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 ${notice.kind === "error" ? "border-rose-200 bg-rose-50" : "border-blue-200/70 bg-blue-50/80"}`}
     >
-      <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-blue-600" />
+      {notice.kind === "error" ? <AlertCircle size={18} className="mt-0.5 shrink-0 text-rose-600" /> : <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-blue-600" />}
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold text-blue-900">{notice.title}</p>
-        <p className="mt-1 text-xs leading-6 text-blue-800/75">
+        <p className={`text-xs font-semibold ${notice.kind === "error" ? "text-rose-900" : "text-blue-900"}`}>{notice.title}</p>
+        <p className={`mt-1 text-xs leading-6 ${notice.kind === "error" ? "text-rose-800" : "text-blue-800/75"}`}>
           {notice.message}
         </p>
       </div>
@@ -904,7 +904,7 @@ export function ModuleNotice({
         type="button"
         aria-label="Dismiss notification"
         onClick={onDismiss}
-        className="rounded-lg p-1 text-blue-600/60 hover:bg-blue-100"
+        className={`rounded-lg p-1 ${notice.kind === "error" ? "text-rose-600 hover:bg-rose-100" : "text-blue-600/60 hover:bg-blue-100"}`}
       >
         <X size={15} />
       </button>

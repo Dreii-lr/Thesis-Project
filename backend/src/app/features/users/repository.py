@@ -79,7 +79,7 @@ class UserRepository:
         return None
 
     async def get_by_email(self, email: str | None) -> UserRead | None:
-        statement = _user_query().where(User.email == email.lower())
+        statement = _user_query().where(func.lower(User.email) == email.lower())
         result = await self._session.execute(statement)
         data = result.scalar_one_or_none()
         if data is not None:
@@ -112,9 +112,12 @@ class UserRepository:
         result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def get_entity_by_id(self, user_id: str | None) -> User | None:
-        """Return a tracked entity so nested profile edits are persisted."""
-        result = await self._session.execute(_user_query().where(User.user_id == user_id))
+    async def get_entity_by_id(self, user_id: str | None, *, for_update: bool = False) -> User | None:
+        """Return a tracked entity; serialize repairs of the same cloud account."""
+        statement = _user_query().where(User.user_id == user_id)
+        if for_update:
+            statement = statement.with_for_update().execution_options(populate_existing=True)
+        result = await self._session.execute(statement)
         return result.scalar_one_or_none()
 
     async def get_by_firebase_uid(self, firebase_uid: str) -> UserRead | None:

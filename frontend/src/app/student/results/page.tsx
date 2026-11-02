@@ -15,6 +15,7 @@ import { loadStudentResults, resultDateLabel, resultNumber, resultScore, resultS
 import type { TaskType } from '@/src/lib/assessments-api';
 import ApiState from '@/src/components/ui/ApiState';
 import StudentResultDetails from '@/src/components/learners/StudentResultDetails';
+import PublishedGrades from '@/src/components/grading/PublishedGrades';
 
 const typeNames: Record<string, string> = { ACTIVITY: 'Activity', QUIZ: 'Quiz', EXAM: 'Exam' };
 const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-600 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-50';
@@ -60,6 +61,8 @@ export default function StudentResultsPage() {
         { label: 'Graded points', value: ready && summary.possible > 0 ? `${resultNumber(summary.earned)} / ${resultNumber(summary.possible)}` : '—', description: ready && !summary.graded ? 'No final scores yet' : 'Points from available final results', icon: Award, loading: results.loading },
       ]} />
     </StudentPageHeader>
+
+    <PublishedGrades />
 
     <section className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
       <div className="space-y-4 border-b border-slate-100 p-6 sm:p-6">
