@@ -6,14 +6,45 @@ import type { AnalysisAssessment, AnalysisSubmission } from './item-analysis';
 
 export interface CohortAnalysis {
   assessment_id: string;
+  assessment_title: string;
+  subject_code: string;
   target_category?: string | null;
   status: string;
   topic_found: boolean;
   message?: string | null;
-  cohort_overview?: { total_students: number; class_average: number; passing_rate: number; performance_summary: string };
-  struggling_topics: { topic_name: string; severity: string; error_rate_percent: number; description: string; misconception: string; affected_question_ids: string[]; struggling_students: string[] }[];
-  recommended_lessons: { lesson_id: string; material_id?: string | null; module_title: string; lesson_title: string; main_topic: string; relevance_reason: string; similarity_score?: number | null }[];
-  student_breakdowns: { account_id: string; student_name: string; score: number; max_score: number; percentage: number; passed: boolean; personal_struggling_topics: string[] }[];
+  cohort_overview?: {
+    total_students: number;
+    class_average: number;
+    passing_rate: number;
+    performance_summary: string;
+  };
+  struggling_topics: {
+    topic_name: string;
+    severity: string;
+    error_rate_percent: number;
+    description: string;
+    misconception: string;
+    affected_question_ids: string[];
+    struggling_students: string[];
+  }[];
+  recommended_lessons: {
+    lesson_id: string;
+    material_id?: string | null;
+    module_title: string;
+    lesson_title: string;
+    main_topic: string;
+    relevance_reason: string;
+    similarity_score?: number | null;
+  }[];
+  student_breakdowns: {
+    account_id: string;
+    student_name: string;
+    score: number;
+    max_score: number;
+    percentage: number;
+    passed: boolean;
+    personal_struggling_topics: string[];
+  }[];
   updated_at?: string | null;
   created_at?: string | null;
 }
@@ -38,8 +69,8 @@ export async function loadAnalysisOptions() {
 
 function validateAnalysis(data: CohortAnalysis, id: string, program: string) {
   if (data.assessment_id && data.assessment_id !== id) throw new Error('The analysis belongs to a different assessment. Refresh and try again.');
-  if (data.target_category && data.target_category.toUpperCase() !== program.toUpperCase()) throw new Error('The saved analysis belongs to a different learning program. Generate an analysis for the selected program.');
-  if (data.topic_found !== false && data.status !== 'NO_TOPIC_FOUND' && (!data.cohort_overview || !Array.isArray(data.struggling_topics))) throw new Error('The server returned an incomplete analysis. Please generate it again.');
+  if (data.target_category && data.target_category.toUpperCase() !== program.toUpperCase()) throw new Error('The saved analysis belongs to a different learning program. Choose the program associated with this report.');
+  if (!noAnalysisTopics(data) && (!data.cohort_overview || !Array.isArray(data.struggling_topics))) throw new Error('The saved analysis is incomplete. Retry loading the report.');
   return data;
 }
 
@@ -48,6 +79,54 @@ export async function getCohortAnalysis(id: string, program: string, generate = 
   // The ID route avoids the earlier /assessments/{assessment_id} detail route.
   const data = await authenticatedRequest<CohortAnalysis>(`/assessments/analysis/${encodeURIComponent(id)}?${query}`, generate ? { method: 'POST' } : {});
   return validateAnalysis(data, id, program);
+}
+
+export const noAnalysisTopics = (analysis: CohortAnalysis) => analysis.topic_found === false || analysis.status === 'NO_TOPIC_FOUND';
+
+export async function findSavedAnalysis(id: string, program: string): Promise<CohortAnalysis | null> {
+  try { return await getCohortAnalysis(id, program); }
+  catch (error) {
+    // A missing route, a network failure, or denied access does not mean no report exists.
+    if (error instanceof SessionError && error.status === 404 && /no cohort struggle analysis has been generated/i.test(error.message)) return null;
+    throw error;
+  }
+}
+
+const pendingAnalysis = new Map<string, Promise<{ analysis: CohortAnalysis; saved: boolean }>>();
+
+export type AnalysisStep = 'loading' | 'generating' | 'confirming';
+
+export class AnalysisRequestError extends Error {
+  constructor(public step: AnalysisStep, message: string) {
+    super(message);
+    this.name = 'AnalysisRequestError';
+  }
+}
+
+export function generateAnalysisOnce(id: string, program: string, canContinue = () => true) {
+  const key = `${id}:${program}`;
+  const pending = pendingAnalysis.get(key);
+  if (pending) return pending;
+  const request = (async () => {
+    let step: AnalysisStep = 'loading';
+    try {
+      const existing = await findSavedAnalysis(id, program);
+      if (existing && !noAnalysisTopics(existing)) return { analysis: existing, saved: true };
+      if (!canContinue()) throw new Error('The selected assessment changed. Open it again to continue.');
+      step = 'generating';
+      const generated = await getCohortAnalysis(id, program, true);
+      if (noAnalysisTopics(generated)) return { analysis: generated, saved: false };
+      step = 'confirming';
+      const confirmed = await findSavedAnalysis(id, program);
+      if (!confirmed || noAnalysisTopics(confirmed)) throw new Error('We could not confirm the saved report. Retry loading before generating again.');
+      return { analysis: confirmed, saved: true };
+    } catch (error) {
+      throw new AnalysisRequestError(step, error instanceof Error ? error.message : 'Analysis could not be completed. Retry loading to check for a saved report.');
+    }
+  })();
+  pendingAnalysis.set(key, request);
+  void request.finally(() => pendingAnalysis.delete(key)).catch(() => {});
+  return request;
 }
 
 export function analysisReady(task: Pick<AssessmentRow, 'status' | 'end_date' | 'grace_period_minutes'>, now = Date.now()) {
@@ -85,10 +164,10 @@ export async function loadAssessmentAnalysis(task: AssessmentRow, program: Targe
     }));
   let analysis: CohortAnalysis | null = null;
   let analysisError: string | null = null;
-  try { analysis = await getCohortAnalysis(task.assessment_id, program); }
+  try { analysis = await findSavedAnalysis(task.assessment_id, program); }
   catch (error) {
     if (error instanceof SessionError && [401, 403].includes(error.status)) throw error;
-    if (!(error instanceof SessionError) || error.status !== 404) analysisError = error instanceof Error ? error.message : 'The saved analysis could not be loaded.';
+    analysisError = error instanceof Error ? error.message : 'The saved analysis could not be loaded.';
   }
   return { assessment, submissions, analysis, analysisError };
 }

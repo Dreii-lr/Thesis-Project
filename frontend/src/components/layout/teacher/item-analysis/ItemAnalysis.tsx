@@ -1,98 +1,363 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import Link from 'next/link';
-import { BarChart3, BookOpen, ClipboardCheck, RefreshCw, Sparkles, Target, Users } from 'lucide-react';
-import { CATEGORY_LABELS, type AssessmentRow, type TargetCategory } from '@/src/lib/assessments-api';
-import { analysisReady, getCohortAnalysis, loadAnalysisOptions, loadAssessmentAnalysis, type CohortAnalysis } from '@/src/lib/assessment-analysis-api';
+import { useSearchParams } from 'next/navigation';
+import { BarChart3, CheckCircle2, RefreshCw, Target, Users } from 'lucide-react';
+import type { AssessmentRow, TargetCategory } from '@/src/lib/assessments-api';
+import {
+  AnalysisRequestError,
+  analysisReady,
+  generateAnalysisOnce,
+  loadAnalysisOptions,
+  loadAssessmentAnalysis,
+  noAnalysisTopics,
+  type CohortAnalysis,
+} from '@/src/lib/assessment-analysis-api';
+import { analysisHref, analysisRoute, analysisSubjectMatches } from '@/src/lib/analysis-navigation';
 import { buildItemAnalysis } from '@/src/lib/item-analysis';
 import { subjectName, type SubjectRecord } from '@/src/lib/subjects-api';
 import { useApiData } from '@/src/lib/use-api-data';
 import ApiState from '@/src/components/ui/ApiState';
+import PageHeader, { studentHeaderActionClass } from '@/src/components/layout/student/StudentPageHeader';
+import RecordToolbar from '@/src/components/ui/RecordToolbar';
 import { ItemBreakdown, LearnerInsights } from './AnalysisDetails';
+import AnalysisOverview from './AnalysisOverview';
+import AnalysisStatus, { type AnalysisFailure } from './AnalysisStatus';
 
-const fieldClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100';
-const panelClass = 'rounded-2xl border border-slate-200/80 bg-white shadow-sm';
+const fieldClass = 'mt-2 min-h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-normal text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400';
+const panelClass = 'min-w-0 rounded-2xl border border-slate-200/80 bg-white shadow-sm';
+const tabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'items', label: 'Question Analysis' },
+  { id: 'learners', label: 'Learner Insights' },
+] as const;
+type AnalysisTab = typeof tabs[number]['id'];
 
-export default function ItemAnalysis() {
+export default function ItemAnalysis({ role = 'teacher' }: { role?: 'admin' | 'teacher' }) {
   const options = useApiData(loadAnalysisOptions);
-  const [selectedId, setSelectedId] = useState('');
-  const [selectedProgram, setSelectedProgram] = useState('');
+  const params = useSearchParams();
   const data = options.loading || options.error ? null : options.data;
-  const task = data?.tasks.find(item => item.assessment_id === selectedId) || data?.tasks[0];
-  const program = task?.target_category || selectedProgram || data?.categories[0]?.code || '';
+  const selection = analysisRoute(params, data?.categories || [], data?.subjects || []);
+  const search = params.get('q') || '';
+  const sort = params.get('sort') || 'name-asc';
+  const selectedId = params.get('assessment') || '';
 
-  return <div className="mx-auto w-full max-w-[1480px] space-y-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-    <section className="portal-hero relative isolate overflow-hidden rounded-3xl p-6 text-white shadow-lg shadow-blue-900/10 sm:p-7">
-      <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-20 -z-10 h-72 w-72 rounded-full border-[36px] border-white/5" />
-      <p className="flex items-center gap-2 text-[11px] font-semibold text-blue-100"><BarChart3 size={15} />Assessment insights</p>
-      <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">Item Analysis</h1>
-      <p className="mt-2 max-w-xl text-xs leading-6 text-blue-100/90">Review learner answers, understand common mistakes, and plan focused practice with AI assessment insights.</p>
-    </section>
-    <ApiState loading={options.loading} error={options.error} onRetry={options.reload} />
-    {data && !task && <section className={`${panelClass} p-10 text-center`}><BookOpen size={26} className="mx-auto text-blue-400" /><h2 className="mt-4 text-sm font-bold text-slate-700">No quizzes or exams available</h2><p className="mt-2 text-xs leading-6 text-slate-400">Your quizzes and exams will appear here after you create them.</p><Link href="/teacher/assessment-tasks" className="mt-4 inline-block text-xs font-semibold text-blue-700">View assessments</Link></section>}
-    {data && task && <>
-      <section className={`${panelClass} p-5`}><div className="grid gap-5 lg:grid-cols-2"><div><label htmlFor="analysis-assessment" className="text-xs font-semibold text-slate-700">Assessment</label><select id="analysis-assessment" value={task.assessment_id} onChange={event => { setSelectedId(event.target.value); setSelectedProgram(''); }} className={`${fieldClass} mt-2`}>{data.tasks.map(item => <option key={item.assessment_id} value={item.assessment_id}>{item.assessment_type === 'QUIZ' ? 'Quiz' : 'Exam'} · {item.title}</option>)}</select><p className="mt-2 break-all font-mono text-[10px] text-slate-400">assessment_id: {task.assessment_id}</p></div><div><p className="text-xs font-semibold leading-6 text-slate-700">{subjectName(data.subjects, task.subject_code, program)}</p>{task.target_category ? <p className="mt-2 text-xs text-slate-400">{CATEGORY_LABELS[task.target_category]} · {task.assessment_type === 'QUIZ' ? 'Quiz' : 'Exam'}</p> : <label className="mt-2 block text-[11px] text-slate-500">Learning program<select aria-label="Analysis learning program" value={program} onChange={event => setSelectedProgram(event.target.value)} className={`${fieldClass} mt-2`}>{data.categories.map(category => <option key={category.category_id} value={category.code}>{category.name}</option>)}</select></label>}</div></div></section>
-      {program ? <AnalysisWorkspace key={`${task.assessment_id}:${program}`} task={task} program={program as TargetCategory} subjects={data.subjects} /> : <p className="text-xs text-amber-800">A learning program must exist before this assessment can be analyzed.</p>}
-    </>}
-  </div>;
+  const tasks = (data?.tasks || []).filter(task => {
+    const title = task.title + ' ' + subjectName(data?.subjects || [], task.subject_code, task.target_category);
+    return !selection.error
+      && title.toLowerCase().includes(search.trim().toLowerCase())
+      && (!selection.program || !task.target_category || task.target_category === selection.program)
+      && (selection.type === 'ALL' || task.assessment_type === selection.type)
+      && (!selection.subject || analysisSubjectMatches(task, selection.subject));
+  }).sort((a, b) => {
+    if (sort === 'newest') return (b.created_at || '').localeCompare(a.created_at || '');
+    return (sort === 'name-desc' ? -1 : 1) * a.title.localeCompare(b.title);
+  });
+
+  const task = tasks.find(item => item.assessment_id === selectedId);
+  const program = task?.target_category || selection.program;
+  const selectionError = selection.error || (selectedId && !task
+    ? 'This assessment is unavailable for the selected program, subject, or filters. Choose another assessment.'
+    : '');
+
+  function navigate(changes: Record<string, string | null>, replace = false) {
+    const href = analysisHref(window.location.pathname, params.toString(), changes);
+    if (replace) window.history.replaceState(null, '', href);
+    else window.history.pushState(null, '', href);
+  }
+
+  function chooseProgram(value: string) {
+    navigate({ program: value, subject: null, assessment: null, q: null });
+  }
+
+  function chooseSubject(value: string) {
+    const subject = selection.subjects.find(item => item.subject_id === value);
+    const category = data?.categories.find(item => item.category_id === subject?.category_id || item.code === subject?.category_code);
+    navigate({ subject: value, program: category?.code || selection.program || null, assessment: null, q: null });
+  }
+
+  function chooseAssessment(id: string) {
+    const selected = tasks.find(item => item.assessment_id === id);
+    if (!selected) {
+      navigate({ assessment: null });
+      return;
+    }
+    const selectedProgram = selected.target_category || selection.program;
+    const subject = selectedProgram
+      ? data?.subjects.find(item => item.is_active && analysisSubjectMatches(selected, item)
+        && (item.category_code === selectedProgram || data.categories.some(category => category.code === selectedProgram && item.category_id === category.category_id)))
+      : selection.subject;
+    navigate({ assessment: id, program: selectedProgram || null, subject: subject?.subject_id || selection.subject?.subject_id || null });
+  }
+
+  function clearFilters() {
+    navigate({ program: null, subject: null, assessment: null, type: null, q: null });
+  }
+
+  return (
+    <div className="mx-auto w-full min-w-0 max-w-[1480px] space-y-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <PageHeader
+        compact
+        eyebrow={role === 'admin' ? 'Academic oversight' : 'Academics & assessments'}
+        title="Assessment Analysis"
+        description="Review recorded answers, understand common mistakes, and plan the next lesson."
+        actions={
+          <button type="button" disabled={options.loading} onClick={options.reload} className={studentHeaderActionClass}>
+            <RefreshCw size={14} className="mr-2" aria-hidden="true" />Refresh assessments
+          </button>
+        }
+      />
+      <ApiState loading={options.loading} error={options.error} onRetry={options.reload} />
+
+      {data && (
+        <section aria-labelledby="analysis-selection-heading" className={`${panelClass} p-5 sm:p-6`}>
+          <h2 id="analysis-selection-heading" className="text-sm font-semibold text-slate-800">
+            {role === 'admin' ? 'All teacher assessments' : 'Your assessments'}
+          </h2>
+          <p className="mt-1 text-xs leading-6 text-slate-500">Choose the program, subject, and assessment. An existing saved report opens automatically.</p>
+          <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-3">
+            <label htmlFor="analysis-program" className="min-w-0 text-xs font-semibold text-slate-700">
+              1. Learning program
+              <select id="analysis-program" aria-label="Learning program" value={selection.category?.code || ''} onChange={event => chooseProgram(event.target.value)} className={fieldClass}>
+                <option value="">All programs</option>
+                {data.categories.map(item => <option key={item.category_id} value={item.code}>{item.name}</option>)}
+              </select>
+            </label>
+            <label htmlFor="analysis-subject" className="min-w-0 text-xs font-semibold text-slate-700">
+              2. Subject
+              <select id="analysis-subject" aria-label="Subject" value={selection.subject?.subject_id || ''} onChange={event => chooseSubject(event.target.value)} className={fieldClass}>
+                <option value="">All subjects</option>
+                {selection.subjects.map(item => (
+                  <option key={item.subject_id} value={item.subject_id}>
+                    {item.name}{!selection.program ? ' · ' + (item.category_name || item.category_code || '') : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label htmlFor="analysis-assessment" className="min-w-0 text-xs font-semibold text-slate-700">
+              3. Assessment
+              <select id="analysis-assessment" aria-label="Assessment" value={task?.assessment_id || ''} disabled={!!selection.error || !tasks.length} onChange={event => chooseAssessment(event.target.value)} className={fieldClass}>
+                <option value="">Choose an assessment</option>
+                {tasks.map(item => <option key={item.assessment_id} value={item.assessment_id}>{item.assessment_type === 'QUIZ' ? 'Quiz' : item.assessment_type === 'TEST' ? 'Test' : 'Exam'} · {item.title}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <RecordToolbar
+              search={search}
+              onSearch={value => navigate({ q: value, assessment: null }, true)}
+              searchLabel="Search assessments"
+              placeholder="Search assessment or subject…"
+              sort={sort}
+              onSort={value => navigate({ sort: value })}
+              sorts={[{ value: 'name-asc', label: 'Assessment A–Z' }, { value: 'name-desc', label: 'Assessment Z–A' }, { value: 'newest', label: 'Newest assessment' }]}
+              filters={[{ key: 'type', label: 'Assessment type', value: selection.type, options: [{ value: 'ALL', label: 'All types' }, { value: 'QUIZ', label: 'Quiz' }, { value: 'EXAM', label: 'Exam' }, { value: 'TEST', label: 'Test' }] }]}
+              onApply={values => navigate({ type: values.type, assessment: null })}
+            />
+          </div>
+
+          <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-slate-500">
+            <p className="min-w-0 break-words">
+              {selection.category?.name || 'All programs'} / {selection.subject?.name || 'All subjects'}
+              <span className="ml-2 text-slate-400">· {tasks.length} {tasks.length === 1 ? 'assessment' : 'assessments'}</span>
+            </p>
+            {(selection.program || selection.subject || search || selection.type !== 'ALL') && (
+              <button type="button" onClick={clearFilters} className="min-h-10 font-semibold text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500">Clear all filters</button>
+            )}
+          </div>
+          {selectionError && (
+            <div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-900">
+              {selectionError}
+              <button type="button" onClick={clearFilters} className="ml-2 min-h-10 font-semibold underline">Clear selections</button>
+            </div>
+          )}
+          {!selectionError && !tasks.length && (
+            <div className="mt-4 rounded-xl bg-slate-50 p-5 text-center">
+              <h3 className="text-sm font-semibold text-slate-700">{data.tasks.length ? 'No matching assessments' : 'No assessments available'}</h3>
+              <p className="mt-2 text-xs leading-6 text-slate-500">{data.tasks.length ? 'Try another subject, adjust the search, or clear your filters.' : 'Quizzes, exams, and tests will appear here after they are created.'}</p>
+              {data.tasks.length ? (
+                <button type="button" onClick={clearFilters} className="mt-2 min-h-10 text-xs font-semibold text-blue-700">Clear filters and search</button>
+              ) : (
+                <Link href={role === 'admin' ? '/admin/dashboard' : '/teacher/assessment-tasks'} className="mt-2 inline-flex min-h-10 items-center text-xs font-semibold text-blue-700">
+                  {role === 'admin' ? 'Back to dashboard' : 'View assessments'}
+                </Link>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {data && task && !selectionError && (
+        program ? (
+          <AnalysisWorkspace key={`${task.assessment_id}:${program}`} role={role} task={task} program={program as TargetCategory} subjects={data.subjects} subjectId={selection.subject?.subject_id} />
+        ) : <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">Choose a learning program to load this assessment’s saved analysis.</p>
+      )}
+    </div>
+  );
 }
 
-function AnalysisWorkspace({ task, program, subjects }: { task: AssessmentRow; program: TargetCategory; subjects: SubjectRecord[] }) {
+function AnalysisWorkspace({ role, task, program, subjects, subjectId }: { role: 'admin' | 'teacher'; task: AssessmentRow; program: TargetCategory; subjects: SubjectRecord[]; subjectId?: string }) {
   const load = useCallback(() => loadAssessmentAnalysis(task, program, subjects), [task, program, subjects]);
   const source = useApiData(load);
-  const [generated, setGenerated] = useState<CohortAnalysis | null>(null);
+  const [attempt, setAttempt] = useState<{ analysis: CohortAnalysis; saved: boolean } | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState('');
-  const [tab, setTab] = useState<'overview' | 'items' | 'learners'>('overview');
+  const [error, setError] = useState<AnalysisFailure | null>(null);
+  const [tab, setTab] = useState<AnalysisTab>('overview');
   const [now, setNow] = useState(() => Date.now());
   const pending = useRef(false);
   const mounted = useRef(true);
+
   useEffect(() => {
     mounted.current = true;
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
-    return () => { mounted.current = false; window.clearInterval(timer); };
+    return () => {
+      mounted.current = false;
+      window.clearInterval(timer);
+    };
   }, []);
+
   const data = source.loading || source.error ? null : source.data;
-  const analysis = generated || data?.analysis;
-  const report = data ? buildItemAnalysis({ ...data.assessment, topics: (analysis?.struggling_topics || []).map(topic => ({ ...topic, recommendation: topic.description })) }, data.submissions) : null;
+  const analysis = attempt?.analysis || data?.analysis || null;
+  const saved = attempt ? attempt.saved : !!data?.analysis && !noAnalysisTopics(data.analysis);
+  const failure = error || (data?.analysisError ? { step: 'loading' as const, message: data.analysisError } : null);
   const eligible = analysisReady(task, now);
-  const generate = async () => {
-    if (pending.current || !eligible || !report?.total) return;
-    pending.current = true; setGenerating(true); setError('');
+  const report = useMemo(() => {
+    if (!data) return null;
+    const topics = saved ? (analysis?.struggling_topics || []).map(topic => ({ ...topic, recommendation: topic.description })) : [];
+    return buildItemAnalysis({ ...data.assessment, topics }, data.submissions);
+  }, [data, analysis, saved]);
+  const subject = subjects.find(item => item.category_code === program && analysisSubjectMatches(task, item));
+  const materialHref = role === 'teacher'
+    ? analysisHref('/teacher/lesson-content', '', { program, subject: subjectId || subject?.subject_id || null })
+    : undefined;
+
+  function refresh() {
+    if (pending.current) return;
+    setAttempt(null);
+    setError(null);
+    source.reload();
+  }
+
+  async function generate() {
+    if (pending.current || !eligible || !report?.total || saved || failure || !data) return;
+    pending.current = true;
+    setGenerating(true);
+    setError(null);
     try {
-      const result = await getCohortAnalysis(task.assessment_id, program, true);
-      if (mounted.current) { setGenerated(result); setTab('overview'); }
-    } catch (err) { if (mounted.current) setError(err instanceof Error ? err.message : 'Unable to generate the analysis.'); }
-    finally { pending.current = false; if (mounted.current) setGenerating(false); }
-  };
-  return <>
-    <ApiState loading={source.loading} error={source.error} onRetry={source.reload} />
-    {data && report && <>
-      <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-sm font-bold text-slate-800">Your assessment at a glance</h2><p className="mt-1.5 text-xs leading-6 text-slate-400">{report.total} completed submissions · {report.items.length} questions in the pool</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={generating} onClick={() => { setGenerated(null); setError(''); source.reload(); }} className="rounded-xl border border-slate-200 bg-white p-3 text-slate-500 disabled:opacity-50" aria-label="Refresh analysis records"><RefreshCw size={15} /></button><button type="button" onClick={() => void generate()} disabled={generating || !eligible || !report.total} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles size={15} />{generating ? 'Analyzing answers...' : analysis ? 'Regenerate AI analysis' : 'Generate AI analysis'}</button></div></div>
-      {!eligible && <p className="rounded-xl bg-amber-50 p-4 text-xs leading-6 text-amber-800">AI analysis becomes available when the quiz or exam is completed. Drafts cannot be analyzed.</p>}
-      {!report.total && <p className="rounded-xl bg-slate-100 p-4 text-xs leading-6 text-slate-500">No completed submissions are available for this learning program yet.</p>}
-      {(error || (!generated && data.analysisError)) && <p role="alert" className="rounded-xl bg-rose-50 p-4 text-xs leading-6 text-rose-700">{error || data.analysisError}</p>}
-      {generating && <p role="status" className="text-xs text-blue-600">The AI is reviewing answer patterns and matching curriculum topics. This may take a moment.</p>}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
-        { label: 'Submissions reviewed', value: report.total, note: 'Completed attempts', icon: Users },
-        { label: 'Class average', value: `${report.average.toFixed(1)} / ${data.assessment.max_score}`, note: report.provisional ? 'Provisional · awaiting grading' : 'Based on recorded final scores', icon: BarChart3 },
-        { label: 'Items to revisit', value: report.reviewItems, note: '50% or more incorrect / skipped', icon: Target },
-        { label: 'Answers needing review', value: report.pending, note: 'Excluded from item error rates', icon: ClipboardCheck },
-      ].map(metric => <section key={metric.label} className={`${panelClass} p-4 sm:p-5`}><div className="flex items-start justify-between gap-2"><p className="text-[11px] font-medium leading-5 text-slate-500">{metric.label}</p><metric.icon size={15} className="shrink-0 text-blue-400" /></div><p className="mt-3 text-2xl font-bold tracking-tight text-slate-800">{metric.value}</p><p className="mt-2 text-[10px] leading-5 text-slate-400">{metric.note}</p></section>)}</div>
-      <div className="flex flex-wrap gap-1 border-b border-slate-200" aria-label="Analysis views">{(['overview', 'items', 'learners'] as const).map(value => <button key={value} type="button" aria-pressed={tab === value} onClick={() => setTab(value)} className={`border-b-2 px-4 py-3 text-xs font-semibold ${tab === value ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-400 hover:text-slate-700'}`}>{value === 'overview' ? 'AI overview' : value === 'items' ? 'Item breakdown' : 'Learner insights'}</button>)}</div>
-      {tab === 'overview' && <Overview analysis={analysis || null} />}
-      {tab === 'items' && <ItemBreakdown report={report} />}
-      {tab === 'learners' && <LearnerInsights report={report} maxScore={data.assessment.max_score} />}
-      <p className="text-[10px] leading-5 text-slate-400">Counts use completed submissions for this assessment and learning program. Skipped responses count as mistakes; items not delivered do not. Essay correctness remains pending until item-level review is available.</p>
-    </>}
-  </>;
+      const result = await generateAnalysisOnce(task.assessment_id, program, () => mounted.current);
+      if (mounted.current) {
+        setAttempt(result);
+        setTab('overview');
+      }
+    } catch (caught) {
+      if (mounted.current) {
+        setError({
+          step: caught instanceof AnalysisRequestError ? caught.step : 'generating',
+          message: caught instanceof Error ? caught.message : 'Analysis could not be completed. Retry loading to check for a saved report.',
+        });
+      }
+    } finally {
+      pending.current = false;
+      if (mounted.current) setGenerating(false);
+    }
+  }
+
+  function changeTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+    setTab(tabs[next].id);
+    document.getElementById('analysis-tab-' + tabs[next].id)?.focus();
+  }
+
+  function openTab(value: AnalysisTab) {
+    setTab(value);
+    window.requestAnimationFrame(() => document.getElementById('analysis-panel-' + value)?.focus());
+  }
+
+  return (
+    <>
+      {(source.loading || data) && (
+        <AnalysisStatus
+          analysis={analysis}
+          saved={saved}
+          loading={source.loading}
+          generating={generating}
+          eligible={eligible}
+          submissions={report?.total || 0}
+          error={failure}
+          materialHref={materialHref}
+          onRefresh={refresh}
+          onGenerate={() => void generate()}
+          onView={() => openTab('overview')}
+        />
+      )}
+      <ApiState loading={false} error={source.error} onRetry={refresh} />
+      {data && report && (
+        <>
+          <AnalysisSummary analysis={saved ? analysis : null} submissions={report.total} />
+          <section className={`${panelClass} max-w-full`}>
+            <div className="flex min-w-0 flex-wrap items-end justify-between gap-2 border-b border-slate-100 px-4 pt-3 sm:px-5">
+              <div role="tablist" aria-label="Analysis views" className="flex min-w-0 flex-wrap gap-1">
+                {tabs.map((item, index) => (
+                  <button
+                    key={item.id}
+                    id={'analysis-tab-' + item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === item.id}
+                    aria-controls={'analysis-panel-' + item.id}
+                    tabIndex={tab === item.id ? 0 : -1}
+                    onClick={() => setTab(item.id)}
+                    onKeyDown={event => changeTab(event, index)}
+                    className={`min-h-11 border-b-2 px-3 py-3 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-500 ${tab === item.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <p className="pb-3 text-xs text-slate-400">{tab === 'overview' ? saved ? 'Saved report' : 'Report overview' : 'Current submission records'}</p>
+            </div>
+            {tabs.map(item => (
+              <div key={item.id} id={'analysis-panel-' + item.id} role="tabpanel" aria-labelledby={'analysis-tab-' + item.id} hidden={tab !== item.id} tabIndex={0} className="min-w-0 scroll-mt-24 p-4 outline-none focus-visible:ring-2 focus-visible:ring-blue-300 sm:p-5">
+                {item.id === 'overview' && <AnalysisOverview analysis={analysis} unavailable={!!failure} role={role} onReviewQuestions={() => openTab('items')} />}
+                {item.id === 'items' && <ItemBreakdown report={report} />}
+                {item.id === 'learners' && <LearnerInsights report={report} maxScore={data.assessment.max_score} analysis={saved ? analysis : null} />}
+              </div>
+            ))}
+          </section>
+          <p className="text-xs leading-6 text-slate-500">
+            {saved ? 'The overview uses the saved report. Question and learner views show currently available submissions.' : 'Question and learner views use the recorded submissions for this assessment and program.'}
+            {' '}Skipped responses and answers awaiting teacher review are shown separately. Undelivered items are not treated as skipped answers.
+          </p>
+        </>
+      )}
+    </>
+  );
 }
 
-function Overview({ analysis }: { analysis: CohortAnalysis | null }) {
-  if (!analysis) return <section className={`${panelClass} px-6 py-10 text-center`}><Sparkles size={28} className="mx-auto text-blue-500" /><h3 className="mt-4 text-lg font-bold text-slate-800">From answers to understanding</h3><p className="mx-auto mt-2 max-w-lg text-xs leading-6 text-slate-500">Generate an AI analysis to summarize common mistakes and find related lessons. You can inspect the recorded item and learner answers in the other tabs.</p></section>;
-  if (analysis.topic_found === false || analysis.status === 'NO_TOPIC_FOUND') return <section role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-xs leading-6 text-amber-900">{analysis.message || 'No matching curriculum topic was found. Review the uploaded materials and try again.'}</section>;
-  return <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_280px]"><div className="space-y-4"><section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 sm:p-6"><div className="flex items-center gap-2"><Sparkles size={17} className="text-blue-600" /><h3 className="text-sm font-bold text-blue-900">What the answers suggest</h3></div><p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-700">{analysis.cohort_overview?.performance_summary || 'No performance summary was returned.'}</p><p className="mt-3 text-[10px] text-slate-400">{analysis.updated_at || analysis.created_at ? `Generated ${new Date(analysis.updated_at || analysis.created_at!).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}` : 'AI assessment analysis'}</p></section>
-      <h3 className="text-sm font-bold text-slate-800">Topics that need attention</h3>{(analysis.struggling_topics || []).map((topic, index) => <article key={`${topic.topic_name}:${index}`} className={`${panelClass} p-5`}><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold text-slate-800">{topic.topic_name}</h4><span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-semibold text-rose-700">{Math.round(topic.error_rate_percent)}% error rate · {topic.severity}</span></div><p className="mt-3 text-xs leading-6 text-slate-500">{topic.description}</p>{topic.misconception && <div className="mt-4 rounded-xl bg-blue-50/60 p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-blue-600">Common misconception</p><p className="mt-1.5 text-xs leading-6 text-slate-600">{topic.misconception}</p></div>}{topic.struggling_students?.length > 0 && <details className="mt-3"><summary className="cursor-pointer text-[11px] font-semibold text-blue-700">View affected learners</summary><p className="mt-2 text-xs leading-6 text-slate-500">{topic.struggling_students.join(', ')}</p></details>}</article>)}{!analysis.struggling_topics?.length && <p className="text-xs text-slate-400">No struggling topics were identified in this analysis.</p>}</div>
-      <aside className={`${panelClass} p-5`}><BookOpen size={22} className="text-blue-500" /><h3 className="mt-4 text-sm font-bold text-slate-800">Recommended lessons</h3><div className="mt-4 space-y-4">{(analysis.recommended_lessons || []).map((lesson, index) => <article key={`${lesson.lesson_id}:${index}`} className="border-t border-slate-100 pt-4"><h4 className="text-xs font-semibold leading-6 text-slate-700">{lesson.lesson_title}</h4><p className="mt-1 text-[10px] text-slate-400">{lesson.module_title}</p><p className="mt-2 text-xs leading-6 text-slate-500">{lesson.relevance_reason}</p>{lesson.material_id && <Link href={`/teacher/lesson-content/${encodeURIComponent(lesson.material_id)}`} className="mt-3 inline-block text-xs font-semibold text-blue-700">Open material →</Link>}</article>)}{!analysis.recommended_lessons?.length && <p className="text-xs leading-6 text-slate-400">No lesson recommendations were returned.</p>}</div></aside></div>;
+function AnalysisSummary({ analysis, submissions }: { analysis: CohortAnalysis | null; submissions: number }) {
+  const summary = analysis?.cohort_overview;
+  const metrics = [
+    { label: 'Submissions', value: summary?.total_students ?? submissions, note: summary ? 'Included in the saved report' : 'Submitted or graded attempts', Icon: Users },
+    { label: 'Class average', value: summary ? summary.class_average.toLocaleString('en-PH', { maximumFractionDigits: 2 }) + ' pts' : '—', note: summary ? 'Recorded scores at generation' : 'Available in the saved report', Icon: BarChart3 },
+    { label: 'Passing rate', value: summary ? summary.passing_rate.toLocaleString('en-PH', { maximumFractionDigits: 2 }) + '%' : '—', note: summary ? 'Returned with the saved report' : 'Available in the saved report', Icon: CheckCircle2 },
+    { label: 'Topics to revisit', value: analysis ? analysis.struggling_topics.length : '—', note: analysis ? 'From the saved report' : 'Available after analysis', Icon: Target },
+  ];
+  return (
+    <div aria-label="Assessment summary" className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
+      {metrics.map(({ label, value, note, Icon }) => (
+        <section key={label} className={`${panelClass} p-4 sm:p-5`}>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-xs font-medium leading-5 text-slate-500">{label}</h2>
+            <Icon size={16} className="shrink-0 text-blue-500" aria-hidden="true" />
+          </div>
+          <p className="mt-3 break-words text-xl font-semibold tracking-tight text-slate-800 sm:text-2xl">{value}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{note}</p>
+        </section>
+      ))}
+    </div>
+  );
 }

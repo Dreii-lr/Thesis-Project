@@ -9,13 +9,14 @@ interface StudentStatItem {
   description?: string;
 }
 
-export default function StudentStatCards({ label, items }: {
+export default function StudentStatCards({ label, items, layout = 'scroll' }: {
   label: string;
   items: StudentStatItem[];
+  layout?: 'scroll' | 'grid';
 }) {
   return (
-    <div role="group" aria-label={label} className="w-full overflow-x-auto pb-1">
-      <ul className={`flex w-full gap-3 ${items.length > 4 ? 'min-w-3xl' : 'min-w-xl'}`}>
+    <div role="group" aria-label={label} className={`w-full pb-1 ${layout === 'scroll' ? 'overflow-x-auto' : ''}`}>
+      <ul className={layout === 'grid' ? 'grid grid-cols-1 gap-3 sm:grid-cols-3' : `flex w-full gap-3 ${items.length > 4 ? 'min-w-3xl' : 'min-w-xl'}`}>
         {items.map(({ label: title, value, icon: Icon, loading, description }) => (
           <li key={title} className="min-w-0 flex-1">
             <div

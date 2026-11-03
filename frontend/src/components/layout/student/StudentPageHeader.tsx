@@ -4,14 +4,15 @@ export const studentHeaderActionClass = 'inline-flex min-h-10 items-center justi
 export const studentSummaryCardClass = 'min-h-36 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/70 to-white p-6 shadow-sm';
 export const studentContentCardClass = 'flex h-full min-h-56 min-w-0 flex-col rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/60 to-white p-6 shadow-sm transition-colors duration-150 hover:border-blue-200';
 
-export default function StudentPageHeader({ eyebrow, title, description, actions, children }: {
+export default function StudentPageHeader({ eyebrow, title, description, actions, children, compact = false }: {
   eyebrow: ReactNode;
   title: ReactNode;
   description: ReactNode;
   actions?: ReactNode;
   children?: ReactNode;
+  compact?: boolean;
 }) {
-  return <section data-student-page-header className="flex min-h-72 min-w-0 flex-col justify-between gap-6 overflow-hidden rounded-3xl border border-blue-900/10 bg-gradient-to-br from-slate-900 via-blue-900 to-blue-600 p-6 text-white shadow-sm sm:p-8">
+  return <section data-student-page-header className={`flex ${compact ? 'min-h-0' : 'min-h-72'} min-w-0 flex-col justify-between gap-6 overflow-hidden rounded-3xl border border-blue-900/10 bg-gradient-to-br from-slate-900 via-blue-900 to-blue-600 p-6 text-white shadow-sm sm:p-8`}>
     <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
       <div className="min-w-0 flex-1 basis-64">
         <p className="text-xs font-medium leading-5 text-blue-100">{eyebrow}</p>

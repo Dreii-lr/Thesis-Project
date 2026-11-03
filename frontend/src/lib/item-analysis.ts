@@ -68,7 +68,7 @@ export function buildItemAnalysis(assessment: AnalysisAssessment, submissions: A
     return { ...topic, evaluated, mistakes, errorRate: evaluated ? mistakes / evaluated * 100 : 0, students: records.filter(record => studentIds.has(record.learner_id)).map(record => ({ id: record.learner_id, name: record.student_name || record.learner_id })) };
   }).filter(topic => topic.mistakes > 0).sort((a, b) => b.errorRate - a.errorRate);
   const students = records.map(record => ({
-    id: record.learner_id, name: record.student_name || record.learner_id, score: record.final_score,
+    id: record.learner_id, accountId: record.account_id || '', name: record.student_name || record.learner_id, score: record.final_score,
     provisional: record.status !== 'GRADED',
     topics: topics.filter(topic => topic.students.some(student => student.id === record.learner_id)).map(topic => topic.topic_name),
     answers: items.flatMap(item => item.responses.filter(response => response.learner_id === record.learner_id).map(response => ({ ...response, question: item.number, prompt: item.prompt, expected: item.expected }))),

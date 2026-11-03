@@ -25,6 +25,7 @@ export default function Header() {
         ["Attendance", "/admin/attendance"],
         ["Subjects", "/admin/subjects"],
         ["Learning Programs", "/admin/user-categories"],
+        ["Analysis", "/admin/analysis"],
         ["My Profile", "/admin/profile"],
       ]
     : [
@@ -38,7 +39,7 @@ export default function Header() {
         ["Assessment Task", "/teacher/assessment-tasks"],
         ["Submissions", "/teacher/submissions"],
         ["Gradebook", "/teacher/grades"],
-        ["Item Analysis", "/teacher/item-analysis"],
+        ["Analysis", "/teacher/analysis"],
         ["My Profile", "/teacher/profile"],
       ];
 

@@ -31,6 +31,8 @@ export default function TeacherSidebar() {
 
   const [flashcardsOpen, setFlashcardsOpen] = useState(true);
   const [modulesOpen, setModulesOpen] = useState(true);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [openAnalysisCategory, setOpenAnalysisCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<UserCategoryItem[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
@@ -201,14 +203,14 @@ export default function TeacherSidebar() {
 
                 if (
                   item.name === "Flashcards" ||
-                  item.name === "Lesson Modules"
+                  item.name === "Lesson Modules" || item.name === "Analysis"
                 ) {
                   const dropdownOpen =
-                    item.name === "Flashcards" ? flashcardsOpen : modulesOpen;
+                    item.name === "Flashcards" ? flashcardsOpen : item.name === "Analysis" ? analysisOpen : modulesOpen;
                   const toggleDropdown = () =>
                     item.name === "Flashcards"
                       ? setFlashcardsOpen((value) => !value)
-                      : setModulesOpen((value) => !value);
+                      : item.name === "Analysis" ? setAnalysisOpen((value) => !value) : setModulesOpen((value) => !value);
                   if (!isExpanded) {
                     return (
                       <Link
@@ -292,11 +294,10 @@ export default function TeacherSidebar() {
                             </p>
                           )}
                           {!loadingCategories &&
-                            categories.map((cat) => {
-                              const isCatOpen =
-                                openCategory === cat.category_id ||
-                                openCategory === cat.code;
-                              const catSubjects = cat.subjects || [];
+                            categories.filter(cat => item.name !== "Analysis" || ["ELEMENTARY", "SECONDARY", "BLP"].includes(cat.code.toUpperCase())).map((cat) => {
+                              const expandedCategory = item.name === "Analysis" ? openAnalysisCategory : openCategory;
+                              const isCatOpen = expandedCategory === cat.category_id || expandedCategory === cat.code;
+                              const catSubjects = (cat.subjects || []).filter(subject => item.name !== "Analysis" || subject.is_active);
 
                               return (
                                 <div
@@ -315,7 +316,7 @@ export default function TeacherSidebar() {
                                         type="button"
                                         onClick={(e) => {
                                           e.preventDefault();
-                                          setOpenCategory(
+                                          (item.name === "Analysis" ? setOpenAnalysisCategory : setOpenCategory)(
                                             isCatOpen
                                               ? null
                                               : cat.category_id || cat.code,
